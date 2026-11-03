@@ -1,0 +1,553 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Client Platform &mdash; Penetration Test Report</title>
+<style>
+  /* Report style, light (white background) variant */
+  :root {
+    --bg: #ffffff;
+    --bg-card: #f6f9f7;
+    --border: #d3ddd7;
+    --text: #0f1a14;
+    --text-muted: #4a5b52;
+    --accent: #0a7d40;
+    --accent-bg: rgba(10,125,64,0.07);
+    --sev-mh: #c2410c;
+    --sev-med: #a16207;
+    --sev-lm: #4d7c0f;
+    --sev-low: #0a7d40;
+    --sev-info: #2b6a96;
+    --sev-na: #6b7a72;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  @page { margin: 18mm; }
+  html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    margin: 0;
+    background-color: var(--bg);
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 15px;
+    line-height: 1.65;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  strong { color: var(--text); }
+
+  .site-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 0 0 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; color: var(--text); font-weight: 700; font-size: 17px; white-space: nowrap; }
+  .logo-mark {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; border: 1px solid var(--accent); border-radius: 4px;
+    color: var(--accent); font-size: 13px;
+  }
+  .brand .sep { color: var(--accent); }
+  .doc-type { color: var(--text-muted); font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }
+
+  .page { max-width: 960px; margin: 0 auto; padding: 8px 12px; }
+  h1, h2, h3, h4 { color: var(--text); font-family: var(--mono); font-weight: 700; line-height: 1.3; margin: 0; break-after: avoid; }
+  h1 { font-size: 32px; margin-bottom: 8px; }
+  h2 { font-size: 22px; margin: 44px 0 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+  h3 { font-size: 17px; margin: 0 0 10px; }
+  h4 { font-size: 13.5px; margin: 16px 0 4px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text); }
+  p { margin: 0 0 12px; }
+  ul, ol { margin: 0 0 12px; padding-left: 22px; }
+  li { margin-bottom: 5px; }
+  code {
+    font-family: var(--mono); background: var(--accent-bg); color: var(--accent);
+    padding: 1px 5px; border-radius: 2px; font-size: 0.92em;
+  }
+
+  .cover { padding: 40px 0 16px; }
+  .eyebrow { color: var(--accent); font-size: 12.8px; letter-spacing: 0.02em; margin: 0 0 12px; }
+  .subtitle { font-size: 17px; color: var(--text-muted); margin-bottom: 26px; }
+  .meta {
+    width: 100%; border-collapse: collapse; font-size: 14.5px;
+    background: var(--bg-card); border: 1px solid var(--border);
+  }
+  .meta td { padding: 10px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .meta tr:last-child td { border-bottom: none; }
+  .meta td:first-child { width: 190px; color: var(--text); font-weight: 700; }
+
+  table.grid { width: 100%; border-collapse: collapse; margin: 16px 0 8px; font-size: 14px; }
+  table.grid th { background: var(--accent-bg); text-align: left; font-weight: 700; color: var(--text); }
+  table.grid th, table.grid td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 3px; font-size: 12.5px; font-weight: 700;
+    border: 1px solid currentColor; background: #fff; white-space: nowrap;
+  }
+  .badge::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: currentColor; }
+  .b-pass { color: var(--sev-low); }
+  .b-mh { color: var(--sev-mh); }
+  .b-med { color: var(--sev-med); }
+  .b-lm { color: var(--sev-lm); }
+  .b-low { color: var(--sev-low); }
+  .b-info { color: var(--sev-info); }
+  .b-na { color: var(--sev-na); }
+
+  .callout { border: 1px solid var(--border); border-left: 3px solid var(--accent); background: var(--bg-card); border-radius: 4px; padding: 16px 22px; margin: 16px 0; }
+  .callout.good { border-left-color: var(--sev-low); }
+  .callout h3, .callout h4 { margin-top: 0; }
+  .callout h3 { color: var(--accent); }
+  .callout ul { margin-bottom: 0; }
+
+  .stats { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0 8px; }
+  .stat { flex: 1 1 120px; border: 1px solid var(--border); border-radius: 4px; padding: 12px 14px; text-align: center; background: var(--bg-card); }
+  .stat .n { font-size: 26px; font-weight: 700; color: var(--accent); display: block; }
+  .stat .l { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+
+  table.tests { width: 100%; table-layout: fixed; border-collapse: collapse; margin: 6px 0 14px; font-size: 12.5px; line-height: 1.45; }
+  table.tests td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.tests td.tick { width: 26px; text-align: center; color: var(--sev-low); font-weight: 700; font-size: 15px; line-height: 1.3; padding-right: 0; }
+  table.tests td.res { width: 190px; text-align: left; }
+  table.tests td strong { display: block; }
+  .tests-intro h3 { margin-top: 16px; margin-bottom: 4px; font-size: 15px; }
+
+  .finding, .callout, .stat, tr { break-inside: avoid; }
+  .finding { background: var(--bg-card); border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 4px; margin: 0 0 24px; }
+  .finding.sev-mh { border-left-color: var(--sev-mh); }
+  .finding.sev-med { border-left-color: var(--sev-med); }
+  .finding.sev-lm { border-left-color: var(--sev-lm); }
+  .finding.sev-low, .finding.pass { border-left-color: var(--sev-low); }
+  .finding-head { padding: 16px 24px 12px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .finding-head h3 { margin: 0; }
+  .finding-body { padding: 14px 24px 10px; }
+  .field { font-size: 13.5px; color: var(--text-muted); margin-bottom: 10px; }
+
+  .toc { break-after: page; background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; padding: 20px 24px 10px; margin: 24px 0 0; }
+  .toc strong { color: var(--accent); text-transform: uppercase; letter-spacing: 0.08em; font-size: 15px; display: block; margin-bottom: 12px; }
+  .toc ol { margin: 0 0 8px; }
+  .toc li { font-size: 14.5px; }
+
+  footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--border); font-size: 13px; color: var(--text-muted); text-align: center; }
+  footer p { margin: 4px 0; }
+
+  @media print {
+    @page { margin: 15mm 18mm; }
+    body { font-size: 12.5px; line-height: 1.5; }
+    .page { max-width: none; padding: 0; }
+    .site-header { padding-bottom: 8px; }
+    .cover { padding: 18px 0 8px; }
+    h1 { font-size: 26px; }
+    h2 { font-size: 18px; margin: 40px 0 14px; padding-top: 22px; }
+    h3 { font-size: 14px; margin-bottom: 6px; }
+    h4 { font-size: 12px; margin: 18px 0 4px; }
+    #summary { margin-top: 40px !important; }
+    p { margin-bottom: 8px; orphans: 3; widows: 3; }
+    ul, ol { margin-bottom: 8px; }
+    li { margin-bottom: 3px; }
+    .subtitle { font-size: 14px; margin-bottom: 14px; }
+    .meta { font-size: 12.5px; }
+    .meta td { padding: 6px 12px; }
+    .meta td:first-child { width: 150px; }
+    table.grid { font-size: 12px; margin: 10px 0 6px; }
+    table.grid th, table.grid td { padding: 6px 10px; }
+    .callout { padding: 12px 22px; margin: 14px 0; }
+    .stats { gap: 8px; margin: 8px 0; }
+    .stat { padding: 8px 10px; }
+    .stat .n { font-size: 20px; }
+    .stat .l { font-size: 10px; }
+    table.tests { font-size: 11px; margin: 4px 0 8px; }
+    table.tests td { padding: 3px 6px; }
+    table.tests td.res { width: 150px; }
+    .badge { font-size: 10.5px; padding: 1px 7px; }
+    .toc { padding: 12px 18px 4px; margin: 14px 0 0; break-after: auto; }
+    .toc li { font-size: 12.5px; margin-bottom: 2px; }
+    .finding { break-inside: auto; margin-bottom: 14px; }
+    .finding-head { padding: 12px 22px 10px; break-inside: avoid; break-after: avoid; }
+    .finding-body { padding: 10px 22px 6px; }
+    .field { font-size: 11.5px; margin-bottom: 6px; }
+    footer { margin-top: 24px; padding-top: 12px; font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+<header class="site-header">
+  <div class="brand"><span class="logo-mark">&gt;_</span>Security<span class="sep">&nbsp;_&nbsp;</span>Assessor</div>
+  <div class="doc-type">Penetration Test Report &middot; Confidential</div>
+</header>
+
+<section class="cover">
+  <p class="eyebrow">$ cat report</p>
+  <h1>Penetration Test Report</h1>
+  <div class="subtitle">Client AI-Driven Workforce Capability Platform</div>
+  <table class="meta">
+    <tr><td>Assessment type</td><td>Blackbox / greybox web application, API and AI/LLM security assessment, supplemented by static code analysis of the client's source code</td></tr>
+    <tr><td>Environment tested</td><td>Client staging environment (web application, API and supporting hosts)</td></tr>
+    <tr><td>Report date</td><td>22 October 2026</td></tr>
+    <tr><td>Access levels tested</td><td>Unauthenticated; one administrator account; two standard user accounts</td></tr>
+    <tr><td>Prepared by</td><td>Security Assessor</td></tr>
+  </table>
+</section>
+
+<nav class="toc">
+  <strong>Contents</strong>
+  <ol>
+    <li><a href="#summary">Executive Summary</a></li>
+    <li><a href="#positives">Positive Findings &amp; Effective Controls</a></li>
+    <li><a href="#scope">Scope &amp; Methodology</a></li>
+    <li><a href="#tests">Testing Performed</a></li>
+    <li><a href="#ai">AI/LLM Security Testing</a></li>
+    <li><a href="#findings">Technical Findings</a></li>
+    <li><a href="#whitebox">Static Code Analysis</a></li>
+    <li><a href="#info">Informational Observations</a></li>
+    <li><a href="#priority">Recommended Priorities</a></li>
+  </ol>
+</nav>
+
+<h2 id="summary" style="border-top:none;margin-top:0;padding-top:0">1. Executive Summary</h2>
+
+<p>The Client platform is an AI-driven workforce-capability platform. Administrators configure projects containing AI persona and scenario "work models", and learners complete AI-judged role-play exercises whose results are scored against an AI-generated benchmark. Because the platform's core value is an AI-generated capability score, this assessment treated the <strong>AI/LLM attack surface as a first-class risk area</strong>, assessed alongside traditional web application and API security.</p>
+
+<div class="callout">
+  <h3>AI/LLM testing outcome</h3>
+  <p>The AI scoring model was tested directly in the live application. A combined attack that attempted to <strong>override the AI judge's instructions, force a perfect score, and extract the system prompt and grading rubric</strong> was submitted as a learner response. <strong>The attack failed:</strong> the AI judge scored the submission on its actual content, awarded no inflated score, and disclosed no internal instructions. This indicates that the scoring model is resistant to the direct prompt-injection technique tested.</p>
+</div>
+
+<p><strong>Overall risk posture: Low to Moderate.</strong> <strong>No Critical or High severity vulnerabilities were found open.</strong> The highest-rated issues are Medium, and none exposes sensitive user data or allows privilege escalation. The remaining findings are Medium or lower and are primarily defense-in-depth and hardening items (security headers, session handling, error handling and information exposure).</p>
+
+
+<h4>Findings by severity</h4>
+<div class="stats">
+  <div class="stat"><span class="n">0</span><span class="l">Critical / High</span></div>
+  <div class="stat"><span class="n">0</span><span class="l">Medium-High</span></div>
+  <div class="stat"><span class="n">5</span><span class="l">Medium</span></div>
+  <div class="stat"><span class="n">2</span><span class="l">Low-Medium</span></div>
+  <div class="stat"><span class="n">2</span><span class="l">Low</span></div>
+  <div class="stat"><span class="n">4</span><span class="l">Informational</span></div>
+</div>
+
+<h4>Key business risks</h4>
+<ol>
+  <li><strong>Project metadata exposure (F-01).</strong> Basic project details, including the workspace identifier, can be retrieved by unauthenticated users and by unrelated authenticated users.</li>
+  <li><strong>Internal engineering information in the production client (F-02).</strong> The publicly delivered web client contains developer documentation and diagnostic code that would reduce the effort required for a future attacker's reconnaissance.</li>
+  <li><strong>Session handling hardening (F-04, F-05).</strong> Sessions cannot be revoked server-side at logout, and the session token is readable by client-side scripts. Neither is exploitable on its own today, but both amplify the impact of any future script-injection flaw.</li>
+</ol>
+
+<h2 id="positives">2. Positive Findings &amp; Effective Controls</h2>
+
+<div class="callout good">
+  <h3>What the platform does well</h3>
+  <ul>
+    <li><strong>AI judge resists prompt injection.</strong> A live "system override" attack combining score manipulation and system-prompt/rubric extraction was rejected. The submission was scored on its merits, and no internal instructions were revealed.</li>
+    <li><strong>Strong transport security.</strong> All in-scope hosts accept only TLS 1.2 and TLS 1.3 with strong cipher suites and valid certificates.</li>
+    <li><strong>Privilege escalation is blocked.</strong> A standard user attempting to assign themselves Owner, Admin or Editor roles was correctly rejected, as was access to the administrative area.</li>
+    <li><strong>Sensitive diagnostics endpoint is well protected.</strong> The internal health/diagnostics endpoint rejected both anonymous callers and the administrator test account, indicating it is restricted to a higher privilege tier.</li>
+    <li><strong>Private resources are access-controlled.</strong> Private-tagged project data and per-user result listings are correctly scoped to the requesting user, and private scenario results are only available to the users involved in them.</li>
+    <li><strong>Sound backend input handling.</strong> Testing of input handling showed type-level rejection of malformed parameters, consistent with parameterised database queries. No injection or cross-site scripting vulnerabilities were identified.</li>
+    <li><strong>Secure cookie baseline.</strong> The session cookie is issued with the <code>Secure</code> and <code>SameSite=Strict</code> attributes, and no credentials or API secrets were found hard-coded in the client application.</li>
+    <li><strong>Web server posture.</strong> Probing for common sensitive files (environment files, source-control data, configuration and backup files) found none exposed, no separate administrative panel was reachable, the automated vulnerability scan raised no high-confidence issues, and all hosts are fronted by a content delivery network.</li>
+  </ul>
+</div>
+
+<h2 id="scope">3. Scope &amp; Methodology</h2>
+
+<p>The assessment followed a structured methodology covering six phases: reconnaissance, unauthenticated vulnerability assessment, authenticated testing, AI/LLM security testing, business logic and privilege escalation testing, and reporting. Testing was non-destructive and used only synthetic test data belonging to the provisioned test accounts. This dynamic testing was supplemented by static code analysis of the client's three application repositories (see <a href="#whitebox">Section 7</a>).</p>
+
+<table class="grid">
+  <tr><th style="width:230px">Area</th><th>Coverage</th></tr>
+  <tr><td>Reconnaissance &amp; content discovery</td><td>DNS and certificate review, subdomain enumeration, technology fingerprinting, client-side code review</td></tr>
+  <tr><td>Unauthenticated assessment</td><td>Automated passive/baseline web scanning, TLS configuration, security headers, CORS, error handling, unauthenticated API access</td></tr>
+  <tr><td>Authenticated testing</td><td>One administrator and two standard user accounts; API enumeration, authorization comparison across roles, session handling, account protection</td></tr>
+  <tr><td>AI/LLM security testing</td><td>Direct prompt injection, scoring manipulation and system-prompt extraction against the live AI scoring model, mapped to the OWASP Top 10 for LLM Applications</td></tr>
+  <tr><td>Business logic &amp; privilege escalation</td><td>Horizontal escalation between standard users; vertical escalation from standard user to administrator</td></tr>
+  <tr><td>Static code analysis</td><td>Static analysis (SAST) of the source code across the API, game application and admin-dashboard repositories</td></tr>
+</table>
+
+<h4>Severity ratings</h4>
+<p>
+  <span class="badge b-mh">MEDIUM-HIGH</span>
+  <span class="badge b-med">MEDIUM</span>
+  <span class="badge b-lm">LOW-MEDIUM</span>
+  <span class="badge b-low">LOW</span>
+  <span class="badge b-info">INFORMATIONAL</span>
+  <span class="badge b-pass">CONTROL EFFECTIVE</span>
+</p>
+<p>Ratings reflect the likelihood and potential business impact of each issue in the context of the platform. Findings are numbered in descending severity.</p>
+
+<h2 id="tests">4. Testing Performed</h2>
+
+<p>The assessment was broader than the findings list alone suggests. The table below summarises the checks that were actually carried out, including the many that found nothing. Each check was run against the live staging environment, and the raw output, request/response captures and the reasoning behind every conclusion are retained as engagement evidence. A green tick means the check was completed; the outcome column shows the result.</p>
+
+<div class="stats">
+  <div class="stat"><span class="n">7</span><span class="l">In-scope hosts</span></div>
+  <div class="stat"><span class="n">3</span><span class="l">Account tiers tested</span></div>
+  <div class="stat"><span class="n">~280</span><span class="l">API routes mapped</span></div>
+  <div class="stat"><span class="n">34</span><span class="l">Checks performed</span></div>
+  <div class="stat"><span class="n">2</span><span class="l">Retest passes</span></div>
+  <div class="stat"><span class="n">3</span><span class="l">Repos analysed</span></div>
+</div>
+
+<div class="tests-intro">
+<h3>Phase 1 &mdash; Reconnaissance</h3>
+<table class="tests">
+  <tr><td class="tick">&#10003;</td><td><strong>DNS, WHOIS and certificate-transparency review</strong>Record enumeration and passive OSINT on the target domains.</td><td class="res"><span class="badge b-info">INFO</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Subdomain enumeration</strong>Wordlist sweep, certificate-transparency logs and client configuration cross-referencing. Seven in-scope hosts confirmed; hosts outside the agreed scope were noted for the client.</td><td class="res"><span class="badge b-pass">SCOPE CONFIRMED</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Port and service reachability</strong>Lightweight connection checks against every in-scope host.</td><td class="res"><span class="badge b-pass">CDN-FRONTED</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Technology fingerprinting</strong>Response headers, hosting model and third-party vendor identification.</td><td class="res"><span class="badge b-info">INFO</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Content discovery</strong>robots.txt, sitemap, common sensitive files (environment, source-control, backup and configuration files) and separate administrative panel probes.</td><td class="res"><span class="badge b-pass">NO ISSUE</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Client-side code review</strong>Static analysis of the production JavaScript bundle: API route map, embedded configuration, session handling and hard-coded secrets.</td><td class="res"><span class="badge b-med">F-02</span> <span class="badge b-med">F-05</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Third-party integration review</strong>Third-party login and related integration references identified in the client bundle; no sensitive values found.</td><td class="res"><span class="badge b-info">INFO</span></td></tr>
+</table>
+
+<h3>Phase 2 &mdash; Unauthenticated Vulnerability Assessment</h3>
+<table class="tests">
+  <tr><td class="tick">&#10003;</td><td><strong>TLS protocol and cipher testing, all 7 hosts</strong>Protocol negotiation, weak-cipher rejection and certificate validity.</td><td class="res"><span class="badge b-pass">EFFECTIVE</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>OWASP ZAP baseline scans (web and API hosts)</strong>Passive scan with spidering; results triaged against manual findings.</td><td class="res">  <span class="badge b-pass">NO ISSUE</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Nikto web server scan</strong>False positives caused by the single-page-app fallback were identified and excluded after content comparison.</td><td class="res"><span class="badge b-pass">NO ISSUE</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Security header audit, all 7 hosts</strong>CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy and Permissions-Policy.</td><td class="res"><span class="badge b-med">F-03</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>CORS testing</strong>Preflight and simple requests using an attacker-controlled origin.</td><td class="res"><span class="badge b-low">F-09</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Error handling and information disclosure</strong>Malformed JSON bodies and invalid parameter types sent to the API.</td><td class="res"><span class="badge b-lm">F-07</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Input handling and injection indicators</strong>Type-coercion behaviour reviewed for SQL injection; no injection or cross-site scripting identified.</td><td class="res"><span class="badge b-pass">NO ISSUE</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Unauthenticated API access probes</strong>Endpoints identified in the client-side access-control reference called without credentials.</td><td class="res"><span class="badge b-med">F-01</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Default credentials and administrative panel checks</strong></td><td class="res"><span class="badge b-pass">NO ISSUE</span></td></tr>
+</table>
+
+<h3>Phase 3 &mdash; Authenticated Testing</h3>
+<table class="tests">
+  <tr><td class="tick">&#10003;</td><td><strong>Authentication for all three accounts</strong>Administrator, Standard User and Standard User 2; tokens issued and handled without being written to evidence.</td><td class="res"><span class="badge b-pass">COMPLETED</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>API enumeration per role</strong>Equivalent calls made as each account and compared to identify authorization differences at the API level, not just in the user interface.</td><td class="res"><span class="badge b-med">F-01</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Object-level authorization of private data</strong>Anonymous, unrelated-user and owner access compared for project and per-user result endpoints.</td><td class="res"><span class="badge b-pass">SCOPED CORRECTLY</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Session management</strong>Token storage, cookie attributes, lifetime and logout behaviour.</td><td class="res"><span class="badge b-med">F-04</span> <span class="badge b-med">F-05</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Password-reset enumeration</strong>Tested against one real and one deliberately non-existent address.</td><td class="res"><span class="badge b-lm">F-06</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Brute-force and lockout protection</strong>Repeated failed logins against a non-critical account, followed by confirmation that the account was unaffected.</td><td class="res"><span class="badge b-low">F-08</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Google sign-in, multi-factor authentication and administrator check</strong></td><td class="res"><span class="badge b-info">INFO</span></td></tr>
+</table>
+
+<h3>Phase 4 &mdash; AI/LLM Security Testing</h3>
+<table class="tests">
+  <tr><td class="tick">&#10003;</td><td><strong>AI attack-surface mapping</strong>Model and speech-to-text vendors, AI-related endpoints, prompt and tool configuration structures.</td><td class="res"><span class="badge b-info">INFO</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Live prompt injection, score override and system-prompt extraction</strong>Combined payload submitted through the real learner interface, end to end.</td><td class="res"><span class="badge b-pass">EFFECTIVE</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Scoring-integrity review</strong>Analysis of what scenario and benchmark content is visible to learners before and after an attempt.</td><td class="res"><span class="badge b-pass">CLOSED BY DESIGN</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Internal diagnostics endpoint access test</strong>Called anonymously and as the administrator account.</td><td class="res"><span class="badge b-pass">EFFECTIVE</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Diagnostics harness and prompt-structure review</strong>Shipped diagnostic code analysed for disclosed dependencies and prompt configuration.</td><td class="res"><span class="badge b-med">F-02</span></td></tr>
+</table>
+
+<h3>Phase 5 &mdash; Business Logic &amp; Privilege Escalation</h3>
+<table class="tests">
+  <tr><td class="tick">&#10003;</td><td><strong>Vertical escalation by role self-assignment</strong>A standard user attempted to grant themselves Owner, Admin and Editor roles.</td><td class="res"><span class="badge b-pass">EFFECTIVE</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Administrative area access as a standard user</strong></td><td class="res"><span class="badge b-pass">EFFECTIVE</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>IDOR checks on projects, modules and results</strong>Three object types compared across anonymous, standard and administrator callers; a public module was confirmed as intentionally public.</td><td class="res"><span class="badge b-med">F-01</span></td></tr>
+  <tr><td class="tick">&#10003;</td><td><strong>Scenario workflow review</strong>Launch-to-analysis sequence reverse-engineered to support AI testing.</td><td class="res"><span class="badge b-info">INFO</span></td></tr>
+</table>
+
+<h3>Retesting of customer-reported fixes</h3>
+<table class="tests">
+  <tr><td class="tick">&#10003;</td><td><strong>Benchmark exposure retests</strong>Repeated against the live interface with a second account for comparison. Closed after the customer confirmed the behaviour is intended.</td><td class="res"><span class="badge b-pass">CLOSED BY DESIGN</span></td></tr>
+  </table>
+
+  <h3>Static Code Analysis (Supplementary)</h3>
+<table class="tests">
+  <tr><td class="tick">&#10003;</td><td><strong>Static code analysis (SAST) review</strong>Open, remediated and dismissed alerts reviewed across all three client repositories (API, game application, admin dashboard). Full detail in <a href="#whitebox">Section 7</a>.</td><td class="res"><span class="badge b-med">SEE &sect;7</span></td></tr>
+</table>
+</div>
+
+<h2 id="ai">5. AI/LLM Security Testing</h2>
+
+<p>Results are mapped to the OWASP Top 10 for LLM Applications. Large language model output is non-deterministic, so a single blocked attempt demonstrates resilience to that specific technique but does not guarantee that every variation would be blocked.</p>
+
+<div class="finding pass">
+  <div class="finding-head">
+    <h3>AI-01 &mdash; Direct prompt injection, score manipulation and system-prompt extraction</h3>
+    <span class="badge b-pass">CONTROL EFFECTIVE</span>
+  </div>
+  <div class="finding-body">
+    <p class="field"><strong>OWASP LLM mapping:</strong> LLM01 Prompt Injection; LLM06 Sensitive Information Disclosure<br>
+    <strong>Component:</strong> AI scoring / judging model used for learner scenario results</p>
+
+    <h4>Test performed</h4>
+    <p>As a standard user, a learner response was submitted to a live scenario containing a combined attack payload. The payload impersonated a "system override", instructed the model to ignore its scenario, rubric and benchmark, demanded a fixed perfect score and approval message, and requested the model's system prompt and grading instructions verbatim.</p>
+
+    <h4>Result</h4>
+    <ul>
+      <li>The platform scored the response on its actual content, rating it far below the benchmark on every capability dimension and showing a "benchmark not reached" outcome.</li>
+      <li>No perfect score was awarded and the demanded approval message did not appear anywhere in the user interface or API responses reviewed.</li>
+      <li>No system prompt, rubric text or other internal configuration was disclosed in the user interface or in the underlying API responses.</li>
+    </ul>
+
+    <h4>Conclusion</h4>
+    <p>The scoring model evaluates the semantic content of a submission rather than following instructions embedded in it. This is a strong and positive result for the integrity of the platform's central feature: AI-generated capability scores.</p>
+  </div>
+</div>
+
+<table class="grid">
+  <tr><th style="width:230px">OWASP LLM category</th><th style="width:170px">Status</th><th>Notes</th></tr>
+  <tr><td>LLM01 Prompt Injection</td><td><span class="badge b-pass">NOT BYPASSED</span></td><td>  Direct injection with score-override tested and rejected.</td></tr>
+  <tr><td>LLM06 Sensitive Information Disclosure</td><td><span class="badge b-pass">NO ISSUE FOUND</span></td><td>No system prompt or rubric disclosure observed in the tested attack.</td></tr>
+  <tr><td>LLM09 Overreliance</td><td><span class="badge b-info">ADVISORY</span></td><td>Organizations using AI-generated capability scores in people decisions should treat them as decision support, not as a sole determinant.</td></tr>
+</table>
+
+<h2 id="findings">6. Technical Findings</h2>
+
+<div class="finding sev-med">
+  <div class="finding-head"><h3>F-01 &mdash; Project metadata disclosed to unauthenticated and unrelated users</h3><span class="badge b-med">MEDIUM</span></div>
+  <div class="finding-body">
+    <p class="field"><strong>Component:</strong> Project lookup API endpoint &nbsp;|&nbsp; <strong>Mapping:</strong> OWASP API1:2023 Broken Object Level Authorization (read-only)</p>
+    <h4>Description</h4>
+    <p>The endpoint that returns project details returns the same information whether the caller is unauthenticated, an unrelated standard user, or the project's own administrator.     Returned fields include the project name, the internal project identifier, the workspace identifier, the access tier and module count. The project involved is tagged as "unlisted", and access checks that exist for "private" projects are not applied to this tier. By contrast, the endpoint that lists a user's own projects is correctly scoped to the caller, so this is an endpoint-specific gap rather than a systemic authorization weakness.</p>
+        <h4>Impact</h4>
+        <p>Project details and internal identifiers are exposed to anyone who obtains or guesses a project identifier. The exposed fields are low sensitivity, but they assist reconnaissance, and the missing authorization check means any future sensitive field added to this response would also be exposed.</p>
+    <h4>Recommendation</h4>
+    <p>Apply the same creator/role/administrator authorization already used for private projects to unlisted projects. If "unlisted" is intended to be shareable by link, treat the identifier as an unguessable secret and remove the remaining identifying fields, in particular the workspace identifier, from the response.</p>
+  </div>
+</div>
+
+<div class="finding sev-med">
+  <div class="finding-head"><h3>F-02 &mdash; Internal developer documentation and diagnostic code shipped in the production web client</h3><span class="badge b-med">MEDIUM</span></div>
+  <div class="finding-body">
+    <p class="field"><strong>Component:</strong> Production JavaScript bundle &nbsp;|&nbsp; <strong>Mapping:</strong> OWASP A05:2021 Security Misconfiguration</p>
+    <h4>Description</h4>
+    <p>The JavaScript delivered to every visitor contains a detailed developer-authored access-control reference covering most backend API endpoints, including notes on known or suspected gaps and internal test identifiers. It also contains the source of an internal diagnostics and self-test harness that describes the backend's technology stack and dependencies. No hard-coded credentials were found in the bundle.</p>
+    <h4>Impact</h4>
+    <p>This material is not required by end users and gives an attacker a ready-made map of the API surface and the areas the engineering team considered weakest, reducing the effort needed for further attacks.</p>
+    <h4>Recommendation</h4>
+    <p>Exclude developer-only documentation and diagnostic modules from production builds, and keep such content in internal tooling that is never delivered to clients.</p>
+  </div>
+</div>
+
+<div class="finding sev-med">
+  <div class="finding-head"><h3>F-03 &mdash; Missing HTTP security headers on all hosts</h3><span class="badge b-med">MEDIUM</span></div>
+  <div class="finding-body">
+    <p class="field"><strong>Component:</strong> All in-scope hosts &nbsp;|&nbsp; <strong>Mapping:</strong> OWASP A05:2021 Security Misconfiguration</p>
+    <h4>Description</h4>
+    <p>None of the tested hosts return <code>Content-Security-Policy</code>, <code>X-Frame-Options</code>, <code>Strict-Transport-Security</code>, <code>X-Content-Type-Options</code>, <code>Referrer-Policy</code> or <code>Permissions-Policy</code>. This was confirmed manually and by automated scanning.</p>
+    <h4>Impact</h4>
+    <p>The application is exposed to clickjacking and lacks a defense-in-depth layer against content-injection attacks and protocol downgrade.</p>
+    <h4>Recommendation</h4>
+    <p>Configure a response-headers policy at the content delivery layer that sets at minimum <code>Strict-Transport-Security</code>, <code>X-Content-Type-Options: nosniff</code>, a clickjacking control (<code>X-Frame-Options: DENY</code> or CSP <code>frame-ancestors</code>), and a baseline <code>Content-Security-Policy</code>.</p>
+  </div>
+</div>
+
+<div class="finding sev-med">
+  <div class="finding-head"><h3>F-04 &mdash; No server-side logout or session revocation</h3><span class="badge b-med">MEDIUM</span></div>
+  <div class="finding-body">
+    <p class="field"><strong>Component:</strong> Authentication and session management</p>
+    <h4>Description</h4>
+    <p>There is no server-side logout operation. Signing out only removes the token from the browser, and the token remains valid against the API for its full lifetime (one hour).</p>
+    <h4>Impact</h4>
+    <p>A token captured from a shared device, logs or a future script-injection flaw cannot be invalidated by the legitimate user signing out.</p>
+    <h4>Recommendation</h4>
+    <p>Implement server-side token revocation on logout, for example a token deny-list, or short-lived access tokens paired with revocable refresh tokens.</p>
+  </div>
+</div>
+
+<div class="finding sev-med">
+  <div class="finding-head"><h3>F-05 &mdash; Session token stored in a script-readable cookie</h3><span class="badge b-med">MEDIUM</span></div>
+  <div class="finding-body">
+    <p class="field"><strong>Component:</strong> Client-side session handling</p>
+    <h4>Description</h4>
+    <p>The session token is written to a cookie by client-side JavaScript, which means it cannot carry the <code>HttpOnly</code> attribute and can be read by any script running on the page. The cookie is also scoped to the parent domain rather than only the application's own host. No cross-site scripting vulnerability was found during testing, so this is a defense-in-depth weakness rather than an exploitable flaw.</p>
+    <h4>Recommendation</h4>
+    <p>Issue the session token from the server in a <code>Set-Cookie</code> header with <code>HttpOnly</code>, <code>Secure</code> and <code>SameSite=Strict</code>, scoped to the narrowest practical domain.</p>
+  </div>
+</div>
+
+<div class="finding sev-lm">
+  <div class="finding-head"><h3>F-06 &mdash; User enumeration through the password-reset function</h3><span class="badge b-lm">LOW-MEDIUM</span></div>
+  <div class="finding-body">
+    <p class="field"><strong>Component:</strong> Password-reset request endpoint &nbsp;|&nbsp; <strong>Mapping:</strong> OWASP A07:2021 Identification and Authentication Failures</p>
+    <h4>Description</h4>
+    <p>The endpoint responds differently for registered and unregistered email addresses (a success response versus a server error), allowing an attacker to determine which email addresses have accounts.</p>
+    <h4>Recommendation</h4>
+    <p>Return an identical, generic response regardless of whether the address is registered (for example, "If an account exists, a reset email has been sent").</p>
+  </div>
+</div>
+
+<div class="finding sev-lm">
+  <div class="finding-head"><h3>F-07 &mdash; Verbose error messages expose implementation details</h3><span class="badge b-lm">LOW-MEDIUM</span></div>
+  <div class="finding-body">
+    <p class="field">    <strong>Component:</strong> API request-parsing layer &nbsp;|&nbsp; <strong>Mapping:</strong> OWASP A05:2021 Security Misconfiguration</p>
+    <h4>Description</h4>
+        <p>A malformed JSON request body sent to the API returns a full stack trace to unauthenticated callers, revealing server-side file paths, the web framework and body-parsing dependencies in use, and the serverless runtime layout.</p>
+    <h4>Recommendation</h4>
+    <p>Return generic error messages to clients in production and log full details server-side only.</p>
+  </div>
+</div>
+
+<div class="finding sev-low">
+  <div class="finding-head"><h3>F-08 &mdash; No observed brute-force protection on login</h3><span class="badge b-low">LOW</span></div>
+  <div class="finding-body">
+    <p class="field"><strong>Component:</strong> Login endpoint</p>
+    <h4>Description</h4>
+    <p>Eight consecutive failed login attempts against a test account produced no lockout, CAPTCHA or rate-limiting response.</p>
+    <h4>Recommendation</h4>
+    <p>Introduce progressive delays, CAPTCHA or temporary lockout after repeated failures, or confirm that equivalent controls already exist at the network or WAF layer.</p>
+  </div>
+</div>
+
+<div class="finding sev-low">
+  <div class="finding-head"><h3>F-09 &mdash; Overly permissive CORS policy</h3><span class="badge b-low">LOW</span></div>
+  <div class="finding-body">
+    <p class="field"><strong>Component:</strong> API host</p>
+    <h4>Description</h4>
+    <p>The API returns <code>Access-Control-Allow-Origin: *</code> for arbitrary origins. Because credentials are not allowed cross-origin and the application attaches its token manually, this is not independently exploitable today, but it is unnecessary exposure.</p>
+    <h4>Recommendation</h4>
+    <p>Restrict allowed origins to the application's own front-end origins.</p>
+  </div>
+</div>
+
+<h2 id="whitebox">7. Static Code Analysis</h2>
+
+<p>In addition to the dynamic blackbox/greybox testing described above, this pass included static code analysis (SAST) across all three Client repositories (API backend, player-facing game application, and admin dashboard). Results were gathered after the client's own security-remediation merges and reviewed by the assessment team.</p>
+
+<div class="stats">
+  <div class="stat"><span class="n">3</span><span class="l">Repositories scanned</span></div>
+  <div class="stat"><span class="n">8</span><span class="l">Open alerts</span></div>
+  <div class="stat"><span class="n">12</span><span class="l">Fixed this pass</span></div>
+  <div class="stat"><span class="n">142</span><span class="l">Dismissed by client</span></div>
+</div>
+
+<h4>Open findings (unremediated as of the latest scan)</h4>
+<p>No open alert is rated Critical. All 8 open alerts are High severity and are confined to the API repository:</p>
+<table class="grid">
+  <tr><th style="width:230px">Issue</th><th style="width:110px">Severity</th><th>Detail</th></tr>
+  <tr><td>Insecure randomness (5 instances)</td><td><span class="badge b-med">HIGH</span></td><td><code>Math.random()</code> used in a security-relevant context within the scored game/scenario logic (three files under <code>game/services/</code>). Relevant to scoring integrity; recommended for inclusion in a future business-logic/AI-scoring retest.</td></tr>
+  <tr><td>Missing rate limiting (3 instances)</td><td><span class="badge b-med">HIGH</span></td><td>Authorization route handlers in <code>routes/UserRoutes.ts</code>, reported by the client as the Google and Microsoft Entra login routes, have no server-side rate limiting. Overlaps with F-08 (no observed brute-force protection); independent confirmation is recommended.</td></tr>
+</table>
+
+<h4>Remediation evidence</h4>
+<p>The client's own remediation pass fixed 12 insecure-randomness alerts between the previous and latest scan, spanning OAuth/Google login, Stripe payment handling, an AI/protocol utility, and automated scenario-execution routes. This is a positive indicator of active maintenance, though it did not extend to the five <code>game/services/*</code> instances that remain open above.</p>
+
+<h4>Dismissed findings relevant to this engagement's AI/LLM scope</h4>
+<p>Of the 142 alerts the client reviewed and dismissed (as false positive or accepted risk, with a recorded justification), most are low pentest relevance given the stated code context. A smaller subset concerns AI-generated and administrator-authored content rendering paths:</p>
+<ul>
+  <li>A DOM-based XSS alert in the game application's <code>TextViewer</code> component, which by name likely renders AI-generated scenario/benchmark text to learners, was dismissed as a false positive on the basis that the rendered value is always a URL, not markup.</li>
+  <li>Several DOM-based XSS alerts in the admin dashboard's work-model and scenario-configuration components, and in a utility that builds AI/expert review text, were dismissed on the basis that the rendered values are image references or author-only previews.</li>
+</ul>
+<p>These are recommended candidates for <strong>indirect prompt injection</strong> and <strong>insecure output handling (LLM02)</strong> follow-up, since they concern admin-authored content and AI-generated output paths.</p>
+
+<h2 id="info">8. Informational Observations</h2>
+<table class="grid">
+  <tr><th style="width:70px">Ref</th><th>Observation</th></tr>
+  <tr><td>I-01</td><td>An administrator-check endpoint returned a server error for all test accounts, including the administrator. This is likely a staging defect; the engineering team should confirm it does not affect administrator feature detection in production.</td></tr>
+  <tr><td>I-02</td><td>The Google sign-in button is present but non-functional in the staging environment. No security impact; noted as a current-state observation.</td></tr>
+  <tr><td>I-03</td><td>Multi-factor authentication was not observed for any account tier, including administrators. Consider whether it is required for compliance or contractual reasons given administrators' control over workspace configuration.</td></tr>
+  <tr><td>I-04</td><td>When a standard user navigates to the administrative area, they are silently redirected to the results dashboard rather than shown an access-denied message. Access is correctly blocked; this is a usability note only.</td></tr>
+</table>
+
+<h2 id="priority">9. Recommended Priorities</h2>
+<table class="grid">
+  <tr><th style="width:150px">Timeframe</th><th>Actions</th></tr>
+  <tr><td><strong>Near-term</strong></td><td>F-01 (project metadata authorization and workspace identifier exposure), F-02 (remove developer documentation and diagnostics from production builds), F-03 (security headers), F-04 and F-05 (session architecture hardening)</td></tr>
+  <tr><td><strong>Planned</strong></td><td>F-06 (user enumeration), F-07 (verbose errors), F-08 (brute-force protection), F-09 (CORS), and the two open static code analysis findings in Section 7 (insecure randomness in scored scenario logic; missing rate limiting on the Google/Entra login routes, which overlaps with F-08)</td></tr>
+  <tr><td><strong>Follow-up</strong></td><td>A retest is recommended once the near-term items are addressed, together with independent verification of the dismissed static analysis findings flagged in Section 7 as relevant to indirect prompt injection and insecure output handling.</td></tr>
+</table>
+
+<footer>
+  <p>&copy; 2026 Security Assessor. All rights reserved.</p>
+  <p>This report summarizes the results of a time-boxed security assessment performed by the Security Assessor. It reflects the state of the tested environment during the testing period and does not guarantee the absence of other vulnerabilities. Findings should be reviewed in the context of the organization's own risk appetite and deployment architecture.</p>
+</footer>
+
+</div>
+</body>
+</html>

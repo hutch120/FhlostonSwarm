@@ -1,0 +1,22 @@
+{
+  "name": "fhloston-swarm",
+  "version": "0.1.0",
+  "description": "Cutting-edge LLM analysis, pointed at your application",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "swarm": "./bin/swarm.js"
+  },
+  "scripts": {
+    "swarm": "tsx swarm.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "commander": "^14.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
