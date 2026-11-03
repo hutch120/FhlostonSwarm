@@ -1,0 +1,10 @@
+node_modules
+dist
+cdk.out
+coverage
+package-lock.json
+example-report.html
+PLAN.md
+IMPLEMENTATION.md
+instructions
+.github

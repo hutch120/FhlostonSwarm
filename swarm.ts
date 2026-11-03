@@ -8,7 +8,9 @@ program.name("swarm").description("Fhloston Swarm CLI").version("0.1.0");
 
 program
   .command("login")
-  .description("Sign in to the Swarm AWS account (default: browser console sign-in via `aws login`)")
+  .description(
+    "Sign in to the Swarm AWS account (default: browser console sign-in via `aws login`)",
+  )
   .option("--sso", "Use IAM Identity Center (SSO) instead of console sign-in")
   .option("--start-url <url>", "SSO start URL (implies --sso)")
   .option("--role <name>", "SSO permission set / role name")

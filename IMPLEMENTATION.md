@@ -13,7 +13,7 @@ How we build the product described in [PLAN.md](./PLAN.md), in small phases that
 
 | # | Phase | Plan ref | Status |
 |---|-------|----------|--------|
-| 0 | Repo foundations | — | ☐ |
+| 0 | Repo foundations | — | ✅ |
 | 1 | Infrastructure foundation (DNS, hosting, data bucket, SES) | M0 | ☐ |
 | 2 | UI shell on a simulated feed | M1 | ☐ |
 | 3 | Auth (email OTP, sessions, staff role) | M2 | ☐ |
@@ -64,19 +64,28 @@ These have waiting time, so kick them off before the phases that need them:
 **Depends on:** nothing.
 
 **Tasks**
-1. Convert the root `package.json` to npm workspaces (`src/web`, `src/api`, `src/agents`, `src/infra`, `src/shared`, `src/synthetic-target`), each with its own `package.json` and `tsconfig.json` extending a shared base (keep the root `tsconfig.json` `include` covering `src/**/*.ts` so `npm run typecheck` still works).
-2. Add test runner (Vitest), linting (ESLint + typescript-eslint) and formatting (Prettier) with `npm test`, `npm run lint`, `npm run format:check` scripts.
-3. Add `src/shared` skeleton with zod and a first schema + test (placeholder `Result`/ids), proving cross-workspace imports.
-4. Add an `.editorconfig`, update `.gitignore` (`cdk.out`, `dist`, `.env*`, `coverage`).
-5. Update [README.md](./README.md) with the dev workflow (install, typecheck, test, lint) and link to PLAN.md/IMPLEMENTATION.md.
+1. ✅ Convert the root `package.json` to npm workspaces (`src/web`, `src/api`, `src/agents`, `src/infra`, `src/shared`, `src/synthetic-target`), each with its own `package.json` and `tsconfig.json` extending a shared base (keep the root `tsconfig.json` `include` covering `src/**/*.ts` so `npm run typecheck` still works).
+2. ✅ Add test runner (Vitest), linting (ESLint + typescript-eslint) and formatting (Prettier) with `npm test`, `npm run lint`, `npm run format:check` scripts.
+3. ✅ Add `src/shared` skeleton with zod and a first schema + test (placeholder `Result`/ids), proving cross-workspace imports.
+4. ✅ Add an `.editorconfig`, update `.gitignore` (`cdk.out`, `dist`, `.env*`, `coverage`).
+5. ✅ Update [README.md](./README.md) with the dev workflow (install, typecheck, test, lint) and link to PLAN.md/IMPLEMENTATION.md.
 
 **Verification**
-- `npm install` succeeds from a clean clone (delete `node_modules`, reinstall).
-- `npm run typecheck`, `npm test`, `npm run lint` all exit 0.
-- A deliberate type error in `src/shared` makes `npm run typecheck` fail from the root (then revert).
-- `swarm --help` still works (the CLI is not broken).
+- ✅ `npm install` succeeds from a clean clone (delete `node_modules`, reinstall). *(Verified 2026-11-04: deleted `node_modules` and `package-lock.json`, reinstalled; all six `@swarm/*` workspaces link, `npm ls @swarm/shared` shows it deduped into each.)*
+- ✅ `npm run typecheck`, `npm test`, `npm run lint` all exit 0. *(Verified 2026-11-04: also `npm run format:check`; `npm test` = 2 files / 4 tests passing.)*
+- ✅ A deliberate type error in `src/shared` makes `npm run typecheck` fail from the root (then revert). *(Verified 2026-11-04: `export const bad: number = 'x'` → `TS2322`, exit 2; reverted, exit 0.)*
+- ✅ `swarm --help` still works (the CLI is not broken). *(Verified 2026-11-04 via `node bin\swarm.js --help` and `tsx swarm.ts --help`.)*
 
-**Exit criteria:** all four checks above pass; workspaces resolve each other (`@swarm/shared` imported from `src/api` in a test).
+**Exit criteria:** ✅ all four checks above pass; ✅ workspaces resolve each other (`@swarm/shared` imported from `src/api` in a test: `src/api/src/index.test.ts`).
+
+**Notes (done 2026-11-04)**
+- Layout: each workspace is `src/<name>/{package.json,tsconfig.json,src/index.ts}`; packages are named `@swarm/<name>`. `@swarm/shared` exports its TypeScript source directly (`exports` → `./src/index.ts`), so no build step is needed for cross-workspace imports under Vitest/`tsc`; revisit when `src/api`/`src/agents` are bundled (esbuild/CDK bundling resolves the same way).
+- Shared TS settings live in `tsconfig.base.json`; the root `tsconfig.json` extends it and includes `swarm.ts`, `utils/`, `src/**/*.ts` and `vitest.config.ts`, so one `npm run typecheck` covers everything. Per-workspace `tsconfig.json` files exist for later tooling (Vite, CDK) but the root run is the gate.
+- Tests: root `vitest.config.ts` runs `src/**/*.test.ts` and `utils/**/*.test.ts` (`npm test`, `npm run test:watch`). Use `.js` extensions in relative imports (NodeNext).
+- Lint/format: flat `eslint.config.js` (typescript-eslint recommended + `eslint-config-prettier`); Prettier uses `printWidth: 100` and `endOfLine: auto` (git converts to CRLF on Windows). `PLAN.md`, `IMPLEMENTATION.md`, `instructions/` and `.github/` are in `.prettierignore` so prose docs aren't churned; `swarm.ts`/`utils/login.ts` were reformatted once.
+- `zod` is a dependency of `@swarm/shared` only (not the root). Placeholder `Result`/`ok`/`err` and `run_`/`usr_` id schemas are throwaway scaffolding to be replaced by the real contracts in later phases.
+- `web`, `agents`, `infra` and `synthetic-target` contain `export {};` placeholders; Vite/React, CDK and the agent runtime arrive in their own phases.
+- npm warns that `esbuild`'s postinstall isn't covered by `allowScripts`; harmless so far (`npm install-scripts approve esbuild` if it ever becomes an error).
 
 ---
 

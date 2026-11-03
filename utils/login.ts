@@ -27,7 +27,13 @@ async function ensureSsoProfile(profile: string, opts: LoginOptions): Promise<vo
   const existingRole = await getConfig(profile, "sso_role_name");
   const existingAccount = await getConfig(profile, "sso_account_id");
 
-  if (existingUrl && existingRole && existingAccount === ACCOUNT_ID && !opts.startUrl && !opts.role) {
+  if (
+    existingUrl &&
+    existingRole &&
+    existingAccount === ACCOUNT_ID &&
+    !opts.startUrl &&
+    !opts.role
+  ) {
     return;
   }
 
@@ -73,7 +79,8 @@ export async function login(opts: LoginOptions): Promise<void> {
   if (result.code !== 0) throw new Error("AWS login failed.");
 
   const who = await aws(["sts", "get-caller-identity", "--profile", profile, "--output", "json"]);
-  if (who.code !== 0) throw new Error(`Login succeeded but identity check failed:\n${who.stderr.trim()}`);
+  if (who.code !== 0)
+    throw new Error(`Login succeeded but identity check failed:\n${who.stderr.trim()}`);
 
   const identity = JSON.parse(who.stdout) as { Account: string; Arn: string };
   if (identity.Account !== ACCOUNT_ID) {
