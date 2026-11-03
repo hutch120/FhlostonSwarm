@@ -57,7 +57,7 @@ flowchart LR
 2. **Agents are untrusted by design.** The target is hostile (prompt injection via page content is expected). Agents have a tool allow-list, no AWS permissions beyond writing their own run's events/evidence, and egress only through a scope-enforcing proxy.
 3. **Scope is enforced by the platform.** Agents can only reach the hosts the customer declared (see [section 6](#6-scope-enforcement--abuse-prevention)). Target ownership verification is deferred for now but designed in.
 4. **Events are the source of truth.** The UI, the report and scheduled-run diffs are all derived from an append-only run event log.
-5. **Everything in IaC** (AWS CDK, TypeScript) and deployable to a `dev`/`prod` stage within the one swarm account.
+5. **Everything in IaC** (AWS CDK, TypeScript) and deployable within the one swarm account (a single environment; any future dev/stage would be a separate account).
 6. **Zero idle cost.** With no scans running, the only things that exist are S3 data, serverless request-driven services (CloudFront, API Gateway, Lambda, AppSync Events, Step Functions, SES) and a few small fixed items (Route 53 zone, logs). No always-on compute, no NAT gateway, no interface VPC endpoints, no WAF at launch, no provisioned capacity. Details and an estimate in [section 14](#idle-cost-at-rest).
 
 ## 3. Repository layout
@@ -154,7 +154,7 @@ A small custom OTP module plus `jose` JWTs, framework-agnostic (Hono on Lambda).
 
 ### Where data lives: S3 only (decided)
 
-Everything lives in one S3 bucket per stage (`swarm-{stage}-data`), default encryption (SSE-S3), block public access, versioning **off** (so deletes really delete). No DynamoDB. The atomic operations we need are covered by S3 **conditional writes**: `If-None-Match: *` (create only if absent) and `If-Match: <etag>` (compare-and-swap update).
+Everything lives in one S3 bucket (`swarm-data-885922397779`), default encryption (SSE-S3), block public access, versioning **off** (so deletes really delete). No DynamoDB. The atomic operations we need are covered by S3 **conditional writes**: `If-None-Match: *` (create only if absent) and `If-Match: <etag>` (compare-and-swap update).
 
 ```
 users/{emailHash}/profile.json              user profile (plain email, created, role: customer|staff, free-claim state)
@@ -404,7 +404,7 @@ Design rule: **if no scan is running, nothing expensive is running.** Verified a
 **Deliberately avoided (these bill 24/7):** NAT gateways (~US$45/month per AZ), interface VPC endpoints (~US$7/month each per AZ), Secrets Manager secrets, KMS customer-managed keys, RDS/DynamoDB-provisioned/OpenSearch/ElastiCache, always-on ECS/EC2 services, provisioned Lambda concurrency, dedicated SES IPs, Bedrock provisioned throughput.
 
 **Rough steady-state estimate with zero runs: ~US$1–5/month** — essentially the Route 53 zone (US$0.50), a little S3/ECR/log storage and any CloudTrail/GuardDuty extras; if WAF is added later, +US$5–10. To be confirmed with the AWS Pricing Calculator at M0 and watched via AWS Budgets (alert at, say, US$10/month of idle spend).
-- **Environments:** `dev` and `prod` stacks in the swarm account (CDK stage context); never touches any other AWS account/profile.
+- **Environments:** a single environment (effectively production) in the swarm account; no `dev`/`prod` stacks or name prefixes. Any future dev/stage system would live in a separate AWS account. Never touches any other AWS account/profile.
 - **Testing:** unit tests for OTP/entitlements/scope proxy/redaction/deletion/staff-role checks; contract tests for the event schema; a **synthetic vulnerable target** (deliberately vulnerable app, similar to the site's "synthetic target") for end-to-end agent regression with expected findings. To keep idle cost at zero it is **started on demand** (a Fargate task or container run only during regression/demo runs, or a Lambda/static build), not left running. The marketing-style "demo" in the UI is the replayed event feed, which is static and free.
 
 ## 15. Milestones

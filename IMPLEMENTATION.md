@@ -30,12 +30,19 @@ How we build the product described in [PLAN.md](./PLAN.md), in small phases that
 ### Cross-cutting rules (apply to every phase)
 
 - **AWS:** account `885922397779`, region `ap-southeast-2`, CLI profile `swarm` only. Before any AWS work run `aws sts get-caller-identity --profile swarm` (expect Account `885922397779`); if expired run `swarm login`. Never use other profiles. Anything outside the account/region needs explicit approval — see the CloudFront certificate note in Phase 1.
-- **Stages:** `dev` and `prod` stacks in the same account (`swarm-dev-*`, `swarm-prod-*`). Everything is built and verified on `dev` first. Automated tests only ever touch `dev`.
+- **Single environment:** one AWS account, treated as production. There are no `dev`/`prod` stages and no stage prefixes in resource names. If a dev/stage system is ever needed it will be a **separate AWS account**, never mixed into this one. Automated and integration tests use a dedicated `_test/` key prefix in the data bucket (expired by lifecycle rule and cleaned up after each run) and never touch real user data.
+- **Test data and resources are always clearly identifiable** (for manual review and cleanup, since there is only one account):
+  - **S3 keys:** all automated test data lives under `_test/<runId>/…`, where `runId` is `YYYYMMDD-HHmmss-<rand>`.
+  - **Records:** any test record that has to exist outside that prefix (e.g. a manual E2E on the deployed site) carries `"test": true` plus `"testRunId"` in its JSON, so it can be found and removed.
+  - **Identities:** unit/integration tests use synthetic emails/hashes with an injected fake mailer (no SES). Manual/deployed E2E uses dedicated test mailboxes we control (one on the staff domain, one non-staff) with a `swarm-test-` local-part (e.g. `swarm-test-e2e@…`) — not plus-tags, because email normalisation strips them. Records and claim markers created for these identities carry `"test": true` so cleanup can remove them (keeping the mailboxes reusable). Test targets, runs, and Stripe objects use a `swarm-test-` name prefix and Stripe metadata `test=true`; Stripe test-mode keys are used for all of it.
+  - **AWS resources:** any resource created only for testing is named `swarm-test-*` and tagged `swarm:test=true` (plus `swarm:test-run=<runId>`); it is deleted when the test finishes. Permanent infra is tagged `swarm:test=false` or left untagged for this purpose, never `swarm-test-*`.
+  - **Cleanup:** tests clean up after themselves; `swarm test-cleanup` (added in Phase 1 with the other ops helpers) lists, and with `--delete` removes, anything matching the above (`_test/` prefix, `test: true` records, `swarm-test-*` resources, `swarm:test=true` tags) and never touches anything else. Test data must never be mixed into real customer records without these markers.
+- **Shared-environment drills:** because tests run in the live account, anything global (lowering caps, kill-switch, alarm tests, load/abuse drills) is done briefly, before external users exist or in an announced window, with the original config restored and verified afterwards. Caps and counters exercised by tests use test-prefixed state, so real users are never blocked by a test.
 - **Code layout:** `src/web`, `src/api`, `src/agents`, `src/infra`, `src/shared`, `src/synthetic-target` as npm workspaces (see [PLAN.md §3](./PLAN.md#3-repository-layout)). `utils/` + `swarm.ts` stay the ops CLI.
 - **Quality gates on every change:** `npm run typecheck` passes (root, covers all workspaces) and `npm test` passes. These are introduced in Phase 0 and may only get stricter.
 - **Zero idle cost:** nothing introduced may violate the rules in [PLAN.md §14 "Idle cost"](./PLAN.md#idle-cost-at-rest) (no NAT, interface endpoints, provisioned capacity, always-on compute). Each infra phase re-checks this.
 - **Config, not code:** tier limits, prices, model ids and caps live in config files validated by zod, never hard-coded.
-- **No secrets in git.** Test credentials in fixtures are for the synthetic target only.
+- **No secrets in git.** Test credentials in fixtures are for the synthetic target only, and are named/marked as test data per the rule above.
 
 ### External lead-time items (start immediately, in parallel)
 
@@ -43,7 +50,7 @@ These have waiting time, so kick them off before the phases that need them:
 
 | Item | Needed by | Action | Verification |
 |------|-----------|--------|--------------|
-| Bedrock account verification | Phase 5/6 | Wait (<2 h typical) or contact `aws-verification@amazon.com` if it persists | `aws bedrock-runtime converse --model-id au.anthropic.claude-haiku-4-5-20251001-v1:0 … --profile swarm` returns text, not `AccessDeniedException` |
+| ✅ Bedrock account verification (done 2026-11-03; `converse` on Haiku 4.5 returned text) | Phase 5/6 | Wait (<2 h typical) or contact `aws-verification@amazon.com` if it persists | `aws bedrock-runtime converse --model-id au.anthropic.claude-haiku-4-5-20251001-v1:0 … --profile swarm` returns text, not `AccessDeniedException` |
 | SES production access | Phase 3 (real users) | Request after the SES identity exists (Phase 1) | `aws sesv2 get-account --profile swarm` shows `ProductionAccessEnabled: true` |
 | NS delegation record for `swarm.` | Phase 1 exit | After the hosted zone exists, add the NS record in the other AWS account | `nslookup -type=NS swarm.fhlostonadvisory.com` returns the 4 Route 53 name servers |
 | ToS + privacy text | Phase 4 | Draft the intake acknowledgement, deletion, retained-hash and anonymised-cost wording | Text reviewed by you, stored in `src/web/content/` |
@@ -80,21 +87,21 @@ These have waiting time, so kick them off before the phases that need them:
 **Depends on:** Phase 0.
 
 **Tasks**
-1. CDK app in `src/infra` with a `stage` context (`dev`/`prod`); bootstrap the account/region (`cdk bootstrap` for `ap-southeast-2` using the `swarm` profile).
-2. **Data stack:** S3 bucket `swarm-{stage}-data` — SSE-S3, block public access, versioning **off**, TLS-only policy, lifecycle rule to abort incomplete multipart uploads, `removalPolicy: RETAIN` for `prod`.
-3. **DNS stack:** Route 53 hosted zone `swarm.fhlostonadvisory.com` (prod) and `dev.swarm.fhlostonadvisory.com` (dev, delegated from the prod zone by CDK once prod exists). Output the 4 name servers.
+1. CDK app in `src/infra` (single environment, no stage context); bootstrap the account/region (`cdk bootstrap` for `ap-southeast-2` using the `swarm` profile).
+2. **Data stack:** S3 bucket `swarm-data-885922397779` (account ID suffix only for global name uniqueness) — SSE-S3, block public access, versioning **off**, TLS-only policy, lifecycle rules to abort incomplete multipart uploads and expire the `_test/` prefix, `removalPolicy: RETAIN`.
+3. **DNS stack:** Route 53 hosted zone `swarm.fhlostonadvisory.com`. Output the 4 name servers.
 4. **Edge stack:** private S3 bucket for the SPA + CloudFront (OAC), custom domain, HTTP→HTTPS, security headers policy (HSTS, CSP, etc.), placeholder `index.html`.
    - ⚠️ CloudFront certificates must live in **`us-east-1`**. That is outside the default region, so **get explicit approval before creating the ACM certificate (and bootstrapping `us-east-1`)**. Everything else stays in `ap-southeast-2`.
-   - An org SCP denies CloudFormation/SSM in `us-east-1`, so CDK cannot bootstrap or deploy there. ACM `RequestCertificate` **is** allowed (verified). Create the certificate with `aws acm request-certificate --domain-name swarm.fhlostonadvisory.com --subject-alternative-names dev.swarm.fhlostonadvisory.com --validation-method DNS --profile swarm --region us-east-1`, add the validation CNAMEs to the Route 53 zone, and pass the issued ARN to the edge stack (deployed in `ap-southeast-2`; CloudFront is global) as config.
+   - An org SCP denies CloudFormation/SSM in `us-east-1`, so CDK cannot bootstrap or deploy there. ACM `RequestCertificate` **is** allowed (verified). Create the certificate with `aws acm request-certificate --domain-name swarm.fhlostonadvisory.com --validation-method DNS --profile swarm --region us-east-1`, add the validation CNAMEs to the Route 53 zone, and pass the issued ARN to the edge stack (deployed in `ap-southeast-2`; CloudFront is global) as config.
 5. **SES stack:** domain identity `swarm.fhlostonadvisory.com` with Easy DKIM and custom MAIL FROM (`bounce.swarm…`), configuration set with bounce/complaint SNS destinations; DKIM/MAIL FROM records created in the delegated zone.
-6. **Ops:** log retention (30 days) on every log group; AWS Budgets alert (US$10/month idle); `cdk-nag` (or equivalent) in synth; `swarm` CLI gets `deploy` helpers if useful (e.g. `swarm deploy dev`) that enforce the profile/account check.
+6. **Ops:** log retention (30 days) on every log group; AWS Budgets alert (US$10/month idle); `cdk-nag` (or equivalent) in synth; `swarm` CLI gets `deploy` helpers if useful (e.g. `swarm deploy`) that enforce the profile/account check, plus `swarm test-cleanup` (see the test-data rule above).
 7. Hand over the name servers; you add the NS record in the other account. Request **SES production access** once the identity verifies.
 
 **Verification**
 - `npx cdk synth` produces no cdk-nag errors; `npx cdk diff` shows only intended resources.
-- `npx cdk deploy` to `dev` succeeds with the `swarm` profile.
+- `npx cdk deploy` succeeds with the `swarm` profile.
 - `nslookup -type=NS swarm.fhlostonadvisory.com` returns the Route 53 name servers (after you add the record).
-- `curl -sI https://swarm.fhlostonadvisory.com` (or the dev host) returns `200` with HSTS and CSP headers and a valid certificate.
+- `curl -sI https://swarm.fhlostonadvisory.com` returns `200` with HSTS and CSP headers and a valid certificate.
 - `aws ses get-identity-verification-attributes`/`aws sesv2 get-email-identity` shows the domain `VERIFIED`, DKIM `SUCCESS`, MAIL FROM `SUCCESS`.
 - Send a test email from `login@swarm.fhlostonadvisory.com` to a verified address (SES sandbox is fine) and confirm DKIM/SPF/DMARC pass in the received headers.
 - `aws s3api put-object` without TLS or `--acl public-read` is denied; bucket public access block is on.
@@ -150,13 +157,13 @@ These have waiting time, so kick them off before the phases that need them:
 
 **Verification**
 - Unit tests: normalisation (plus-tags, Gmail dots, case), hashing determinism, OTP expiry, attempt limits, single use, JWT validation/expiry.
-- Integration tests against `dev` S3 (test prefix): 50 concurrent `claim` calls → exactly one succeeds; concurrent OTP verify attempts never exceed the attempt limit; refresh-token rotation invalidates the old token.
-- Manual end-to-end on `dev`: request a code, receive the email, sign in, reload (session persists), sign out (cookie cleared **and** refresh token revoked — replaying it fails).
+- Integration tests against S3 (`_test/` prefix): 50 concurrent `claim` calls → exactly one succeeds; concurrent OTP verify attempts never exceed the attempt limit; refresh-token rotation invalidates the old token.
+- Manual end-to-end on the deployed site: request a code, receive the email, sign in, reload (session persists), sign out (cookie cleared **and** refresh token revoked — replaying it fails).
 - Negative tests: unknown email gets an identical response/timing envelope; wrong code ×5 locks; expired code rejected; `@gmail.com` account cannot reach `/api/staff/*` (403); a `fhlostonadvisory.com` account can.
 - Security checks: cookie flags verified in browser dev tools; CSRF test without token fails; headers (CSP/HSTS) present on API responses.
 - SES: bounce/complaint simulator addresses (`bounce@simulator.amazonses.com`) produce a `suppression/{emailHash}.json` entry.
 
-**Exit criteria:** all tests pass in `dev`; manual E2E recorded; SES production access granted (or sandbox limited to verified testers, noted).
+**Exit criteria:** all tests pass; manual E2E recorded; SES production access granted (or sandbox limited to verified testers, noted).
 
 ---
 
@@ -175,7 +182,7 @@ These have waiting time, so kick them off before the phases that need them:
 
 **Verification**
 - Unit tests: input validation (bad URLs, SSRF-ish hosts, >1 login on Lite, missing acknowledgement), tier config validation (invalid config fails to load).
-- Integration tests (dev S3): a second Lite run for the same email → rejected; a different email for the same target domain within 30 days → rejected; after the cool-off date is simulated → accepted.
+- Integration tests (`_test/` prefix in S3): a second Lite run for the same email → rejected; a different email for the same target domain within 30 days → rejected; after the cool-off date is simulated → accepted.
 - Deletion tests: create a user with several runs → `DELETE /api/account` leaves **no** objects under `users/{emailHash}/` and `auth/otp/{emailHash}.json`, but `claims/free/{emailHash}.json` remains and contains no email; re-registering the same email cannot claim another free run.
 - Deleting a single run removes only that run's prefix; another user's data is untouched (cross-tenant test: user B requesting user A's run id gets 404).
 - Playwright E2E: sign in → fill the intake → submit → see the run `queued` on the dashboard → delete it → gone.
@@ -191,7 +198,7 @@ These have waiting time, so kick them off before the phases that need them:
 **Depends on:** Phases 1–4. Bedrock is **not** required here (the first agent is deterministic: headers/TLS/CORS checks).
 
 **Tasks**
-1. `src/synthetic-target`: a small deliberately-vulnerable web app (login page, 2–3 roles, a few known issues: missing headers, permissive CORS, verbose errors, exposed `/.git` stub, IDOR endpoint). Runs locally and as an **on-demand** Fargate task; includes known-good expected findings (`expected.json`).
+1. `src/synthetic-target`: a small deliberately-vulnerable web app (login page, 2–3 roles, a few known issues: missing headers, permissive CORS, verbose errors, exposed `/.git` stub, IDOR endpoint). Runs locally and as an **on-demand** Fargate task (named `swarm-test-synthetic-target`, tagged `swarm:test=true`, stopped after each use); includes known-good expected findings (`expected.json`).
 2. **Event pipeline:** agent → `POST /api/internal/events` (IAM-signed) → S3 event chunks + `summary.json` update + AppSync Events publish. UI switches from replay to the live channel with S3 catch-up on reconnect (`seq` idempotency).
 3. **Agent runtime** (`src/agents`): container image, task entrypoint, typed tool interface, event emitter, budget enforcement (steps/time/requests), `gap` on budget exhaustion. First agent: `headers-agent` (TLS, security headers, CORS) — no LLM.
 4. **Scope proxy sidecar:** allow-list from `input.json`, blocks private/link-local/metadata/ECS-metadata addresses and non-GET (when `readOnly`), per-run rate limit, request log to evidence.
@@ -202,7 +209,7 @@ These have waiting time, so kick them off before the phases that need them:
 **Verification**
 - Unit tests for the proxy (table-driven: allowed host ✔, other host ✘, `169.254.169.254` ✘, `169.254.170.2` ✘, RFC1918 ✘, redirect to out-of-scope host ✘, POST when read-only ✘).
 - Contract test: events emitted by the agent validate against the shared schema.
-- Integration on `dev`: start the synthetic target on demand, submit a run against it, and confirm via the real UI that agents animate live, findings appear, the run completes, and `report.html` is downloadable via an authenticated presigned URL. Findings match `expected.json` for the checks the agent covers.
+- Integration on the deployed stack: start the synthetic target on demand, submit a run against it, and confirm via the real UI that agents animate live, findings appear, the run completes, and `report.html` is downloadable via an authenticated presigned URL. Findings match `expected.json` for the checks the agent covers.
 - Failure drills: stop a run mid-flight (tasks terminated, partial report); kill the agent task (state machine marks `failed`, no orphan tasks); simulate a stuck task (reaper stops it after max runtime).
 - Cost: `cost.json` is written; ECS shows no running tasks after the run; the **idle-cost audit** from Phase 1 is repeated — still clean (no NAT, endpoints, etc.).
 - Security: agent task role cannot read another run's prefix (attempt via `aws s3 cp` with the task role in a test).
@@ -231,8 +238,8 @@ These have waiting time, so kick them off before the phases that need them:
 - Read-only: attempt state-changing requests through the agent (instructed in a hostile synthetic page) and confirm the proxy blocks them and logs the block.
 - Prompt injection: synthetic page text telling the agent to visit another host / reveal its prompt — agent does not comply (test asserts no out-of-scope request in the proxy log).
 - Gating: automated test fetches every API route and the live event stream for a Lite run and asserts locked finding details never appear in any payload.
-- Cost: measure 10 Lite runs; record median/p95 cost in the staff data and compare with the ≈US$0.50 cap; adjust the config (not code) if needed.
-- Abuse: simulate 60 Lite starts in a day → the cap rejects the rest; same-target/new-email within 30 days rejected.
+- Cost: measure 10 Lite runs (marked as test data, test identities); record median/p95 cost in the staff data and compare with the ≈US$0.50 cap; adjust the config (not code) if needed.
+- Abuse: simulate 60 Lite starts in a day against test-prefixed counters (so real users' cap is untouched) → the cap rejects the rest; same-target/new-email within 30 days rejected.
 
 **Exit criteria:** Lite runs complete under cap on the synthetic target with a correct app profile and a properly gated teaser; measured cost documented.
 
@@ -298,7 +305,7 @@ These have waiting time, so kick them off before the phases that need them:
 
 **Verification**
 - Authorisation tests: non-staff sessions get 403 on every `/api/staff/*` route (route-enumeration test); staff UI route hidden for non-staff.
-- Data tests: seed runs with known token counts → computed costs match hand calculations; deleting a user's account keeps only the anonymised cost record.
+- Data tests: seed runs (marked `test: true`) with known token counts → computed costs match hand calculations; deleting a user's account keeps only the anonymised cost record.
 - Controls: flipping the kill switch stops new runs and halts running ones; changing the Lite daily cap takes effect without redeploy; edits are audit-logged.
 - Manual review of the pricing worksheet against the cost data collected in Phases 6–7.
 
@@ -313,18 +320,18 @@ These have waiting time, so kick them off before the phases that need them:
 **Depends on:** Phases 1–9.
 
 **Tasks**
-1. **Self-scan:** run Swarm (Full) against the `dev` deployment of Swarm itself; fix findings.
+1. **Self-scan:** run Swarm (Full) against the deployed Swarm itself; fix findings.
 2. Security review of IAM (least privilege per Lambda/task), S3 bucket policy, cookie/CSRF/headers, rate limits; dependency audit (`npm audit`); CloudTrail management events on.
 3. Abuse drills: 100 temp-email signups, repeated target scans, oversized inputs, hostile target pages (prompt injection, redirects, huge responses, slow-loris) against the agents.
-4. Operational: alarms (SES bounce/complaint, stuck runs, long Fargate tasks, spend), AWS Budgets, runbook (kill switch, deleting a user, restoring from a failed deploy), `prod` deploy of the full stack.
+4. Operational: alarms (SES bounce/complaint, stuck runs, long Fargate tasks, spend), AWS Budgets, runbook (kill switch, deleting a user, restoring from a failed deploy), final deploy of the full stack.
 5. Decide whether to enable target verification ([PLAN.md §6](./PLAN.md#6-scope-enforcement--abuse-prevention) item 7) and whether to add WAF, based on beta signals.
 6. Invite 3–5 friendly testers; collect feedback and real Lite/Full cost data.
 
 **Verification**
 - Self-scan report reviewed; all High/Critical findings fixed and re-tested.
 - Abuse drills: Lite daily cap, per-email/domain claims, throttling and the proxy hold (no cost overrun beyond configured caps; no out-of-scope requests).
-- `prod` smoke test script (login, Lite run on the synthetic target, delete account) passes.
-- **Idle-cost audit on `prod` after 7 days of no runs:** Cost Explorer daily cost ≈ the US$1–5/month estimate; no unexpected line items.
+- Production smoke test script (test identity; login, Lite run on the synthetic target, delete account, then `swarm test-cleanup` shows nothing left) passes.
+- **Idle-cost audit after 7 days of no runs:** Cost Explorer daily cost ≈ the US$1–5/month estimate; no unexpected line items.
 - Alarm tests: each alarm triggered once deliberately and received.
 
 **Exit criteria:** self-scan clean of High/Critical, drills pass, idle cost confirmed, runbook written, first external testers onboarded.
@@ -342,7 +349,7 @@ These have waiting time, so kick them off before the phases that need them:
 2. Stripe Checkout (one-off per Full report) with AU GST via Stripe Tax; webhook Lambda (signature-verified, idempotent) → credit in `entitlements.json`; success/cancel pages; invoice portal link.
 3. Entitlement consumption on run start; Lite "upgrade to Full" flow that unlocks the locked findings of an existing Lite run **or** starts a Full run (decide; default: starts a Full run).
 4. Refund/failed-run policy (auto-credit if a run fails for platform reasons).
-5. Stripe keys in SSM SecureString (standard tier); test and live modes separated by stage.
+5. Stripe keys in SSM SecureString (standard tier); test and live modes separated by key name (e.g. `/swarm/stripe/test/*` vs `/swarm/stripe/live/*`).
 
 **Verification**
 - Stripe test mode end to end: pay with test card → webhook → credit → run starts → credit consumed; replayed webhook doesn't double-credit; failed payment grants nothing; refund path works.
@@ -368,11 +375,11 @@ These have waiting time, so kick them off before the phases that need them:
 
 **Verification**
 - Diff engine unit tests with fabricated run pairs (new, fixed, regressed, accepted, unchanged).
-- Scheduled run on the synthetic target fires on time (short cron in `dev`), produces a report, and notifies **only** when a finding is new; no email when nothing changed.
+- Scheduled run on the synthetic target fires on time (short cron in test mode), produces a report, and notifies **only** when a finding is new; no email when nothing changed.
 - Billing: each scheduled run consumes/charges exactly once; paused/cancelled schedules stop running.
 - Idle cost: schedules add no always-on resources (only EventBridge Scheduler entries).
 
-**Exit criteria:** a week of scheduled runs on `dev` behaves correctly; billing verified in Stripe test mode.
+**Exit criteria:** a week of scheduled runs behaves correctly; billing verified in Stripe test mode.
 
 ---
 
@@ -385,15 +392,17 @@ These have waiting time, so kick them off before the phases that need them:
 | Confirm AWS identity | `aws sts get-caller-identity --profile swarm` |
 | DNS | `nslookup -type=NS swarm.fhlostonadvisory.com`, `curl -sI https://swarm.fhlostonadvisory.com` |
 | Bedrock access | `aws bedrock list-inference-profiles --region ap-southeast-2 --profile swarm`; a `converse` smoke call |
-| S3 contents | `aws s3 ls s3://swarm-dev-data/ --recursive --profile swarm` |
-| Running tasks (should be none when idle) | `aws ecs list-tasks --cluster swarm-dev --profile swarm` |
+| S3 contents | `aws s3 ls s3://swarm-data-885922397779/ --recursive --profile swarm` |
+| Running tasks (should be none when idle) | `aws ecs list-tasks --cluster swarm --profile swarm` |
 | Idle cost | Cost Explorer (daily, group by service) via console or `aws ce get-cost-and-usage --profile swarm` |
 | UI end-to-end | Playwright (`npm run e2e`) |
+| Find / remove leftover test data | `swarm test-cleanup` (list), `swarm test-cleanup --delete` |
 
 ## Appendix B — Definition of done (per phase)
 
 1. Every task implemented; no TODOs left that block the exit criteria.
 2. All verification items executed with recorded evidence.
 3. `npm run typecheck`, `npm test`, `npm run lint` green; previous phases' tests still green.
-4. Infra changes deployed to `dev`, `cdk diff` clean afterwards; idle-cost rules re-checked for any new infra phase.
+4. Infra changes deployed, `cdk diff` clean afterwards; idle-cost rules re-checked for any new infra phase.
 5. [PLAN.md](./PLAN.md) updated if a decision changed; the tracker above ticked.
+6. `swarm test-cleanup` (list mode) shows no leftover test data or `swarm-test-*` resources from the phase.
