@@ -4,6 +4,9 @@
   "description": "Cutting-edge LLM analysis, pointed at your application",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "bin": {
     "swarm": "./bin/swarm.js"
   },

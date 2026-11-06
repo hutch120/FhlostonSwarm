@@ -4,7 +4,7 @@ Cutting-edge LLM analysis, pointed at your application
 
 ## CLI
 
-Requires Node 20+ and [AWS CLI v2](https://aws.amazon.com/cli/).
+Requires Node 24+ and [AWS CLI v2](https://aws.amazon.com/cli/).
 
 ```
 npm install
