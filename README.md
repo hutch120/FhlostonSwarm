@@ -18,7 +18,7 @@ If the account later uses IAM Identity Center, run `swarm login --sso --start-ur
 
 ## Development
 
-See [PLAN.md](./PLAN.md) for the product design and [IMPLEMENTATION.md](./IMPLEMENTATION.md) for the phased build plan.
+See [PLAN.md](./PLAN.md) for the product design, [IMPLEMENTATION.md](./IMPLEMENTATION.md) for the phased build plan, and [PREREQUISITES.md](./PREREQUISITES.md) for the manual account/domain/email setup (rebuild and disaster recovery).
 
 The repo is an npm workspaces monorepo: `src/{web,api,agents,infra,shared,synthetic-target}` are the application (packages `@swarm/*`); `swarm.ts` + `utils/` are the ops CLI.
 
