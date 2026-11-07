@@ -41,3 +41,37 @@ export async function setConfig(profile: string, key: string, value: string): Pr
   const r = await aws(["configure", "set", key, value, "--profile", profile]);
   if (r.code !== 0) throw new Error(`Failed to set ${key}: ${r.stderr.trim()}`);
 }
+
+/** Runs an AWS CLI command against the swarm profile/region and returns parsed JSON output. */
+export async function awsJson<T>(args: string[]): Promise<T> {
+  const r = await aws([
+    ...args,
+    "--profile",
+    DEFAULT_PROFILE,
+    "--region",
+    REGION,
+    "--output",
+    "json",
+  ]);
+  if (r.code !== 0) throw new Error(`aws ${args.slice(0, 2).join(" ")} failed: ${r.stderr.trim()}`);
+  return (r.stdout.trim() ? JSON.parse(r.stdout) : null) as T;
+}
+
+/** Throws unless the swarm profile is signed in to the swarm account. */
+export async function requireSwarmAccount(): Promise<void> {
+  const r = await aws([
+    "sts",
+    "get-caller-identity",
+    "--profile",
+    DEFAULT_PROFILE,
+    "--output",
+    "json",
+  ]);
+  if (r.code !== 0) {
+    throw new Error(`Not signed in to the '${DEFAULT_PROFILE}' profile. Run: swarm login`);
+  }
+  const { Account } = JSON.parse(r.stdout) as { Account: string };
+  if (Account !== ACCOUNT_ID) {
+    throw new Error(`Profile '${DEFAULT_PROFILE}' is account ${Account}, expected ${ACCOUNT_ID}.`);
+  }
+}

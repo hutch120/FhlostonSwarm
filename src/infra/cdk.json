@@ -1,0 +1,12 @@
+{
+  "app": "tsx src/main.ts",
+  "watch": {
+    "include": ["src/**/*.ts", "config/*.json"]
+  },
+  "context": {
+    "@aws-cdk/core:checkSecretUsage": true,
+    "@aws-cdk/core:validateSnapshotRemovalPolicy": true,
+    "@aws-cdk/aws-s3:createDefaultLoggingPolicy": true,
+    "@aws-cdk/aws-iam:minimizePolicies": true
+  }
+}

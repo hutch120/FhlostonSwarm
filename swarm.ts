@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { cdk, type CdkAction } from "./utils/deploy.js";
 import { login } from "./utils/login.js";
+import { requireSwarmAccount } from "./utils/aws.js";
+import { testCleanup } from "./utils/test-cleanup.js";
 
 const program = new Command();
 
@@ -20,6 +23,40 @@ program
   .action(async (opts) => {
     try {
       await login(opts);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exitCode = 1;
+    }
+  });
+
+for (const action of ["deploy", "diff", "synth"] as CdkAction[]) {
+  program
+    .command(action)
+    .description(
+      `Run \`cdk ${action}\` for src/infra with the swarm profile (checks the account first)`,
+    )
+    .argument("[cdk-args...]", "extra arguments passed to the CDK CLI (use -- before options)")
+    .allowUnknownOption()
+    .action(async (extra: string[]) => {
+      try {
+        await cdk(action, extra);
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : err);
+        process.exitCode = 1;
+      }
+    });
+}
+
+program
+  .command("test-cleanup")
+  .description(
+    "List (and with --delete, remove) test data: _test/ objects, records with test:true, swarm-test-* resources",
+  )
+  .option("--delete", "Actually delete what is listed (default is a dry run)")
+  .action(async (opts: { delete?: boolean }) => {
+    try {
+      await requireSwarmAccount();
+      await testCleanup(opts);
     } catch (err) {
       console.error(err instanceof Error ? err.message : err);
       process.exitCode = 1;

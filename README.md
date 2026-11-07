@@ -29,3 +29,17 @@ npm test              # Vitest (src/**/*.test.ts)
 npm run lint          # ESLint + typescript-eslint
 npm run format:check  # Prettier check (npm run format to fix)
 ```
+
+## Infrastructure
+
+The AWS infrastructure is a single-environment CDK app in `src/infra` (stacks `SwarmData`, `SwarmDns`, `SwarmEdge`, `SwarmSes`, `SwarmOps`), configured by `src/infra/config/swarm.json`. Use the CLI wrappers, which check you are signed in to the swarm account and use the `swarm` profile:
+
+```
+swarm synth                  # synthesise + cdk-nag checks
+swarm diff                   # show pending changes
+swarm deploy                 # deploy all stacks (pass cdk options, e.g. --require-approval never)
+swarm test-cleanup           # list test data (_test/ objects, test:true records, swarm-test-* resources)
+swarm test-cleanup --delete  # remove it
+```
+
+The CloudFront certificate lives in `us-east-1` and is requested by hand; see Phase 1 in [IMPLEMENTATION.md](./IMPLEMENTATION.md).

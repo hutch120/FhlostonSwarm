@@ -22,7 +22,7 @@ Everything done **by hand, outside the code**, before Phase 1 of [IMPLEMENTATION
 2. **CDK bootstrap**, `ap-southeast-2` only (stack `CDKToolkit`, `CREATE_COMPLETE`, v32):
    `npx cdk bootstrap aws://885922397779/ap-southeast-2 --profile swarm`
 3. **Bedrock:** account verification completed 2026-11-03. Verify with `aws bedrock-runtime converse --model-id au.anthropic.claude-haiku-4-5-20251001-v1:0 … --profile swarm` (returns text, no `AccessDeniedException`). If it fails with "account is being verified", wait or contact `aws-verification@amazon.com`.
-4. **SES production access:** not yet requested (needs the Phase 1 SES identity first). `aws sesv2 get-account --profile swarm` shows `ProductionAccessEnabled: false` until then.
+4. **SES production access:** requested 2026-11-08 (review status `PENDING`). `aws sesv2 get-account --profile swarm` shows `ProductionAccessEnabled: false` until AWS approves.
 
 ## 3. Domain and DNS
 
@@ -56,7 +56,7 @@ Export a full backup any time:
 
 ## 6. Added by Phase 1 (CDK, not manual)
 
-Apex alias to CloudFront, SES DKIM CNAMEs, `bounce.` MAIL FROM, `_dmarc` TXT, the data bucket, budgets and so on. The CloudFront ACM certificate is the one manual exception: it must be requested in `us-east-1` (see Phase 1 in [IMPLEMENTATION.md](./IMPLEMENTATION.md)).
+Apex alias to CloudFront (once the certificate ARN is configured), CAA record, SES DKIM CNAMEs, `bounce.` MAIL FROM, `_dmarc` TXT, the data bucket, budgets and so on, all via `swarm deploy`. The Google Workspace records above stay manual unless the `googleWorkspace` block in `src/infra/config/swarm.json` is filled in (delete the manual ones first). The CloudFront ACM certificate is the one manual exception: it must be requested in `us-east-1` (see Phase 1 in [IMPLEMENTATION.md](./IMPLEMENTATION.md)).
 
 ## 7. Out-of-band items to keep safe
 

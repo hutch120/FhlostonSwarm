@@ -1,0 +1,15 @@
+{
+  "account": "885922397779",
+  "region": "ap-southeast-2",
+  "domainName": "fhlostonswarm.com",
+  "hostedZoneId": "Z07856792QBFWJ8CRVSA5",
+  "cloudfrontCertificateArn": null,
+  "alertEmail": "support@fhlostonswarm.com",
+  "idleBudgetUsd": 10,
+  "logRetentionDays": 30,
+  "dmarc": {
+    "policy": "none",
+    "reportEmail": "support@fhlostonswarm.com"
+  },
+  "googleWorkspace": null
+}
