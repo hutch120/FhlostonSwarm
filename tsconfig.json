@@ -1,4 +1,4 @@
 ﻿{
   "extends": "./tsconfig.base.json",
-  "include": ["swarm.ts", "utils/**/*.ts", "src/**/*.ts", "vitest.config.ts"]
+  "include": ["swarm.ts", "utils/**/*.ts", "src/**/*.ts", "src/**/*.tsx", "vitest.config.ts"]
 }

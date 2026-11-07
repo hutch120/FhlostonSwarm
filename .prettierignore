@@ -8,3 +8,6 @@ docs/PLAN.md
 docs/IMPLEMENTATION.md
 docs/instructions
 .github
+
+test-results
+playwright-report

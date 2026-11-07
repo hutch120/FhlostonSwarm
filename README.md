@@ -25,10 +25,24 @@ The repo is an npm workspaces monorepo: `src/{web,api,agents,infra,shared,synthe
 ```
 npm install           # installs all workspaces
 npm run typecheck     # tsc --noEmit over the CLI and every workspace
-npm test              # Vitest (src/**/*.test.ts)
+npm test              # Vitest: node tests plus the web app's component tests (jsdom)
 npm run lint          # ESLint + typescript-eslint
 npm run format:check  # Prettier check (npm run format to fix)
 ```
+
+## Web app
+
+`src/web` is the Vite + React + TypeScript SPA. Phase 2 runs entirely in the browser against a replayed, simulated event feed (no backend, nothing sent or stored); the event contract, reducer, roster and tier limits it uses live in `src/shared`.
+
+```
+npm run dev -w src/web         # http://localhost:5173; /demo is the live swarm replay
+npm run build -w src/web       # production build into src/web/dist
+npm run preview -w src/web     # serve the build on http://localhost:4173
+npx playwright install chromium   # one-off, for the end-to-end smoke tests
+npm run test:e2e -w src/web    # Playwright smoke tests (starts the dev server)
+```
+
+The replay accepts `?speed=<n>` (e.g. `/demo?speed=8`) and `?autoplay=0`. Colours and the look live in `src/web/src/theme.ts`; Lite/Full limits live in `src/shared/config/tiers.json`.
 
 ## Infrastructure
 
