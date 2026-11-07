@@ -29,7 +29,7 @@ How we build the product described in [PLAN.md](./PLAN.md), in small phases that
 
 ### Cross-cutting rules (apply to every phase)
 
-- **AWS:** account `885922397779`, region `ap-southeast-2`, CLI profile `swarm` only. Before any AWS work run `aws sts get-caller-identity --profile swarm` (expect Account `885922397779`); if expired run `swarm login`. Never use other profiles. Anything outside the account/region needs explicit approval — see the CloudFront certificate note in Phase 1.
+- **AWS:** account `885922397779`, region `ap-southeast-2`, CLI profile `swarm` only. Before any AWS work run `aws sts get-caller-identity --profile swarm` (expect Account `885922397779`); if expired run `swarm login`. Never use other profiles. Anything outside the account/region needs explicit approval — see the CloudFront certificate note in Phase 1. Everything (domain, DNS, certificates, CloudFront, SES, ECR, Bedrock) is in this one account with no cross-account access; the `au.` Bedrock profiles span `ap-southeast-2`/`ap-southeast-4` inside the same account (see [PLAN.md §14](./PLAN.md#14-security-privacy--operations)).
 - **Single environment:** one AWS account, treated as production. There are no `dev`/`prod` stages and no stage prefixes in resource names. If a dev/stage system is ever needed it will be a **separate AWS account**, never mixed into this one. Automated and integration tests use a dedicated `_test/` key prefix in the data bucket (expired by lifecycle rule and cleaned up after each run) and never touch real user data.
 - **Test data and resources are always clearly identifiable** (for manual review and cleanup, since there is only one account):
   - **S3 keys:** all automated test data lives under `_test/<runId>/…`, where `runId` is `YYYYMMDD-HHmmss-<rand>`.
@@ -98,7 +98,7 @@ These have waiting time, so kick them off before the phases that need them:
 **Tasks**
 1. CDK app in `src/infra` (single environment, no stage context); bootstrap the account/region (`cdk bootstrap` for `ap-southeast-2` using the `swarm` profile).
 2. **Data stack:** S3 bucket `swarm-data-885922397779` (account ID suffix only for global name uniqueness) — SSE-S3, block public access, versioning **off**, TLS-only policy, lifecycle rules to abort incomplete multipart uploads and expire the `_test/` prefix, `removalPolicy: RETAIN`.
-3. **DNS stack:** look up the existing Route 53 hosted zone for `fhlostonswarm.com` (`HostedZone.fromLookup`; it already exists in the swarm account, so don't create or delegate one). All other stacks add their records to it.
+3. **DNS stack:** look up the existing Route 53 hosted zone for `fhlostonswarm.com` (`HostedZone.fromLookup`; it already exists in the swarm account, so don't create or delegate one). All other stacks add their records to it. It also holds the Google Workspace records (apex MX, SPF TXT, `google-site-verification` TXT, `google._domainkey` DKIM TXT), with the verification/DKIM values taken from CDK config once Workspace is set up on `fhlostonswarm.com`.
 4. **Edge stack:** private S3 bucket for the SPA + CloudFront (OAC), custom domain (apex `fhlostonswarm.com` A/AAAA alias records in the hosted zone), HTTP→HTTPS, security headers policy (HSTS, CSP, etc.), placeholder `index.html`.
    - ⚠️ CloudFront certificates must live in **`us-east-1`**. That is outside the default region, so **get explicit approval before creating the ACM certificate (and bootstrapping `us-east-1`)**. Everything else stays in `ap-southeast-2`.
    - An org SCP denies CloudFormation/SSM in `us-east-1`, so CDK cannot bootstrap or deploy there. ACM `RequestCertificate` **is** allowed (verified). Create the certificate with `aws acm request-certificate --domain-name fhlostonswarm.com --validation-method DNS --profile swarm --region us-east-1`, add the validation CNAMEs to the Route 53 zone, and pass the issued ARN to the edge stack (deployed in `ap-southeast-2`; CloudFront is global) as config.
@@ -160,7 +160,7 @@ These have waiting time, so kick them off before the phases that need them:
 3. Email normalisation + `emailHash` (HMAC with a pepper in an SSM SecureString), disposable-domain blocklist.
 4. **OTP:** `POST /api/auth/request` (uniform response, per-email/IP counters, SES send), `POST /api/auth/verify` (hashed code, 10 min expiry, 5 attempts, single use). Magic link variant.
 5. **Sessions:** `jose` JWT in `HttpOnly; Secure; SameSite=Lax` cookie, rotating revocable refresh tokens in S3, logout (server-side revoke), CSRF protection on mutating routes, API Gateway throttling, optional Turnstile.
-6. `role: staff` when the verified email domain is exactly `fhlostonadvisory.com`; `requireStaff` middleware.
+6. `role: staff` when the verified email domain is exactly `fhlostonswarm.com` (and the local-part is not a reserved shared/role address); `requireStaff` middleware.
 7. Free-claim primitive: `claims/free/{emailHash}.json` created with `If-None-Match: *`.
 8. Wire the real Login screen and session handling in `src/web`; account page shows "1 free lite report".
 
@@ -168,7 +168,7 @@ These have waiting time, so kick them off before the phases that need them:
 - Unit tests: normalisation (plus-tags, Gmail dots, case), hashing determinism, OTP expiry, attempt limits, single use, JWT validation/expiry.
 - Integration tests against S3 (`_test/` prefix): 50 concurrent `claim` calls → exactly one succeeds; concurrent OTP verify attempts never exceed the attempt limit; refresh-token rotation invalidates the old token.
 - Manual end-to-end on the deployed site: request a code, receive the email, sign in, reload (session persists), sign out (cookie cleared **and** refresh token revoked — replaying it fails).
-- Negative tests: unknown email gets an identical response/timing envelope; wrong code ×5 locks; expired code rejected; `@gmail.com` account cannot reach `/api/staff/*` (403); a `fhlostonadvisory.com` account can.
+- Negative tests: unknown email gets an identical response/timing envelope; wrong code ×5 locks; expired code rejected; `@gmail.com` account cannot reach `/api/staff/*` (403); a `fhlostonswarm.com` personal mailbox can; `support@fhlostonswarm.com` (shared address) cannot.
 - Security checks: cookie flags verified in browser dev tools; CSRF test without token fails; headers (CSP/HSTS) present on API responses.
 - SES: bounce/complaint simulator addresses (`bounce@simulator.amazonses.com`) produce a `suppression/{emailHash}.json` entry.
 

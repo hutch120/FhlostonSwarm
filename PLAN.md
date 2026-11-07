@@ -1,6 +1,6 @@
 # Swarm — Self-Serve Product Plan
 
-Turn the *simulated* swarm on [fhlostonadvisory.com](https://fhlostonadvisory.com/) into a real, self-serve product, **Swarm**, at its own dedicated domain, `fhlostonswarm.com` (registered in the swarm AWS account): a customer signs in, points the swarm at their application, watches the agents work in real time, steers them, and receives a report like [example-report.html](./example-report.html).
+Turn the *simulated* swarm on the Fhloston Advisory marketing site into a real, self-serve product, **Swarm**, at its own dedicated domain, `fhlostonswarm.com` (registered in the swarm AWS account, with Google Workspace for human mailboxes): a customer signs in, points the swarm at their application, watches the agents work in real time, steers them, and receives a report like [example-report.html](./example-report.html).
 
 > Status: **draft, all decisions made** (see [section 16](#16-decisions-log)); remaining actions and numbers to tune are in [section 17](#17-launch-checklist--items-still-to-tune). The phased build and verification plan is in [IMPLEMENTATION.md](./IMPLEMENTATION.md).
 
@@ -9,12 +9,12 @@ Turn the *simulated* swarm on [fhlostonadvisory.com](https://fhlostonadvisory.co
 | Area | Summary |
 |------|---------|
 | **Web app** (Vite) | OTP email login → intake form → live "swarm" view → steering → report download; account/data deletion |
-| **Staff dashboard** | `@fhlostonadvisory.com` logins only: per-run cost analysis, usage, support tools |
+| **Staff dashboard** | `@fhlostonswarm.com` logins only: per-run cost analysis, usage, support tools |
 | **Backend** (AWS, `ap-southeast-2`, account `885922397779`) | Auth, run orchestration, sandboxed agent execution on Bedrock, event streaming, report generation. **All data in S3.** |
 | **Agent runtime** | Driven by the baseline methodology in [instructions/](./instructions/README.md), adapted per target by a discovery phase |
 | **Entitlements / payments** | 1 free **lite** report per customer; paid full reports and (later) scheduled runs via Stripe |
 
-**Branding:** Swarm has its own brand and does not reuse the Fhloston Advisory look. The marketing-site simulation is a functional reference only. Fhloston appears as "a Fhloston Advisory product" in the footer/ToS. Starting direction (to iterate on): **modern, exciting, AI/tech theme** — dark UI, neon/electric accents with soft glow, glassy panels, monospace/terminal touches, generative "swarm" motion. M1 ships a placeholder identity (wordmark + palette + design tokens in one theme file) so it's cheap to change later.
+**Branding:** Swarm has its own brand and does not reuse the Fhloston Advisory look or name. "Fhloston Advisory" is not part of the product name, domain, logo, email sender names, report titles or UI copy; the only mention allowed is the attribution "a Fhloston Advisory product" in the footer/ToS. The marketing-site simulation is a functional reference only. Starting direction (to iterate on): **modern, exciting, AI/tech theme** — dark UI, neon/electric accents with soft glow, glassy panels, monospace/terminal touches, generative "swarm" motion. M1 ships a placeholder identity (wordmark + palette + design tokens in one theme file) so it's cheap to change later.
 
 ### What the marketing-site simulation tells us (reviewed from its JS bundle)
 
@@ -107,7 +107,7 @@ utils/        Existing CLI (swarm login, later: swarm deploy / swarm run-local)
 6. **Report** — in-app HTML view, download HTML / PDF / JSON (and SARIF later).
 7. **Schedules** *(roughed in, disabled)* — shows "Continuous monitoring — coming soon" and captures interest.
 8. **Account / data** — delete an individual run (and its report/evidence), or **delete account** (removes everything, see [section 14](#14-security-privacy--operations)).
-9. **Staff dashboard** (`/staff`, only visible to `@fhlostonadvisory.com` logins) — see [section 12](#12-staff-support-dashboard--cost-tracking).
+9. **Staff dashboard** (`/staff`, only visible to `@fhlostonswarm.com` logins) — see [section 12](#12-staff-support-dashboard--cost-tracking).
 
 ### Realtime transport
 
@@ -118,22 +118,22 @@ Use a managed pub/sub rather than hand-rolling WebSockets: **AppSync Events** (o
 ### Recommendation on email delivery: **SES, not Google Workspace SMTP**
 
 - Workspace SMTP/relay has per-user/day caps, is tied to a human mailbox/app password, and is poor for deliverability monitoring/bounce handling. SES is built for transactional mail, has bounce/complaint events, and fits the AWS stack.
-- **SES and Google Workspace coexist fine.** `fhlostonadvisory.com` is untouched (its MX stays on Google; humans' mail, including `support@`, is unaffected). We create the SES identity on the dedicated **`fhlostonswarm.com`** domain, so Swarm mail has its own reputation/branding, and its DNS is in our own Route 53 zone in the swarm account (see DNS below).
+- **SES and Google Workspace coexist fine.** Both run on the dedicated **`fhlostonswarm.com`** domain: Google Workspace owns the apex MX/SPF/DKIM for human mailboxes (including `support@` and staff addresses), while SES sends Swarm mail from the same domain with its own DKIM and a custom MAIL FROM subdomain (`bounce.`) so its SPF doesn't collide with Google's. All of this DNS lives in our Route 53 zone in the swarm account (see DNS below).
 
 ### SES setup (ap-southeast-2) — one-time
 
 1. Create a **domain identity** for `fhlostonswarm.com` with **Easy DKIM** (3 CNAMEs).
 2. Configure a **custom MAIL FROM** subdomain (e.g. `bounce.fhlostonswarm.com`: MX → `feedback-smtp.ap-southeast-2.amazonses.com`, TXT SPF `v=spf1 include:amazonses.com ~all`) for DMARC alignment.
-3. Publish/verify **DMARC** (`_dmarc.fhlostonswarm.com` TXT) — start `p=none` with `rua` reporting, move to `quarantine` once clean.
+3. Publish/verify **DMARC** (`_dmarc.fhlostonswarm.com` TXT, shared with Google Workspace mail) — start `p=none` with `rua` reporting, move to `quarantine` once clean (only after both Google and SES mail pass SPF/DKIM alignment).
 4. **Request production access** (out of the SES sandbox) — do this early; it takes ~1 day. Describe: OTP + transactional only, bounce/complaint handling, opt-in only.
 5. Create a **configuration set** with event destinations (bounce/complaint/delivery → SNS → Lambda that writes a suppression list object to S3, `suppression/{emailHash}.json`).
-6. Send from `login@fhlostonswarm.com`; set `Reply-To: support@fhlostonadvisory.com` (stays in Google Workspace).
+6. Send from `login@fhlostonswarm.com`; set `Reply-To: support@fhlostonswarm.com` (a Google Workspace mailbox/group).
 
 ### DNS (decided: dedicated domain `fhlostonswarm.com` in the swarm account)
 
-Swarm gets its own domain, **`fhlostonswarm.com`**, registered in the swarm AWS account (885922397779), so everything (registration, DNS, certificates, CloudFront, SES) lives in one account. A Route 53 public hosted zone for it already exists in that account, and it is the authoritative zone (the domain's name servers must point at it). `fhlostonadvisory.com` and its other AWS account are not involved, so there is **no cross-account step and no manual DNS work**.
+Swarm gets its own domain, **`fhlostonswarm.com`**, registered in the swarm AWS account (885922397779), so everything (registration, DNS, certificates, CloudFront, SES) lives in one account. A Route 53 public hosted zone for it already exists in that account, and it is the authoritative zone (the domain's name servers must point at it). There is **no cross-account step and no manual DNS work** beyond pasting the Google Workspace values below into config.
 
-CDK looks up the existing hosted zone (`HostedZone.fromLookup`, not create) and manages all records in it: apex alias → CloudFront (A/AAAA), ACM certificate validation, SES DKIM, MAIL FROM, DMARC and any future records. The only fixed DNS items are the hosted zone and the domain registration/renewal (enable auto-renew).
+CDK looks up the existing hosted zone (`HostedZone.fromLookup`, not create) and manages all records in it: apex alias → CloudFront (A/AAAA), ACM certificate validation, SES DKIM, MAIL FROM, DMARC, and the **Google Workspace records** — the five Google MX records, apex SPF TXT (`v=spf1 include:_spf.google.com ~all`), the `google-site-verification` TXT, and the `google._domainkey` DKIM TXT. The verification and DKIM values come from the Workspace admin console and are supplied as CDK config. The only fixed DNS items are the hosted zone and the domain registration/renewal (enable auto-renew).
 
 ### OTP flow
 
@@ -182,11 +182,11 @@ Trade-offs accepted by going S3-only: no TTL (handled in code + lifecycle), no a
 
 - **Key:** `emailHash = HMAC-SHA256(pepper, normalizedEmail)` (pepper in an SSM Parameter Store SecureString — standard tier is free, unlike Secrets Manager's per-secret monthly fee). Normalize: trim, lowercase, strip `+tag`, and for Gmail/Google-hosted domains collapse dots — otherwise the free report is trivially farmed. Block known disposable-email domains.
 - Store the plain email only in `profile.json` (needed to send mail).
-- **Staff role:** derived at login — after a successful OTP, if the normalized email's domain is exactly `fhlostonadvisory.com` the session gets `role: staff`. OTP proves mailbox control, so only people who can read `@fhlostonadvisory.com` mail (Google Workspace) can get it. Exact domain match only (no subdomains, no look-alikes).
+- **Staff role:** derived at login — after a successful OTP, if the normalized email's domain is exactly `fhlostonswarm.com` the session gets `role: staff`. OTP proves mailbox control, so only people who can read `@fhlostonswarm.com` mail (Google Workspace) can get it. Exact domain match only (no subdomains, no look-alikes). Shared/role addresses (`support@`, `login@`, `admin@`, `postmaster@`, etc., which may be Workspace groups readable by several people) are denied as login identities; staff use named personal mailboxes.
 
 ### Incoming email / support
 
-Inbound email stays in **Google Workspace** for now (`support@fhlostonadvisory.com` as a group/mailbox for humans). Swarm only sends mail (OTP, "report ready"), with `Reply-To: support@…`. No SES inbound, no ticketing integration yet.
+Inbound email is handled by **Google Workspace on `fhlostonswarm.com`** (`support@fhlostonswarm.com` as a group/mailbox for humans; MX records in our Route 53 zone). Swarm only sends mail (OTP, "report ready") via SES, with `Reply-To: support@fhlostonswarm.com`. No SES inbound, no ticketing integration yet.
 
 ## 6. Scope enforcement & abuse prevention
 
@@ -278,7 +278,7 @@ Mechanics: messages go to `POST /runs/{id}/steer` → stored as events → an **
 - Redaction pass: test passwords, tokens, cookies, PII and verbatim jailbreak output are scrubbed from customer-facing output (per [phase-6-reporting.md](./instructions/phase-6-reporting.md)); raw evidence stays in the private run prefix.
 - **Lite gating is enforced server-side**, not in the UI: for Lite runs the API only ever serves `findings.teaser.json` (top N in detail, rest title/severity only) and the live event stream carries the same reduced payload for locked findings. Full details are stored separately and are not downloadable until the run is upgraded/purchased.
 - Delivery: presigned S3 URLs behind an authenticated API call. Reports are kept until the customer deletes the run or their account (no automatic expiry yet).
-- Clear disclaimer: **automated**, AI-assisted assessment (no human review); not a certification or a substitute for a full manual penetration test (positioning vs. the human Fhloston Advisory engagement). Lite reports are teasers (severity counts, top findings only) and list the areas not covered.
+- Clear disclaimer: **automated**, AI-assisted assessment (no human review); not a certification or a substitute for a full manual penetration test (positioning vs. a human-led engagement). Lite reports are teasers (severity counts, top findings only) and list the areas not covered.
 
 ## 11. Entitlements, lite tier & payments
 
@@ -332,7 +332,7 @@ Mechanics: messages go to `POST /runs/{id}/steer` → stored as events → an **
 
 ## 12. Staff support dashboard & cost tracking
 
-A `/staff` area in the same app, only for sessions with `role: staff` (derived from an `@fhlostonadvisory.com` email at login, see [section 5](#where-data-lives-s3-only-decided)). Staff API routes re-check the role server-side on every call; the SPA hiding the menu is not the control. Staff views never show customer test passwords by default.
+A `/staff` area in the same app, only for sessions with `role: staff` (derived from an `@fhlostonswarm.com` email at login, see [section 5](#where-data-lives-s3-only-decided)). Staff API routes re-check the role server-side on every call; the SPA hiding the menu is not the control. Staff views never show customer test passwords by default.
 
 **Per-run cost capture** (written by the agent runtime and orchestrator to `cost.json`, copied anonymised to `admin/run-index/…`):
 
@@ -401,6 +401,10 @@ Design rule: **if no scan is running, nothing expensive is running.** Verified a
 
 **Rough steady-state estimate with zero runs: ~US$1–5/month** — essentially the Route 53 zone (US$0.50), a little S3/ECR/log storage and any CloudTrail/GuardDuty extras; if WAF is added later, +US$5–10. To be confirmed with the AWS Pricing Calculator at M0 and watched via AWS Budgets (alert at, say, US$10/month of idle spend).
 - **Environments:** a single environment (effectively production) in the swarm account; no `dev`/`prod` stacks or name prefixes. Any future dev/stage system would live in a separate AWS account. Never touches any other AWS account/profile.
+- **Account boundary (reviewed 2026-11-08):** every piece of infrastructure lives in account `885922397779`, with no cross-account roles, resource sharing, DNS delegation or bucket/ECR access from any other AWS account.
+  - **In the swarm account, `ap-southeast-2`:** domain registration + Route 53 zone, CloudFront, S3 (SPA, data, CDK assets), API Gateway, Lambda, AppSync Events, Step Functions, EventBridge, ECS Fargate, ECR (the account's own private registry), SES, SSM, CloudWatch, Budgets/CloudTrail, CDK bootstrap (`CDKToolkit`).
+  - **In the swarm account, other regions (same account, no crossover):** the CloudFront ACM certificate in `us-east-1` (requires approval; created with the CLI because an SCP blocks CloudFormation there), and Bedrock `au.` inference profiles, which AWS routes between `ap-southeast-2` and `ap-southeast-4` (Melbourne) — verified from the profile's model ARNs. IAM/SCP must allow `bedrock:InvokeModel` in both Australian regions.
+  - **Outside AWS (not infrastructure we host):** Google Workspace for `fhlostonswarm.com` human mailboxes (`support@`, staff addresses that receive OTP mail; its MX/SPF/DKIM/verification records live in our Route 53 zone), Stripe (M9), Turnstile/hCaptcha (optional), and the customer's own target.
 - **Testing:** unit tests for OTP/entitlements/scope proxy/redaction/deletion/staff-role checks; contract tests for the event schema; a **synthetic vulnerable target** (deliberately vulnerable app, similar to the site's "synthetic target") for end-to-end agent regression with expected findings. To keep idle cost at zero it is **started on demand** (a Fargate task or container run only during regression/demo runs, or a Lambda/static build), not left running. The marketing-style "demo" in the UI is the replayed event feed, which is static and free.
 
 ## 15. Milestones
@@ -435,8 +439,8 @@ The riskiest unknowns (agent quality/cost, scope enforcement) should be hit by *
 | Pricing | TBD; staff dashboard measures cost per run to inform it |
 | Models | Bedrock Claude via **`au.` (Australia) inference profiles**; Sonnet-class for Full, Haiku-class for Lite/simple steps; no Opus. Initial IDs in [section 7](#agent-runtime) |
 | DNS | Dedicated domain `fhlostonswarm.com` with its Route 53 hosted zone in the swarm account; no delegation or cross-account steps |
-| Staff access | All staff have `@fhlostonadvisory.com` emails; no allow-list needed for now |
-| Inbound email | Stays in Google Workspace |
+| Staff access | All staff have `@fhlostonswarm.com` Google Workspace mailboxes; no allow-list needed for now |
+| Inbound email | Google Workspace on `fhlostonswarm.com` (MX etc. in the Route 53 zone) |
 | Brand | Swarm has its own branding: modern, exciting, AI/tech theme; placeholder identity in M1, iterate later |
 | Idle cost | Zero idle compute: no NAT gateway, interface VPC endpoints, Secrets Manager, KMS CMKs or provisioned capacity. Fargate tasks in public subnets with a per-task proxy sidecar. Fixed egress IPs not needed. No WAF at launch (optional later). Estimated ~US$1–5/month at rest ([section 14](#idle-cost-at-rest)) |
 | Test credentials | Staging only, stored simply in S3 (no KMS) |
@@ -449,9 +453,10 @@ No blocking questions remain. These are the actions and numbers still to settle:
 
 1. **Bedrock account verification (blocker for M4).** Checked on the `swarm` profile: the `au.` Claude inference profiles are listed and `ACTIVE` in `ap-southeast-2`, but a test `Converse` call was rejected with *"Your account is currently being verified… normally takes less than 2 hours"* (contact `aws-verification@amazon.com` if it persists). Re-test before starting M4; nothing else is blocked on it.
 2. ✅ **Domain check (done 2026-11-08):** `fhlostonswarm.com` is registered in the swarm account (status `ACTIVE`, expires 2027-11-08, auto-renew on), and its registered name servers match the NS records of the existing Route 53 hosted zone (`Z07856792QBFWJ8CRVSA5`). Public DNS may take a little while to propagate.
-3. **SES production access** request (M0) — about a day of lead time.
-4. **ToS + privacy notice** (before any external user): authorisation acknowledgement, staging-credentials-only, data deletion behaviour, retained hash marker and anonymised cost records, automated-only/no-warranty disclaimer. Legal review is deferred but this text is needed for the intake form.
-5. **Swarm brand:** placeholder identity in M1, iterate with real use.
+3. **Google Workspace on `fhlostonswarm.com`:** sign up and verify the domain, then give me the `google-site-verification` TXT value and (once generated in the admin console) the DKIM TXT value so CDK adds them to the Route 53 zone with the MX/SPF records. Create the staff user mailboxes and the `support@` group.
+4. **SES production access** request (M0) — about a day of lead time.
+5. **ToS + privacy notice** (before any external user): authorisation acknowledgement, staging-credentials-only, data deletion behaviour, retained hash marker and anonymised cost records, automated-only/no-warranty disclaimer. Legal review is deferred but this text is needed for the intake form.
+6. **Swarm brand:** placeholder identity in M1, iterate with real use.
 
 **Numbers to tune** (all live in tier config / `pricing.json`, not code): Lite and Full caps, price table, margins and prices, daily Lite caps, teaser size. Set from the initial values in [section 11](#11-entitlements-lite-tier--payments), then adjust from real `cost.json` data on the staff dashboard.
 
