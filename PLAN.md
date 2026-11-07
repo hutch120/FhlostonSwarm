@@ -1,6 +1,6 @@
 # Swarm — Self-Serve Product Plan
 
-Turn the *simulated* swarm on [fhlostonadvisory.com](https://fhlostonadvisory.com/) into a real, self-serve product, **Swarm**, at `swarm.fhlostonadvisory.com`: a customer signs in, points the swarm at their application, watches the agents work in real time, steers them, and receives a report like [example-report.html](./example-report.html).
+Turn the *simulated* swarm on [fhlostonadvisory.com](https://fhlostonadvisory.com/) into a real, self-serve product, **Swarm**, at its own dedicated domain, `fhlostonswarm.com` (registered in the swarm AWS account): a customer signs in, points the swarm at their application, watches the agents work in real time, steers them, and receives a report like [example-report.html](./example-report.html).
 
 > Status: **draft, all decisions made** (see [section 16](#16-decisions-log)); remaining actions and numbers to tune are in [section 17](#17-launch-checklist--items-still-to-tune). The phased build and verification plan is in [IMPLEMENTATION.md](./IMPLEMENTATION.md).
 
@@ -77,7 +77,7 @@ utils/        Existing CLI (swarm login, later: swarm deploy / swarm run-local)
 
 ## 4. Web app (Vite)
 
-**Stack:** Vite + React + TypeScript, TanStack Query for API state, Zustand (or similar) for the live run store, Zod for shared contracts. Hosted on S3 + CloudFront at **`swarm.fhlostonadvisory.com`** (API under the same host, e.g. `/api/*`, so cookies stay first-party).
+**Stack:** Vite + React + TypeScript, TanStack Query for API state, Zustand (or similar) for the live run store, Zod for shared contracts. Hosted on S3 + CloudFront at **`fhlostonswarm.com`** (API under the same host, e.g. `/api/*`, so cookies stay first-party).
 
 ### Screens
 
@@ -118,31 +118,26 @@ Use a managed pub/sub rather than hand-rolling WebSockets: **AppSync Events** (o
 ### Recommendation on email delivery: **SES, not Google Workspace SMTP**
 
 - Workspace SMTP/relay has per-user/day caps, is tied to a human mailbox/app password, and is poor for deliverability monitoring/bounce handling. SES is built for transactional mail, has bounce/complaint events, and fits the AWS stack.
-- **SES and Google Workspace coexist fine.** Keep the root domain's MX on Google (humans' mail, including `support@`, is unaffected). We create the SES identity on the **`swarm.fhlostonadvisory.com`** subdomain, so Swarm mail has its own reputation/branding, and because that subdomain is delegated to our own Route 53 zone (see DNS below) nothing about the root domain's DNS needs to change.
+- **SES and Google Workspace coexist fine.** `fhlostonadvisory.com` is untouched (its MX stays on Google; humans' mail, including `support@`, is unaffected). We create the SES identity on the dedicated **`fhlostonswarm.com`** domain, so Swarm mail has its own reputation/branding, and its DNS is in our own Route 53 zone in the swarm account (see DNS below).
 
 ### SES setup (ap-southeast-2) — one-time
 
-1. Create a **domain identity** for `swarm.fhlostonadvisory.com` with **Easy DKIM** (3 CNAMEs).
-2. Configure a **custom MAIL FROM** subdomain (e.g. `bounce.swarm.fhlostonadvisory.com`: MX → `feedback-smtp.ap-southeast-2.amazonses.com`, TXT SPF `v=spf1 include:amazonses.com ~all`) for DMARC alignment.
-3. Publish/verify **DMARC** (`_dmarc.fhlostonadvisory.com` TXT covers subdomains; add a `_dmarc.swarm` record if we want a separate policy) — start `p=none` with `rua` reporting, move to `quarantine` once clean.
+1. Create a **domain identity** for `fhlostonswarm.com` with **Easy DKIM** (3 CNAMEs).
+2. Configure a **custom MAIL FROM** subdomain (e.g. `bounce.fhlostonswarm.com`: MX → `feedback-smtp.ap-southeast-2.amazonses.com`, TXT SPF `v=spf1 include:amazonses.com ~all`) for DMARC alignment.
+3. Publish/verify **DMARC** (`_dmarc.fhlostonswarm.com` TXT) — start `p=none` with `rua` reporting, move to `quarantine` once clean.
 4. **Request production access** (out of the SES sandbox) — do this early; it takes ~1 day. Describe: OTP + transactional only, bounce/complaint handling, opt-in only.
 5. Create a **configuration set** with event destinations (bounce/complaint/delivery → SNS → Lambda that writes a suppression list object to S3, `suppression/{emailHash}.json`).
-6. Send from `login@swarm.fhlostonadvisory.com`; set `Reply-To: support@fhlostonadvisory.com` (stays in Google Workspace).
+6. Send from `login@fhlostonswarm.com`; set `Reply-To: support@fhlostonadvisory.com` (stays in Google Workspace).
 
-### DNS (decided: delegate `swarm.` to Route 53 in the swarm account)
+### DNS (decided: dedicated domain `fhlostonswarm.com` in the swarm account)
 
-`fhlostonadvisory.com` DNS lives in another AWS account. **Recommended: delegate only the `swarm.fhlostonadvisory.com` subdomain** to a Route 53 hosted zone in the swarm account. That needs **one manual step** in the other account, and no cross-account access:
+Swarm gets its own domain, **`fhlostonswarm.com`**, registered in the swarm AWS account (885922397779), so everything (registration, DNS, certificates, CloudFront, SES) lives in one account. A Route 53 public hosted zone for it already exists in that account, and it is the authoritative zone (the domain's name servers must point at it). `fhlostonadvisory.com` and its other AWS account are not involved, so there is **no cross-account step and no manual DNS work**.
 
-1. After M0 creates the hosted zone (CDK), I give you its 4 name servers.
-2. In the other account, add an `NS` record `swarm.fhlostonadvisory.com` → those 4 name servers.
-
-From then on CDK manages everything under `swarm.` (CloudFront alias, ACM certificate validation, SES DKIM, MAIL FROM, any future records) with no further manual DNS work, and the root zone is otherwise untouched.
-
-Fallback if you'd rather not delegate: add these records manually in the other account (values are generated at deploy time): ACM validation `CNAME` (1), `swarm` alias/`CNAME` → CloudFront distribution (1), SES Easy DKIM `CNAME`s (3), MAIL FROM `MX` + SPF `TXT` on `bounce.swarm` (2), optional `_dmarc.swarm` `TXT`. Cross-account Route 53 access is possible but not needed.
+CDK looks up the existing hosted zone (`HostedZone.fromLookup`, not create) and manages all records in it: apex alias → CloudFront (A/AAAA), ACM certificate validation, SES DKIM, MAIL FROM, DMARC and any future records. The only fixed DNS items are the hosted zone and the domain registration/renewal (enable auto-renew).
 
 ### OTP flow
 
-1. `POST /auth/request {email}` — normalize email, always respond identically (no user enumeration), rate-limit per email + IP, send a 6-digit code (also include a magic link `swarm.fhlostonadvisory.com/auth/verify?token=…`).
+1. `POST /auth/request {email}` — normalize email, always respond identically (no user enumeration), rate-limit per email + IP, send a 6-digit code (also include a magic link `fhlostonswarm.com/auth/verify?token=…`).
 2. Code: CSPRNG, stored **hashed** (HMAC) with 10-minute expiry, max 5 attempts, single use. (Storage: S3, see below.)
 3. `POST /auth/verify {email, code}` → issue a session: signed JWT (`jose`) in an `HttpOnly; Secure; SameSite=Lax` cookie, short-lived (e.g. 12h) with refresh via a rotating refresh token stored server-side (revocable → fixes the "no server-side logout" finding we routinely report on others).
 4. CSRF protection for cookie-authenticated mutating calls (double-submit token or `SameSite=Strict` + origin check).
@@ -202,7 +197,7 @@ A self-serve tool that attacks customer-supplied URLs can be misused. **Decision
 3. **Terms + authorization acknowledgement** stored with timestamp/IP/email (in `input.json`). Customer confirms they are authorised to test and accept impact; the form recommends staging and says never to use production credentials.
 4. **Abuse controls:** per-user/day run caps, global concurrency cap, block lists (gov/critical-infra, our own domains, other well-known third-party SaaS/CDN hosts, cloud metadata IPs), RFC1918/link-local/IMDS blocked at the proxy (stops SSRF *from* our runners), kill switch (global + per-run, available in the staff dashboard), customers can press **Stop** at any time.
 5. **Lite free tier limits blast radius:** free runs are passive plus a **limited, read-only authenticated exploration** (login, then GET-only navigation; the proxy blocks every other state-changing request) with hard time/request/spend caps (see [section 11](#11-entitlements-lite-tier--payments)), and only for email-verified accounts.
-6. **Simple identification, no fixed egress IPs:** requests carry `User-Agent: Swarm/<version> (+https://swarm.fhlostonadvisory.com/about)`. Customers start the scan themselves against their own staging site, so recognising or allow-listing our traffic isn't our concern, and we don't need fixed egress IPs (which would require an always-on NAT gateway).
+6. **Simple identification, no fixed egress IPs:** requests carry `User-Agent: Swarm/<version> (+https://fhlostonswarm.com/about)`. Customers start the scan themselves against their own staging site, so recognising or allow-listing our traffic isn't our concern, and we don't need fixed egress IPs (which would require an always-on NAT gateway).
 7. **Verification later (designed in, switched off):** the `input.json` schema reserves `targetVerification: { method: dns|file|meta, verifiedAt }`, and the proxy takes its host list from a single allow-list function, so adding "prove you own it" (DNS TXT / `/.well-known` file / meta tag) before active testing is a small change. Recommended before heavy public launch or any paid active/authenticated testing at scale.
 
 ## 7. Backend: running the agents on AWS
@@ -396,7 +391,8 @@ Design rule: **if no scan is running, nothing expensive is running.** Verified a
 | ECS Fargate | **0** | Tasks exist only during runs; no ECS services, no EC2 |
 | Bedrock | **0** | On-demand per-token pricing only; **never provisioned throughput** |
 | ECR (agent image) | Cents/month | Lifecycle policy keeps the last few images |
-| Route 53 hosted zone (`swarm.`) | ~US$0.50/month | Fixed |
+| Route 53 hosted zone (`fhlostonswarm.com`) | ~US$0.50/month | Fixed |
+| Domain registration (`fhlostonswarm.com`) | Annual renewal (~US$13/year for `.com`; check Route 53 pricing) | Fixed |
 | AWS WAF web ACL | **Not used at launch** (0) | Optional later: ~US$5–10/month fixed for 1 ACL + a few rules |
 | CloudWatch Logs | Small | Set retention (e.g. 30 days) on every log group; no custom dashboards/metrics beyond a few alarms |
 | SSM Parameter Store | 0 | Standard tier |
@@ -411,7 +407,7 @@ Design rule: **if no scan is running, nothing expensive is running.** Verified a
 
 | # | Milestone | Outcome |
 |---|-----------|---------|
-| **M0** | Foundations | npm workspaces, CDK skeleton, data bucket, `swarm.` Route 53 zone + NS delegation + CloudFront/S3 deploy, SES identity on `swarm.fhlostonadvisory.com` (DKIM/MAIL FROM/DMARC), **SES production access requested**, Bedrock access re-tested, **log retention + AWS Budgets + idle-cost check (Pricing Calculator) in place** |
+| **M0** | Foundations | npm workspaces, CDK skeleton, data bucket, existing `fhlostonswarm.com` Route 53 zone looked up + CloudFront/S3 deploy, SES identity on `fhlostonswarm.com` (DKIM/MAIL FROM/DMARC), **SES production access requested**, Bedrock access re-tested, **log retention + AWS Budgets + idle-cost check (Pricing Calculator) in place** |
 | **M1** | UI against simulated feed | Vite app with Swarm branding: swarm visualisation, panels, findings, log — driven by the replay of the marketing-site event schema; shared `RunEvent`/`Finding` types |
 | **M2** | Auth | OTP via SES, sessions, S3 user profile, S3 conditional-write OTP/rate-limit/free-claim, staff role |
 | **M3** | Intake | New-assessment form (URL, marketing URL, 4 logins + descriptions), ToS ack, "use staging credentials, not production" notice, run delete + account delete |
@@ -429,7 +425,7 @@ The riskiest unknowns (agent quality/cost, scope enforcement) should be hit by *
 
 | Topic | Decision |
 |-------|----------|
-| Hostname | `swarm.fhlostonadvisory.com` |
+| Hostname | `fhlostonswarm.com` (dedicated domain, registered in the swarm account) |
 | Auth | Custom OTP + `jose` JWT (no Passport) |
 | Storage | S3 only, all data in one bucket (conditional writes for atomicity) |
 | Free report | **Lite**: cheap-model demo with passive checks, 1 login and limited read-only exploration, teaser report (full "what we understood" section, top findings only), hard time/request/spend caps, one per email and per target domain. Initial numbers in [section 11](#11-entitlements-lite-tier--payments) |
@@ -438,7 +434,7 @@ The riskiest unknowns (agent quality/cost, scope enforcement) should be hit by *
 | Legal / data | User can delete a run, or delete their account (removes all their data). A hash-only free-claim marker and anonymised cost records are kept after deletion (accepted) |
 | Pricing | TBD; staff dashboard measures cost per run to inform it |
 | Models | Bedrock Claude via **`au.` (Australia) inference profiles**; Sonnet-class for Full, Haiku-class for Lite/simple steps; no Opus. Initial IDs in [section 7](#agent-runtime) |
-| DNS | Delegate `swarm.fhlostonadvisory.com` to Route 53 in the swarm account (one NS record added manually in the other account) — **agreed** |
+| DNS | Dedicated domain `fhlostonswarm.com` with its Route 53 hosted zone in the swarm account; no delegation or cross-account steps |
 | Staff access | All staff have `@fhlostonadvisory.com` emails; no allow-list needed for now |
 | Inbound email | Stays in Google Workspace |
 | Brand | Swarm has its own branding: modern, exciting, AI/tech theme; placeholder identity in M1, iterate later |
@@ -452,7 +448,7 @@ No blocking questions remain. These are the actions and numbers still to settle:
 **Actions**
 
 1. **Bedrock account verification (blocker for M4).** Checked on the `swarm` profile: the `au.` Claude inference profiles are listed and `ACTIVE` in `ap-southeast-2`, but a test `Converse` call was rejected with *"Your account is currently being verified… normally takes less than 2 hours"* (contact `aws-verification@amazon.com` if it persists). Re-test before starting M4; nothing else is blocked on it.
-2. **DNS delegation:** after M0 creates the `swarm.` hosted zone, add the NS record in the other account.
+2. ✅ **Domain check (done 2026-11-08):** `fhlostonswarm.com` is registered in the swarm account (status `ACTIVE`, expires 2027-11-08, auto-renew on), and its registered name servers match the NS records of the existing Route 53 hosted zone (`Z07856792QBFWJ8CRVSA5`). Public DNS may take a little while to propagate.
 3. **SES production access** request (M0) — about a day of lead time.
 4. **ToS + privacy notice** (before any external user): authorisation acknowledgement, staging-credentials-only, data deletion behaviour, retained hash marker and anonymised cost records, automated-only/no-warranty disclaimer. Legal review is deferred but this text is needed for the intake form.
 5. **Swarm brand:** placeholder identity in M1, iterate with real use.
@@ -461,6 +457,6 @@ No blocking questions remain. These are the actions and numbers still to settle:
 
 ## 18. Immediate next steps
 
-1. M0: scaffold workspaces + CDK, data bucket, `swarm.` Route 53 hosted zone (then you add the NS delegation record), request SES production access.
+1. M0: scaffold workspaces + CDK, data bucket, look up the existing `fhlostonswarm.com` Route 53 hosted zone, request SES production access.
 2. Re-test Bedrock invocation once the account verification clears.
 3. M1: extract the site's agent roster/event schema into `src/shared`, build the live swarm view on a replayed feed with the placeholder Swarm theme.

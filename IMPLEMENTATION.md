@@ -52,7 +52,7 @@ These have waiting time, so kick them off before the phases that need them:
 |------|-----------|--------|--------------|
 | ✅ Bedrock account verification (done 2026-11-03; `converse` on Haiku 4.5 returned text) | Phase 5/6 | Wait (<2 h typical) or contact `aws-verification@amazon.com` if it persists | `aws bedrock-runtime converse --model-id au.anthropic.claude-haiku-4-5-20251001-v1:0 … --profile swarm` returns text, not `AccessDeniedException` |
 | SES production access | Phase 3 (real users) | Request after the SES identity exists (Phase 1) | `aws sesv2 get-account --profile swarm` shows `ProductionAccessEnabled: true` |
-| NS delegation record for `swarm.` | Phase 1 exit | After the hosted zone exists, add the NS record in the other AWS account | `nslookup -type=NS swarm.fhlostonadvisory.com` returns the 4 Route 53 name servers |
+| ✅ Domain + DNS check for `fhlostonswarm.com` (done 2026-11-08: `ACTIVE`, auto-renew on, name servers match the Route 53 zone) | Phase 1 start | Re-verify before the edge stack deploys | `aws route53domains get-domain-detail --domain-name fhlostonswarm.com --region us-east-1 --profile swarm` succeeds; `nslookup -type=NS fhlostonswarm.com` returns the hosted zone's 4 name servers |
 | ToS + privacy text | Phase 4 | Draft the intake acknowledgement, deletion, retained-hash and anonymised-cost wording | Text reviewed by you, stored in `src/web/content/` |
 
 ---
@@ -91,28 +91,28 @@ These have waiting time, so kick them off before the phases that need them:
 
 ## Phase 1 — Infrastructure foundation (M0)
 
-**Goal:** an empty-but-real deployed shell: the domain resolves over HTTPS to a placeholder page, the data bucket exists, SES can send from the `swarm.` subdomain, and idle cost is known.
+**Goal:** an empty-but-real deployed shell: the domain resolves over HTTPS to a placeholder page, the data bucket exists, SES can send from `fhlostonswarm.com`, and idle cost is known.
 
 **Depends on:** Phase 0.
 
 **Tasks**
 1. CDK app in `src/infra` (single environment, no stage context); bootstrap the account/region (`cdk bootstrap` for `ap-southeast-2` using the `swarm` profile).
 2. **Data stack:** S3 bucket `swarm-data-885922397779` (account ID suffix only for global name uniqueness) — SSE-S3, block public access, versioning **off**, TLS-only policy, lifecycle rules to abort incomplete multipart uploads and expire the `_test/` prefix, `removalPolicy: RETAIN`.
-3. **DNS stack:** Route 53 hosted zone `swarm.fhlostonadvisory.com`. Output the 4 name servers.
-4. **Edge stack:** private S3 bucket for the SPA + CloudFront (OAC), custom domain, HTTP→HTTPS, security headers policy (HSTS, CSP, etc.), placeholder `index.html`.
+3. **DNS stack:** look up the existing Route 53 hosted zone for `fhlostonswarm.com` (`HostedZone.fromLookup`; it already exists in the swarm account, so don't create or delegate one). All other stacks add their records to it.
+4. **Edge stack:** private S3 bucket for the SPA + CloudFront (OAC), custom domain (apex `fhlostonswarm.com` A/AAAA alias records in the hosted zone), HTTP→HTTPS, security headers policy (HSTS, CSP, etc.), placeholder `index.html`.
    - ⚠️ CloudFront certificates must live in **`us-east-1`**. That is outside the default region, so **get explicit approval before creating the ACM certificate (and bootstrapping `us-east-1`)**. Everything else stays in `ap-southeast-2`.
-   - An org SCP denies CloudFormation/SSM in `us-east-1`, so CDK cannot bootstrap or deploy there. ACM `RequestCertificate` **is** allowed (verified). Create the certificate with `aws acm request-certificate --domain-name swarm.fhlostonadvisory.com --validation-method DNS --profile swarm --region us-east-1`, add the validation CNAMEs to the Route 53 zone, and pass the issued ARN to the edge stack (deployed in `ap-southeast-2`; CloudFront is global) as config.
-5. **SES stack:** domain identity `swarm.fhlostonadvisory.com` with Easy DKIM and custom MAIL FROM (`bounce.swarm…`), configuration set with bounce/complaint SNS destinations; DKIM/MAIL FROM records created in the delegated zone.
+   - An org SCP denies CloudFormation/SSM in `us-east-1`, so CDK cannot bootstrap or deploy there. ACM `RequestCertificate` **is** allowed (verified). Create the certificate with `aws acm request-certificate --domain-name fhlostonswarm.com --validation-method DNS --profile swarm --region us-east-1`, add the validation CNAMEs to the Route 53 zone, and pass the issued ARN to the edge stack (deployed in `ap-southeast-2`; CloudFront is global) as config.
+5. **SES stack:** domain identity `fhlostonswarm.com` with Easy DKIM and custom MAIL FROM (`bounce.fhlostonswarm.com`), a DMARC TXT record (`p=none` initially), configuration set with bounce/complaint SNS destinations; DKIM/MAIL FROM/DMARC records created in the hosted zone.
 6. **Ops:** log retention (30 days) on every log group; AWS Budgets alert (US$10/month idle); `cdk-nag` (or equivalent) in synth; `swarm` CLI gets `deploy` helpers if useful (e.g. `swarm deploy`) that enforce the profile/account check, plus `swarm test-cleanup` (see the test-data rule above).
-7. Hand over the name servers; you add the NS record in the other account. Request **SES production access** once the identity verifies.
+7. Request **SES production access** once the identity verifies. No manual DNS steps are needed (the domain and zone are both in the swarm account).
 
 **Verification**
 - `npx cdk synth` produces no cdk-nag errors; `npx cdk diff` shows only intended resources.
 - `npx cdk deploy` succeeds with the `swarm` profile.
-- `nslookup -type=NS swarm.fhlostonadvisory.com` returns the Route 53 name servers (after you add the record).
-- `curl -sI https://swarm.fhlostonadvisory.com` returns `200` with HSTS and CSP headers and a valid certificate.
+- `nslookup -type=NS fhlostonswarm.com` returns the Route 53 hosted zone's name servers.
+- `curl -sI https://fhlostonswarm.com` returns `200` with HSTS and CSP headers and a valid certificate.
 - `aws ses get-identity-verification-attributes`/`aws sesv2 get-email-identity` shows the domain `VERIFIED`, DKIM `SUCCESS`, MAIL FROM `SUCCESS`.
-- Send a test email from `login@swarm.fhlostonadvisory.com` to a verified address (SES sandbox is fine) and confirm DKIM/SPF/DMARC pass in the received headers.
+- Send a test email from `login@fhlostonswarm.com` to a verified address (SES sandbox is fine) and confirm DKIM/SPF/DMARC pass in the received headers.
 - `aws s3api put-object` without TLS or `--acl public-read` is denied; bucket public access block is on.
 - **Idle-cost check:** `aws resourcegroupstaggingapi` / Cost Explorer after a day shows no NAT gateway, interface endpoints, KMS CMKs, Secrets Manager secrets or provisioned capacity; estimated idle cost ≈ US$1–5/month.
 
@@ -399,7 +399,7 @@ These have waiting time, so kick them off before the phases that need them:
 | Type check / unit tests / lint | `npm run typecheck`, `npm test`, `npm run lint` |
 | Infra diff / synth | `npx cdk diff`, `npx cdk synth` (with `AWS_PROFILE=swarm`) |
 | Confirm AWS identity | `aws sts get-caller-identity --profile swarm` |
-| DNS | `nslookup -type=NS swarm.fhlostonadvisory.com`, `curl -sI https://swarm.fhlostonadvisory.com` |
+| DNS | `nslookup -type=NS fhlostonswarm.com`, `curl -sI https://fhlostonswarm.com` |
 | Bedrock access | `aws bedrock list-inference-profiles --region ap-southeast-2 --profile swarm`; a `converse` smoke call |
 | S3 contents | `aws s3 ls s3://swarm-data-885922397779/ --recursive --profile swarm` |
 | Running tasks (should be none when idle) | `aws ecs list-tasks --cluster swarm --profile swarm` |
