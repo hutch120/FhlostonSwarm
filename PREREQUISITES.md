@@ -56,7 +56,7 @@ Export a full backup any time:
 
 ## 6. Added by Phase 1 (CDK, not manual)
 
-Apex alias to CloudFront (once the certificate ARN is configured), CAA record, SES DKIM CNAMEs, `bounce.` MAIL FROM, `_dmarc` TXT, the data bucket, budgets and so on, all via `swarm deploy`. The Google Workspace records above stay manual unless the `googleWorkspace` block in `src/infra/config/swarm.json` is filled in (delete the manual ones first). The CloudFront ACM certificate is the one manual exception: it must be requested in `us-east-1` (see Phase 1 in [IMPLEMENTATION.md](./IMPLEMENTATION.md)).
+Apex alias to CloudFront, CAA record, SES DKIM CNAMEs, `bounce.` MAIL FROM, `_dmarc` TXT, the data bucket, budgets and so on, all via `swarm deploy`. The Google Workspace records above stay manual unless the `googleWorkspace` block in `src/infra/config/swarm.json` is filled in (delete the manual ones first). The CloudFront ACM certificate is the one manual exception: it was requested in `us-east-1` by CLI (ARN in `src/infra/config/swarm.json`), and its DNS validation CNAME (`_2685cd7e54a5807f7e0d471d23da1148.fhlostonswarm.com`) was added to the zone by hand and must be kept for renewal. To rebuild: `aws acm request-certificate --domain-name fhlostonswarm.com --validation-method DNS --profile swarm --region us-east-1`, add the validation CNAME, then update the ARN.
 
 ## 7. Out-of-band items to keep safe
 

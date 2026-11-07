@@ -3,7 +3,7 @@
   "region": "ap-southeast-2",
   "domainName": "fhlostonswarm.com",
   "hostedZoneId": "Z07856792QBFWJ8CRVSA5",
-  "cloudfrontCertificateArn": null,
+  "cloudfrontCertificateArn": "arn:aws:acm:us-east-1:885922397779:certificate/74522cad-8ad3-4b2d-a2c3-dd9b67f218d1",
   "alertEmail": "support@fhlostonswarm.com",
   "idleBudgetUsd": 10,
   "logRetentionDays": 30,

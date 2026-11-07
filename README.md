@@ -42,4 +42,4 @@ swarm test-cleanup           # list test data (_test/ objects, test:true records
 swarm test-cleanup --delete  # remove it
 ```
 
-The CloudFront certificate lives in `us-east-1` and is requested by hand; see Phase 1 in [IMPLEMENTATION.md](./IMPLEMENTATION.md).
+The CloudFront certificate lives in `us-east-1` and was requested by hand (an org SCP blocks CloudFormation there); its ARN is in the config. See Phase 1 in [IMPLEMENTATION.md](./IMPLEMENTATION.md).
