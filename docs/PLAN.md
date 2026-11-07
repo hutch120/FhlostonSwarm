@@ -71,7 +71,8 @@ src/
   agents/     Agent runtime (container image), tool implementations, prompts loader
   infra/      AWS CDK app (stacks: edge, auth, data, runs, agents, reports, billing)
   shared/     Types: run events, findings schema, API contracts (zod)
-instructions/ Baseline methodology (existing) — versioned + bundled as agent prompt templates
+docs/         Plan, implementation notes, prerequisites, sample prompts, example report, email drafts
+  instructions/ Baseline methodology (existing) — versioned + bundled as agent prompt templates
 utils/        Existing CLI (swarm login, later: swarm deploy / swarm run-local)
 ```
 

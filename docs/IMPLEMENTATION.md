@@ -68,7 +68,7 @@ These have waiting time, so kick them off before the phases that need them:
 2. ✅ Add test runner (Vitest), linting (ESLint + typescript-eslint) and formatting (Prettier) with `npm test`, `npm run lint`, `npm run format:check` scripts.
 3. ✅ Add `src/shared` skeleton with zod and a first schema + test (placeholder `Result`/ids), proving cross-workspace imports.
 4. ✅ Add an `.editorconfig`, update `.gitignore` (`cdk.out`, `dist`, `.env*`, `coverage`).
-5. ✅ Update [README.md](./README.md) with the dev workflow (install, typecheck, test, lint) and link to PLAN.md/IMPLEMENTATION.md.
+5. ✅ Update [README.md](../README.md) with the dev workflow (install, typecheck, test, lint) and link to PLAN.md/IMPLEMENTATION.md.
 
 **Verification**
 - ✅ `npm install` succeeds from a clean clone (delete `node_modules`, reinstall). *(Verified 2026-11-04: deleted `node_modules` and `package-lock.json`, reinstalled; all six `@swarm/*` workspaces link, `npm ls @swarm/shared` shows it deduped into each.)*

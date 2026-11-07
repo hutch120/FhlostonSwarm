@@ -3,8 +3,8 @@ dist
 cdk.out
 coverage
 package-lock.json
-example-report.html
-PLAN.md
-IMPLEMENTATION.md
-instructions
+docs/example-report.html
+docs/PLAN.md
+docs/IMPLEMENTATION.md
+docs/instructions
 .github

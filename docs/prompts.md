@@ -15,6 +15,6 @@ When done, update IMPLEMENTATION.md:
 - Mark each completed task and verification step with ✅ and add a short result note with the date, in the same style as Phase 0. Leave anything not done or not verifiable unticked and say why.
 - Tick the phase in the Progress tracker only if all exit criteria are met.
 - Add a "Notes" section under the phase with decisions, deviations from the plan, gotchas, resource names/ARNs and anything a later phase needs to know.
-- Update [README.md](./README.md) and any other docs directly affected.
+- Update [README.md](../README.md) and any other docs directly affected.
 
 Then commit with a message such as `Phase n: <short summary>` and push directly to `main`. Finish with a brief summary of what was done and anything outstanding.

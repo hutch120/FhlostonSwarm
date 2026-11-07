@@ -10,7 +10,7 @@ export default tseslint.config(
       "**/dist/**",
       "**/cdk.out/**",
       "**/coverage/**",
-      "example-report.html",
+      "docs/example-report.html",
     ],
   },
   js.configs.recommended,

@@ -18,7 +18,7 @@ If the account later uses IAM Identity Center, run `swarm login --sso --start-ur
 
 ## Development
 
-See [PLAN.md](./PLAN.md) for the product design, [IMPLEMENTATION.md](./IMPLEMENTATION.md) for the phased build plan, and [PREREQUISITES.md](./PREREQUISITES.md) for the manual account/domain/email setup (rebuild and disaster recovery).
+See [PLAN.md](./docs/PLAN.md) for the product design, [IMPLEMENTATION.md](./docs/IMPLEMENTATION.md) for the phased build plan, and [PREREQUISITES.md](./docs/PREREQUISITES.md) for the manual account/domain/email setup (rebuild and disaster recovery). All of these live in [docs/](./docs).
 
 The repo is an npm workspaces monorepo: `src/{web,api,agents,infra,shared,synthetic-target}` are the application (packages `@swarm/*`); `swarm.ts` + `utils/` are the ops CLI.
 
@@ -42,4 +42,4 @@ swarm test-cleanup           # list test data (_test/ objects, test:true records
 swarm test-cleanup --delete  # remove it
 ```
 
-The CloudFront certificate lives in `us-east-1` and was requested by hand (an org SCP blocks CloudFormation there); its ARN is in the config. See Phase 1 in [IMPLEMENTATION.md](./IMPLEMENTATION.md).
+The CloudFront certificate lives in `us-east-1` and was requested by hand (an org SCP blocks CloudFormation there); its ARN is in the config. See Phase 1 in [IMPLEMENTATION.md](./docs/IMPLEMENTATION.md).
