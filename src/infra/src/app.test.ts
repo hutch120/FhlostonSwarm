@@ -116,13 +116,12 @@ describe("infrastructure app", () => {
     t.resourceCountIs("AWS::CloudFront::OriginAccessControl", 1);
   });
 
-  it("only attaches the apex domain once the us-east-1 certificate is configured", () => {
-    template("SwarmEdge").resourceCountIs("AWS::Route53::RecordSet", 0);
+  it("attaches the apex domain only when the us-east-1 certificate is configured", () => {
+    synth({ cloudfrontCertificateArn: null })
+      .template("SwarmEdge")
+      .resourceCountIs("AWS::Route53::RecordSet", 0);
 
-    const withCert = synth({
-      cloudfrontCertificateArn:
-        "arn:aws:acm:us-east-1:885922397779:certificate/00000000-0000-0000-0000-000000000000",
-    }).template("SwarmEdge");
+    const withCert = template("SwarmEdge");
     withCert.hasResourceProperties("AWS::CloudFront::Distribution", {
       DistributionConfig: Match.objectLike({ Aliases: ["fhlostonswarm.com"] }),
     });
