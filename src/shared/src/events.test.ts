@@ -68,10 +68,13 @@ describe("event schema", () => {
       "finding outcome without a finding",
       {
         ...findingFinish,
-        payload: { outcome: "finding", stepId: "s", label: "l", requests: 1, spendUsd: 0 },
+        payload: { outcome: "finding", stepId: "s", label: "l", requests: 1 },
       },
     ],
-    ["negative spend", { ...findingFinish, payload: { ...findingFinish.payload, spendUsd: -1 } }],
+    [
+      "negative requests",
+      { ...findingFinish, payload: { ...findingFinish.payload, requests: -1 } },
+    ],
     [
       "verify without a verdict",
       {
@@ -125,7 +128,7 @@ describe("roster", () => {
 
 describe("tier config", () => {
   it("parses the shipped config", () => {
-    expect(tiers.lite.spendCapUsd).toBe(0.5);
+    expect(tiers.lite.wallClockMinutes).toBe(6);
     expect(tiers.lite.teaserFindings).toBe(2);
     expect(tiers.lite.steering).toBe(false);
     expect(tiers.full.logins).toBe(4);
@@ -134,7 +137,7 @@ describe("tier config", () => {
 
   it("rejects invalid tiers", () => {
     expect(tierConfigSchema.safeParse({ ...tiers.lite, logins: 9 }).success).toBe(false);
-    expect(tierConfigSchema.safeParse({ ...tiers.lite, spendCapUsd: 0 }).success).toBe(false);
+    expect(tierConfigSchema.safeParse({ ...tiers.lite, wallClockMinutes: 0 }).success).toBe(false);
     expect(tiersConfigSchema.safeParse({ lite: tiers.full, full: tiers.full }).success).toBe(false);
     expect(tiersConfigSchema.safeParse({ lite: tiers.lite }).success).toBe(false);
   });

@@ -30,7 +30,6 @@ interface AgentPlan {
   task: string;
   doneSummary: string;
   requestsPerStep: number;
-  usdPerStep: number;
   /** One outcome per step in the roster, in order. */
   steps: Outcome[];
 }
@@ -66,7 +65,7 @@ const PLAN: Record<string, AgentPlan> = {
     task: "Map the DNS footprint of the declared hosts",
     doneSummary: "DNS footprint mapped: 4 hosts, no dangling records.",
     requestsPerStep: 6,
-    usdPerStep: 0.012,
+
     steps: [
       info("4 hosts resolve; MX points at a managed mail provider."),
       clear,
@@ -88,7 +87,7 @@ const PLAN: Record<string, AgentPlan> = {
     task: "Crawl and fingerprint the public application",
     doneSummary: "62 pages crawled, 14 API endpoints enumerated.",
     requestsPerStep: 28,
-    usdPerStep: 0.05,
+
     steps: [
       info("62 public pages discovered."),
       found(
@@ -110,7 +109,7 @@ const PLAN: Record<string, AgentPlan> = {
     task: "Analyse the shipped JavaScript bundles",
     doneSummary: "3 bundles analysed; source maps exposed, no secrets found.",
     requestsPerStep: 12,
-    usdPerStep: 0.07,
+
     steps: [
       clear,
       clear,
@@ -131,7 +130,7 @@ const PLAN: Record<string, AgentPlan> = {
     task: "Assess transport security",
     doneSummary: "TLS 1.2/1.3 only; chain valid; HSTS present.",
     requestsPerStep: 10,
-    usdPerStep: 0.02,
+
     steps: [
       found(
         "F-11",
@@ -152,7 +151,7 @@ const PLAN: Record<string, AgentPlan> = {
     task: "Run the passive scanner sweep",
     doneSummary: "Passive sweep finished across 62 pages.",
     requestsPerStep: 34,
-    usdPerStep: 0.09,
+
     steps: [
       found(
         "F-07",
@@ -174,7 +173,7 @@ const PLAN: Record<string, AgentPlan> = {
     task: "Probe cross-origin policy",
     doneSummary: "CORS reviewed; one credentialed misconfiguration.",
     requestsPerStep: 18,
-    usdPerStep: 0.04,
+
     steps: [
       clear,
       found(
@@ -195,7 +194,7 @@ const PLAN: Record<string, AgentPlan> = {
     task: "Exercise authentication for the declared roles",
     doneSummary: "3 roles signed in; MFA could not be exercised.",
     requestsPerStep: 22,
-    usdPerStep: 0.11,
+
     steps: [
       info("admin, user1 and user2 signed in successfully."),
       clear,
@@ -211,7 +210,7 @@ const PLAN: Record<string, AgentPlan> = {
     task: "Review session handling",
     doneSummary: "Session handling reviewed; one candidate issue.",
     requestsPerStep: 16,
-    usdPerStep: 0.08,
+
     steps: [
       clear,
       clear,
@@ -232,7 +231,7 @@ const PLAN: Record<string, AgentPlan> = {
     task: "Build and test the role access matrix",
     doneSummary: "Access matrix built; admin API exposed to standard users.",
     requestsPerStep: 40,
-    usdPerStep: 0.16,
+
     steps: [
       info("Matrix built: 3 roles across 14 endpoints."),
       clear,
@@ -254,7 +253,7 @@ const PLAN: Record<string, AgentPlan> = {
     task: "Probe the AI features for prompt-level weaknesses",
     doneSummary: "Support assistant leaks its system prompt.",
     requestsPerStep: 24,
-    usdPerStep: 0.18,
+
     steps: [
       info("One AI feature found: the in-app support assistant."),
       clear,
@@ -275,7 +274,7 @@ const PLAN: Record<string, AgentPlan> = {
     task: "Check how model output is handled",
     doneSummary: "Output rendering is unsafe; limits present.",
     requestsPerStep: 20,
-    usdPerStep: 0.15,
+
     steps: [
       found(
         "F-05",
@@ -296,7 +295,7 @@ const PLAN: Record<string, AgentPlan> = {
     task: "Test object-level access and workflow logic",
     doneSummary: "Invoices readable across accounts; export untested.",
     requestsPerStep: 36,
-    usdPerStep: 0.14,
+
     steps: [
       info("Sequential numeric invoice and ticket IDs observed."),
       found(
@@ -426,7 +425,7 @@ function draftAgentEvents(timed: Timed[], raisedAt: Map<string, number>): void {
       const finishAt = startAt + Math.round(plan.stepMs * 0.78);
       lastFinish = finishAt;
       const planned = plan.steps[i]!;
-      const cost = { requests: plan.requestsPerStep, spendUsd: plan.usdPerStep };
+      const cost = { requests: plan.requestsPerStep };
       const ref = { stepId: step.id, label: step.label };
       timed.push({ at: startAt, draft: { type: "start", agent: spec.id, payload: ref } });
 

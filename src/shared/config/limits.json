@@ -1,0 +1,22 @@
+{
+  "lite": {
+    "modelId": "au.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "pageCap": 25,
+    "llmStepCap": 40,
+    "requestCap": 150,
+    "requestsPerSecond": 2,
+    "tokenCap": { "input": 400000, "output": 20000 },
+    "spendCapUsd": 0.5,
+    "concurrency": 3
+  },
+  "full": {
+    "modelId": "au.anthropic.claude-sonnet-4-6",
+    "pageCap": null,
+    "llmStepCap": null,
+    "requestCap": 3000,
+    "requestsPerSecond": 5,
+    "tokenCap": null,
+    "spendCapUsd": 15,
+    "concurrency": 2
+  }
+}

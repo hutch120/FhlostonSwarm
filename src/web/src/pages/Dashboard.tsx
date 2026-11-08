@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
 import { api } from "../api/client.js";
-import { capitalise, formatClock, formatDateTime, formatUsd } from "../format.js";
+import { capitalise, formatClock, formatDateTime } from "../format.js";
 
 export function Dashboard() {
   const runs = useQuery({ queryKey: ["runs"], queryFn: () => api.listRuns() });
@@ -60,7 +60,7 @@ export function Dashboard() {
                   <th scope="col">Started</th>
                   <th scope="col">Duration</th>
                   <th scope="col">Findings</th>
-                  <th scope="col">Cost</th>
+                  <th scope="col">Coverage</th>
                   <th scope="col">
                     <span className="sr-only">Actions</span>
                   </th>
@@ -88,7 +88,7 @@ export function Dashboard() {
                         </span>
                       )}
                     </td>
-                    <td>{formatUsd(s.spendUsd)}</td>
+                    <td>{Math.round(s.coverage * 100)}%</td>
                     <td className="actions">
                       <Link to={`/runs/${s.runId}`}>Watch</Link>
                       <Link to={`/runs/${s.runId}/report`}>Report</Link>

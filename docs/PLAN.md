@@ -101,7 +101,7 @@ utils/        Existing CLI (swarm login, later: swarm deploy / swarm run-local)
    - Authorization acknowledgement (checkbox + timestamp + IP stored): "I am authorised to test these systems."
 4. **Live swarm view** (the hero)
    - Futuristic canvas: agents render as glowing faces swarming around the target "core", with beams/pulses when an agent probes an endpoint, colour-coded by area (reuse the site's 12-agent palette/faces).
-   - Side panels: per-area progress, live findings (severity + verified badge), event log, checks counter, token/cost-budget meter.
+   - Side panels: per-area progress, live findings (severity + verified badge), event log, checks counter, coverage meter (percent of planned work covered; never dollars, tokens or caps, see [revenue.md](./revenue.md#2-stop-exposing-cost-to-customers)).
    - Tech: PixiJS (WebGL) or plain Canvas 2D for the swarm; React for panels. Respect `prefers-reduced-motion` and provide a low-power mode.
    - Click an agent → its current task, recent steps, and a "steer this agent" box.
 5. **Steering panel** — see [section 9](#9-steering-the-agents).
@@ -321,6 +321,8 @@ Mechanics: messages go to `POST /runs/{id}/steer` → stored as events → an **
 
   Dollar caps are estimates to be checked against the current Bedrock price list once invocation works; token and spend caps are enforced from the metered Converse usage.
 
+  **Caps are internal, not product features.** Model, request, token and spend caps live in server-only config (`src/shared/config/limits.json`, exposed only through `@swarm/shared/server`); the public tier descriptor (`tiers.json`) carries scope and entitlements only (logins, time, areas, teaser count, steering). Customers never see dollars, tokens, model names or caps in the UI, API responses or event stream. They see **coverage** (share of planned work done) and honest scope gaps. When a cap stops a run, the report says which areas were not covered ("coverage limit reached for this tier"), never "spend limit reached". Per-step dollar cost travels on a separate staff-only channel (section 12). See [revenue.md](./revenue.md).
+
 - **Stripe Checkout** (one-off per full report) → webhook → credit. Stripe Tax for AU GST. Customer portal for invoices. Subscription + metered usage for scheduled runs.
 - **Pricing: TBD.** Prices will be set from measured cost per run (see [section 12](#12-staff-support-dashboard--cost-tracking)): `price ≈ measured_cost × margin`, plus a floor. Placeholders to fill in later: Full report **$TBD**, scheduled run **$TBD/run** (the Lite spend ceiling already has an initial value in the tier config above).
 - **Free-tier abuse controls** (temp-email farming):
@@ -335,7 +337,7 @@ Mechanics: messages go to `POST /runs/{id}/steer` → stored as events → an **
 
 A `/staff` area in the same app, only for sessions with `role: staff` (derived from an `@fhlostonswarm.com` email at login, see [section 5](#where-data-lives-s3-only-decided)). Staff API routes re-check the role server-side on every call; the SPA hiding the menu is not the control. Staff views never show customer test passwords by default.
 
-**Per-run cost capture** (written by the agent runtime and orchestrator to `cost.json`, copied anonymised to `admin/run-index/…`):
+**Per-run cost capture** (written by the agent runtime and orchestrator to `cost.json`, copied anonymised to `admin/run-index/…`). This data is **staff-only**: it is not on the customer event stream, summary or report, and staff routes serve it behind the server-side role check:
 
 | Cost component | Captured from | Notes |
 |----------------|---------------|-------|

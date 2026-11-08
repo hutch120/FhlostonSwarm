@@ -37,7 +37,7 @@ const liteSummary: Summary = {
   durationMs: 348_000,
   checks: 22,
   requests: 118,
-  spendUsd: 0.31,
+  coverage: 0.86,
   findings: {
     total: 5,
     verified: 2,

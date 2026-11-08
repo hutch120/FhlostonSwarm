@@ -97,7 +97,8 @@ export const summarySchema = z.object({
   durationMs: z.number().int().nonnegative(),
   checks: z.number().int().nonnegative(),
   requests: z.number().int().nonnegative(),
-  spendUsd: z.number().nonnegative(),
+  /** 0..1 share of the planned work for this run's scope that has been covered. */
+  coverage: z.number().min(0).max(1),
   findings: z.object({
     total: z.number().int().nonnegative(),
     verified: z.number().int().nonnegative(),
@@ -123,10 +124,9 @@ const stepRef = {
   label: z.string().min(1),
 };
 
-/** Optional cost telemetry attached to finished steps; feeds the budget meter. */
+/** Per-step activity shown to the customer. Dollar cost is deliberately not part of this stream. */
 const costFields = {
   requests: z.number().int().nonnegative(),
-  spendUsd: z.number().nonnegative(),
 };
 
 const finishPayloadSchema = z.discriminatedUnion("outcome", [

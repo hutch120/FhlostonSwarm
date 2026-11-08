@@ -42,7 +42,7 @@ npx playwright install chromium   # one-off, for the end-to-end smoke tests
 npm run test:e2e -w src/web    # Playwright smoke tests (starts the dev server)
 ```
 
-The replay accepts `?speed=<n>` (e.g. `/demo?speed=8`) and `?autoplay=0`. Colours and the look live in `src/web/src/theme.ts`; Lite/Full limits live in `src/shared/config/tiers.json`.
+The replay accepts `?speed=<n>` (e.g. `/demo?speed=8`) and `?autoplay=0`. Colours and the look live in `src/web/src/theme.ts`; the customer-facing Lite/Full scope lives in `src/shared/config/tiers.json` and the server-only cost limits in `src/shared/config/limits.json`.
 
 ## Infrastructure
 

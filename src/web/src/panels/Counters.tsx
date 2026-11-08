@@ -1,5 +1,5 @@
-import { tiers, type RunState } from "@swarm/shared";
-import { formatClock, formatUsd } from "../format.js";
+import { selectCoverage, type RunState } from "@swarm/shared";
+import { formatClock } from "../format.js";
 
 function Meter({
   label,
@@ -39,9 +39,8 @@ function Meter({
   );
 }
 
-/** Checks counter and the cost/request budget against the tier's caps. */
+/** Checks counter and how much of the planned work for this scope is covered (never dollars). */
 export function Counters({ state }: { state: RunState }) {
-  const tier = tiers[state.tier];
   const elapsed =
     state.startedAt && state.lastEventAt
       ? Date.parse(state.lastEventAt) - Date.parse(state.startedAt)
@@ -70,16 +69,10 @@ export function Counters({ state }: { state: RunState }) {
         </div>
       </dl>
       <Meter
-        label="Spend budget"
-        value={state.spendUsd}
-        max={tier.spendCapUsd}
-        text={`${formatUsd(state.spendUsd)} of ${formatUsd(tier.spendCapUsd)}`}
-      />
-      <Meter
-        label="Request budget"
-        value={state.requests}
-        max={tier.requestCap}
-        text={`${state.requests} of ${tier.requestCap}`}
+        label="Coverage"
+        value={Math.round(selectCoverage(state) * 100)}
+        max={100}
+        text={`${Math.round(selectCoverage(state) * 100)}%`}
       />
     </section>
   );

@@ -64,8 +64,6 @@ export function formatClock(ms: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export const formatUsd = (n: number) => `$${n.toFixed(2)}`;
-
 export const formatDateTime = (iso: string) =>
   new Date(iso).toLocaleString("en-AU", {
     dateStyle: "medium",

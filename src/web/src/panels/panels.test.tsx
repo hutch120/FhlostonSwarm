@@ -119,22 +119,20 @@ describe("EventLog", () => {
 });
 
 describe("Counters", () => {
-  it("shows checks, requests, gaps and the spend budget", () => {
+  it("shows checks, requests, gaps and coverage", () => {
     render(<Counters state={finished()} />);
     expect(screen.getByTestId("checks-count")).toHaveTextContent("41");
     expect(screen.getByTestId("requests-count")).toHaveTextContent("974");
     expect(screen.getByTestId("gaps-count")).toHaveTextContent("3");
-    const budget = screen.getByRole("meter", { name: "Spend budget" });
-    expect(budget).toHaveAttribute("aria-valuetext", "$3.89 of $15.00");
-    expect(budget).toHaveAttribute("aria-valuemax", "15");
+    const coverage = screen.getByRole("meter", { name: "Coverage" });
+    expect(coverage).toHaveAttribute("aria-valuetext", "100%");
+    expect(coverage).toHaveAttribute("aria-valuemax", "100");
   });
 
-  it("measures the Lite budget against the Lite caps", () => {
-    render(<Counters state={fresh("lite")} />);
-    expect(screen.getByRole("meter", { name: "Spend budget" })).toHaveAttribute(
-      "aria-valuetext",
-      "$0.00 of $0.50",
-    );
+  it("starts at no coverage and never shows dollars or caps", () => {
+    const { container } = render(<Counters state={fresh("lite")} />);
+    expect(screen.getByRole("meter", { name: "Coverage" })).toHaveAttribute("aria-valuetext", "0%");
+    expect(container).not.toHaveTextContent(/\$|budget|spend|cap/i);
   });
 });
 

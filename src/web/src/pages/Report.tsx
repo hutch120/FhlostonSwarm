@@ -10,7 +10,7 @@ import {
 } from "@swarm/shared";
 import { useMemo } from "react";
 import { Link } from "react-router";
-import { capitalise, formatClock, formatUsd } from "../format.js";
+import { capitalise, formatClock } from "../format.js";
 import { SeverityBadge, VerifiedBadge } from "../panels/FindingsPanel.js";
 
 const SECTIONS = [
@@ -49,7 +49,7 @@ export function Report() {
           <h1>Report</h1>
           <p className="muted">
             <code>{DEMO_TARGET}</code> · {capitalise(summary.tier)} run ·{" "}
-            {formatClock(summary.durationMs)} · {formatUsd(summary.spendUsd)}
+            {formatClock(summary.durationMs)} · {Math.round(summary.coverage * 100)}% coverage
           </p>
         </div>
         <div className="actions-row">

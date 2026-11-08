@@ -71,7 +71,6 @@ export interface RunState {
   log: RunEvent[];
   checks: number;
   requests: number;
-  spendUsd: number;
   /** The backend's authoritative summary, set by the `complete` event. */
   summary: Summary | null;
 }
@@ -116,7 +115,6 @@ export function createRunState(init: RunStateInit): RunState {
     log: [],
     checks: 0,
     requests: 0,
-    spendUsd: 0,
     summary: null,
   };
 }
@@ -188,7 +186,6 @@ export function applyEvent(state: RunState, event: RunEvent): RunState {
         ...base,
         checks: base.checks + (payload.outcome === "gap" ? 0 : 1),
         requests: base.requests + payload.requests,
-        spendUsd: roundUsd(base.spendUsd + payload.spendUsd),
         findings:
           finding && !known ? [...base.findings, finding].sort(compareFindings) : base.findings,
         agents: withAgent(base, event.agent, (a) => {
@@ -281,7 +278,12 @@ export function applyEvents(state: RunState, events: readonly RunEvent[]): RunSt
   return events.reduce(applyEvent, state);
 }
 
-const roundUsd = (n: number) => Math.round(n * 10_000) / 10_000;
+/** 0..1 share of the planned work covered so far: the mean progress of every agent in scope. */
+export function selectCoverage(state: RunState): number {
+  const agents = Object.values(state.agents);
+  if (agents.length === 0) return 0;
+  return agents.reduce((sum, a) => sum + a.progress, 0) / agents.length;
+}
 
 export function countBySeverity(findings: readonly Finding[]): Record<Severity, number> {
   const counts = Object.fromEntries(SEVERITIES.map((s) => [s, 0])) as Record<Severity, number>;
@@ -303,7 +305,7 @@ export function summarise(state: RunState): Summary {
     durationMs: Math.max(0, Date.parse(end) - Date.parse(startedAt)),
     checks: state.checks,
     requests: state.requests,
-    spendUsd: state.spendUsd,
+    coverage: Math.round(selectCoverage(state) * 1000) / 1000,
     findings: {
       total: state.findings.length,
       verified: state.findings.filter((f) => f.verified).length,

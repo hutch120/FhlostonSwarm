@@ -33,7 +33,7 @@ function TierCard({
           {tier.logins} login{tier.logins === 1 ? "" : "s"}, up to {tier.wallClockMinutes} minutes
         </li>
         <li>
-          {tier.requestCap.toLocaleString("en-AU")} requests, spend cap ${tier.spendCapUsd}
+          {tier.areas.length} testing area{tier.areas.length === 1 ? "" : "s"}
         </li>
         <li>
           {tier.teaserFindings === null
