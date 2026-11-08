@@ -1,13 +1,14 @@
 import { DEMO_RUN_ID } from "@swarm/shared";
 import type { IntakeValues } from "../intake.js";
+import type { Role } from "../state/session.js";
+import { createHttpAuthApi, type AuthApi } from "./http.js";
 import { MOCK_ACCOUNT, MOCK_RUNS, type AccountInfo, type RunListItem } from "./mock.js";
 
 export type { AccountInfo, RunListItem } from "./mock.js";
+export { ApiError, messageFor } from "./http.js";
 
-/** The API surface the screens use. Every method is a stub until the backend exists. */
-export interface ApiClient {
-  requestCode(email: string): Promise<{ sent: true }>;
-  verifyCode(email: string, code: string): Promise<{ email: string }>;
+/** The API surface the screens use. Auth and account are real; runs are still mock until Phase 4. */
+export interface ApiClient extends AuthApi {
   listRuns(): Promise<RunListItem[]>;
   getAccount(): Promise<AccountInfo>;
   submitIntake(values: IntakeValues): Promise<{ runId: string }>;
@@ -15,13 +16,24 @@ export interface ApiClient {
   deleteAccount(): Promise<void>;
 }
 
-/** No network: returns fixed data so every screen can be built and reviewed offline. */
+const mockRole = (email: string): Role =>
+  email.trim().toLowerCase().endsWith("@fhlostonswarm.com") ? "staff" : "customer";
+
+/** No network: fixed data and a fake sign-in (any 6-digit code), for component tests and offline review. */
 export const mockApi: ApiClient = {
   requestCode: async () => ({ sent: true }),
   verifyCode: async (email, code) => {
     if (!/^\d{6}$/.test(code)) throw new Error("Enter the 6-digit code");
-    return { email };
+    const address = email.trim().toLowerCase();
+    return { user: { email: address, role: mockRole(address) }, csrfToken: "mock-csrf" };
   },
+  verifyLink: async () => ({
+    user: { email: "buyer@example.com", role: "customer" },
+    csrfToken: "mock-csrf",
+  }),
+  getSession: async () => ({ authenticated: false }),
+  logout: async () => undefined,
+  staffWhoami: async () => ({ email: "staff@fhlostonswarm.com", role: "staff" }),
   listRuns: async () => MOCK_RUNS,
   getAccount: async () => MOCK_ACCOUNT,
   // Nothing is sent or stored in this phase; the credentials never leave the form.
@@ -30,4 +42,11 @@ export const mockApi: ApiClient = {
   deleteAccount: async () => undefined,
 };
 
-export const api: ApiClient = mockApi;
+export const httpApi: ApiClient = { ...mockApi, ...createHttpAuthApi() };
+
+/** The client the screens call. Tests swap in `mockApi` with `setApi`. */
+export let api: ApiClient = httpApi;
+
+export function setApi(next: ApiClient): void {
+  api = next;
+}

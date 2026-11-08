@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { cdk, type CdkAction } from "./utils/deploy.js";
 import { login } from "./utils/login.js";
 import { requireSwarmAccount } from "./utils/aws.js";
+import { initSecrets } from "./utils/secrets.js";
 import { testCleanup } from "./utils/test-cleanup.js";
 
 const program = new Command();
@@ -46,6 +47,21 @@ for (const action of ["deploy", "diff", "synth"] as CdkAction[]) {
       }
     });
 }
+
+program
+  .command("init-secrets")
+  .description(
+    "Create the auth pepper and JWT key as SSM SecureStrings if missing (never overwrites)",
+  )
+  .action(async () => {
+    try {
+      await requireSwarmAccount();
+      await initSecrets();
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exitCode = 1;
+    }
+  });
 
 program
   .command("test-cleanup")

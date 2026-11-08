@@ -7,6 +7,9 @@ export interface DataStackProps extends StackProps {
   config: SwarmConfig;
 }
 
+/** Global bucket names need the account suffix; also used by stacks that cannot import the bucket. */
+export const dataBucketName = (config: SwarmConfig) => `swarm-data-${config.account}`;
+
 /** The single S3 data bucket (see PLAN.md "Where data lives"). */
 export class DataStack extends Stack {
   readonly bucket: Bucket;
@@ -15,7 +18,7 @@ export class DataStack extends Stack {
     super(scope, id, props);
 
     this.bucket = new Bucket(this, "DataBucket", {
-      bucketName: `swarm-data-${props.config.account}`,
+      bucketName: dataBucketName(props.config),
       encryption: BucketEncryption.S3_MANAGED,
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
       objectOwnership: ObjectOwnership.BUCKET_OWNER_ENFORCED,
@@ -26,6 +29,9 @@ export class DataStack extends Stack {
       lifecycleRules: [
         { id: "abort-incomplete-multipart", abortIncompleteMultipartUploadAfter: Duration.days(1) },
         { id: "expire-test-data", prefix: "_test/", expiration: Duration.days(1) },
+        // Backstops: expiry is enforced in code, these only tidy abandoned challenges and counters.
+        { id: "expire-otp", prefix: "auth/otp/", expiration: Duration.days(1) },
+        { id: "expire-ratelimit", prefix: "auth/ratelimit/", expiration: Duration.days(2) },
       ],
     });
 

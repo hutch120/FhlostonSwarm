@@ -1,4 +1,6 @@
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
+import { api } from "../api/client.js";
 import { useSession } from "../state/session.js";
 
 const VIEWS = [
@@ -10,11 +12,28 @@ const VIEWS = [
   "Health",
 ] as const;
 
-/** Gated placeholder. The role check that matters is server-side (Phase 3); this only hides the UI. */
+/**
+ * Staff area. The role here only decides what to show: the server re-checks it on every request, and
+ * this page asks it (/api/staff/whoami) before showing anything.
+ */
 export function Staff() {
-  const role = useSession((s) => s.role);
+  const { status, role } = useSession();
+  const whoami = useQuery({
+    queryKey: ["staff-whoami"],
+    queryFn: () => api.staffWhoami(),
+    enabled: role === "staff",
+    retry: false,
+  });
 
-  if (role !== "staff") {
+  if (status === "loading") {
+    return (
+      <p className="muted" role="status">
+        Loading…
+      </p>
+    );
+  }
+
+  if (role !== "staff" || whoami.isError) {
     return (
       <section className="card narrow" aria-labelledby="staff-title" data-testid="staff-denied">
         <h1 id="staff-title">Staff only</h1>
@@ -35,6 +54,9 @@ export function Staff() {
         <h2 id="views-title" className="card-title">
           Planned views
         </h2>
+        <p className="muted" data-testid="staff-verified">
+          {whoami.data ? `The server confirmed you as staff (${whoami.data.email}).` : "Checking…"}
+        </p>
         <p className="muted">Placeholder. These arrive with the staff dashboard phase.</p>
         <ul>
           {VIEWS.map((v) => (

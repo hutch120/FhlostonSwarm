@@ -1,4 +1,6 @@
-import { NavLink, Outlet, Link } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { NavLink, Outlet, Link, useNavigate } from "react-router";
+import { api } from "../api/client.js";
 import { useSession } from "../state/session.js";
 
 const NAV = [
@@ -10,7 +12,22 @@ const NAV = [
 ] as const;
 
 export function Layout() {
-  const { email, role, signOut } = useSession();
+  const { email, role } = useSession();
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  // The server revokes the session; the page then forgets everything it cached for this user.
+  const signOut = async () => {
+    try {
+      await api.logout();
+    } catch {
+      // Offline or the server is unreachable: still drop local state; the session expires on its own.
+    }
+    useSession.getState().setAnonymous();
+    queryClient.clear();
+    navigate("/login");
+  };
+
   return (
     <div className="app">
       <a className="skip-link" href="#main">

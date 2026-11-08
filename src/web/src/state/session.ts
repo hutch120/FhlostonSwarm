@@ -1,22 +1,35 @@
 import { create } from "zustand";
 
-export type Role = "user" | "staff";
+/** `customer` or `staff`, as decided by the server from the verified email. */
+export type Role = "customer" | "staff";
 
-/** Mirrors the plan's rule (staff = @fhlostonswarm.com); the real check is server-side in Phase 3. */
-export const roleForEmail = (email: string): Role =>
-  email.trim().toLowerCase().endsWith("@fhlostonswarm.com") ? "staff" : "user";
-
-interface SessionStore {
-  email: string | null;
-  role: Role | null;
-  signIn: (email: string) => void;
-  signOut: () => void;
+export interface SessionUser {
+  email: string;
+  role: Role;
 }
 
-/** Placeholder session for the mock screens. There is no token and nothing is persisted. */
+type Status = "loading" | "anonymous" | "authenticated";
+
+interface SessionStore {
+  status: Status;
+  email: string | null;
+  role: Role | null;
+  /** Per-session CSRF token for mutating calls. Held in memory only; the cookies are HttpOnly. */
+  csrfToken: string | null;
+  setUser: (user: SessionUser, csrfToken: string) => void;
+  setAnonymous: () => void;
+}
+
+/**
+ * Who is signed in. This is display state only: the session itself is in HttpOnly cookies and every
+ * API call is authorised server-side. The role here only decides what the UI shows.
+ */
 export const useSession = create<SessionStore>((set) => ({
+  status: "loading",
   email: null,
   role: null,
-  signIn: (email) => set({ email: email.trim().toLowerCase(), role: roleForEmail(email) }),
-  signOut: () => set({ email: null, role: null }),
+  csrfToken: null,
+  setUser: (user, csrfToken) =>
+    set({ status: "authenticated", email: user.email, role: user.role, csrfToken }),
+  setAnonymous: () => set({ status: "anonymous", email: null, role: null, csrfToken: null }),
 }));

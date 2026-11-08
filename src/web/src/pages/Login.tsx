@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router";
-import { api } from "../api/client.js";
+import { useLocation, useNavigate } from "react-router";
+import { api, messageFor } from "../api/client.js";
 import { useSession } from "../state/session.js";
 
 export function Login() {
@@ -9,8 +9,9 @@ export function Login() {
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const signIn = useSession((s) => s.signIn);
+  const setUser = useSession((s) => s.setUser);
   const navigate = useNavigate();
+  const from = (useLocation().state as { from?: string } | null)?.from ?? "/dashboard";
 
   const requestCode = async (e: FormEvent) => {
     e.preventDefault();
@@ -20,7 +21,7 @@ export function Login() {
       await api.requestCode(email);
       setStep("code");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not send the code");
+      setError(messageFor(err, "Could not send the code. Try again."));
     } finally {
       setBusy(false);
     }
@@ -31,11 +32,11 @@ export function Login() {
     setBusy(true);
     setError(null);
     try {
-      const result = await api.verifyCode(email, code);
-      signIn(result.email);
-      navigate("/dashboard");
+      const { user, csrfToken } = await api.verifyCode(email, code);
+      setUser(user, csrfToken);
+      navigate(from, { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "That code did not work");
+      setError(messageFor(err, "That code did not work."));
     } finally {
       setBusy(false);
     }
@@ -46,9 +47,6 @@ export function Login() {
       <h1 id="login-title">Sign in</h1>
       <p className="muted">
         We email you a 6-digit code. No passwords. New accounts get one free Lite report.
-      </p>
-      <p className="notice" role="note">
-        Preview: there is no backend yet, so no email is sent and any 6-digit code is accepted.
       </p>
 
       {step === "email" ? (
@@ -71,7 +69,8 @@ export function Login() {
       ) : (
         <form onSubmit={verify}>
           <p>
-            Code sent to <strong>{email}</strong>.{" "}
+            If <strong>{email}</strong> can receive mail, a code is on its way. It expires in 10
+            minutes.{" "}
             <button type="button" className="link" onClick={() => setStep("email")}>
               Use a different email
             </button>

@@ -8,6 +8,21 @@ const googleWorkspaceSchema = z.object({
   dkim: z.string().min(1),
 });
 
+const apiSchema = z.object({
+  /** SSM SecureStrings (created by `swarm init-secrets`, never in git). */
+  pepperParameter: z.string().startsWith("/swarm/"),
+  jwtKeyParameter: z.string().startsWith("/swarm/"),
+  /** Optional Turnstile secret parameter; null leaves the bot check off. */
+  turnstileSecretParameter: z.string().startsWith("/swarm/").nullable(),
+  mailFrom: z.email(),
+  mailReplyTo: z.email(),
+  /** API Gateway throttling (requests per second / burst). */
+  throttle: z.object({
+    rateLimit: z.number().int().positive(),
+    burstLimit: z.number().int().positive(),
+  }),
+});
+
 export const configSchema = z.object({
   account: z.string().regex(/^\d{12}$/),
   region: z.string().min(1),
@@ -26,6 +41,7 @@ export const configSchema = z.object({
   }),
   // Null while the Workspace records are managed by hand (see PREREQUISITES.md section 5).
   googleWorkspace: googleWorkspaceSchema.nullable(),
+  api: apiSchema,
 });
 
 export type SwarmConfig = z.infer<typeof configSchema>;

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { cdkArgs } from "./deploy.js";
+import { secretParameterNames } from "./secrets.js";
 import { isCoveredByName, isTestRecord, isTestResourceName } from "./test-cleanup.js";
+
+describe("secretParameterNames", () => {
+  it("reads the SecureString names from the infra config", () => {
+    expect(secretParameterNames()).toEqual(["/swarm/auth/pepper", "/swarm/auth/jwt-key"]);
+  });
+});
 
 describe("cdkArgs", () => {
   it("always uses the swarm profile and defaults to all stacks", () => {

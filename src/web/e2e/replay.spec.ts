@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { signIn } from "./helpers.js";
 
 test.describe("replay smoke test", () => {
   test("agents appear, findings accumulate and the report is assembled", async ({ page }) => {
@@ -60,6 +61,7 @@ test.describe("replay smoke test", () => {
   });
 
   test("can reach the report from the finished run", async ({ page }) => {
+    await signIn(page);
     await page.goto("/demo?speed=16");
     await page.getByRole("link", { name: "Open the report" }).click({ timeout: 30_000 });
     await expect(page.getByRole("heading", { name: "Report", exact: true })).toBeVisible();
@@ -70,15 +72,29 @@ test.describe("replay smoke test", () => {
 test.describe("static screens", () => {
   for (const [path, heading] of [
     ["/dashboard", "Dashboard"],
-    ["/login", "Sign in"],
     ["/new", "New assessment"],
     ["/account", "Account"],
     ["/schedules", "Schedules"],
-    ["/staff", "Staff only"],
   ] as const) {
-    test(`${path} renders`, async ({ page }) => {
+    test(`${path} renders once signed in`, async ({ page }) => {
+      await signIn(page);
       await page.goto(path);
       await expect(page.getByRole("heading", { name: heading, level: 1 })).toBeVisible();
     });
   }
+
+  for (const [path, heading] of [
+    ["/login", "Sign in"],
+    ["/staff", "Staff only"],
+  ] as const) {
+    test(`${path} renders for a visitor`, async ({ page }) => {
+      await page.goto(path);
+      await expect(page.getByRole("heading", { name: heading, level: 1 })).toBeVisible();
+    });
+  }
+
+  test("protected screens send a visitor to sign in", async ({ page }) => {
+    await page.goto("/dashboard");
+    await expect(page.getByRole("heading", { name: "Sign in", level: 1 })).toBeVisible();
+  });
 });

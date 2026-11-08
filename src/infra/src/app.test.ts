@@ -12,7 +12,10 @@ const outdirs: string[] = [];
 function synth(overrides: Partial<SwarmConfig> = {}) {
   const outdir = mkdtempSync(join(tmpdir(), "swarm-infra-"));
   outdirs.push(outdir);
-  const app = buildApp({ ...loadConfig(), ...overrides }, new App({ outdir }));
+  const app = buildApp(
+    { ...loadConfig(), ...overrides },
+    new App({ outdir, context: { "aws:cdk:bundling-stacks": [] } }),
+  );
   const assembly = app.synth();
   const template = (name: string) => Template.fromJSON(assembly.getStackByName(name).template);
   return { assembly, template };
@@ -44,6 +47,7 @@ describe("infrastructure app", () => {
 
   it("defines the expected single-environment stacks with no stage prefixes", () => {
     expect(assembly.stacks.map((s) => s.stackName).sort()).toEqual([
+      "SwarmApi",
       "SwarmData",
       "SwarmDns",
       "SwarmEdge",
@@ -180,6 +184,77 @@ describe("infrastructure app", () => {
         Enabled: true,
         MatchingEventTypes: ["bounce", "complaint", "reject"],
       }),
+    });
+  });
+
+  it("API: Hono Lambda behind a throttled HTTP API, scoped IAM, 30-day logs", () => {
+    const t = template("SwarmApi");
+    t.hasResourceProperties("AWS::Lambda::Function", {
+      Runtime: "nodejs24.x",
+      Architectures: ["arm64"],
+      Environment: {
+        Variables: Match.objectLike({
+          DATA_BUCKET: "swarm-data-885922397779",
+          SITE_ORIGIN: "https://fhlostonswarm.com",
+          PEPPER_PARAMETER: "/swarm/auth/pepper",
+          MAIL_FROM: "login@fhlostonswarm.com",
+        }),
+      },
+    });
+    t.resourceCountIs("AWS::Lambda::Function", 2);
+    t.hasResourceProperties("AWS::ApiGatewayV2::Stage", {
+      StageName: "$default",
+      DefaultRouteSettings: { ThrottlingRateLimit: 20, ThrottlingBurstLimit: 40 },
+      AccessLogSettings: Match.objectLike({ DestinationArn: Match.anyValue() }),
+    });
+    t.hasResourceProperties("AWS::ApiGatewayV2::Route", { RouteKey: "ANY /api/{proxy+}" });
+    t.hasResourceProperties("AWS::SNS::Subscription", { Protocol: "lambda" });
+
+    const statements = Object.values(t.findResources("AWS::IAM::Policy")).flatMap(
+      (p) =>
+        p.Properties.PolicyDocument.Statement as { Action: string | string[]; Resource: unknown }[],
+    );
+    const actions = statements.flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+    expect(actions).toContain("s3:PutObject");
+    expect(actions).toContain("ssm:GetParameters");
+    expect(actions.filter((a) => a === "*" || a.endsWith(":*"))).toEqual([]);
+    // No access to run data or anything outside the auth prefixes.
+    const resources = JSON.stringify(statements.map((s) => s.Resource));
+    expect(resources).not.toContain("/runs/");
+    expect(resources).not.toContain("_test");
+  });
+
+  it("edge routes /api/* to the API uncached, and SPA fallback does not rewrite API errors", () => {
+    const t = template("SwarmEdge");
+    const [distribution] = Object.values(t.findResources("AWS::CloudFront::Distribution"));
+    const config = distribution!.Properties.DistributionConfig;
+    expect(config.CustomErrorResponses).toBeUndefined();
+    expect(config.CacheBehaviors).toHaveLength(1);
+    expect(config.CacheBehaviors[0]).toMatchObject({
+      PathPattern: "/api/*",
+      ViewerProtocolPolicy: "https-only",
+      AllowedMethods: ["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"],
+    });
+    expect(config.DefaultCacheBehavior.FunctionAssociations).toHaveLength(1);
+    t.hasResourceProperties("AWS::CloudFront::OriginRequestPolicy", {
+      OriginRequestPolicyConfig: Match.objectLike({
+        HeadersConfig: {
+          HeaderBehavior: "whitelist",
+          Headers: ["Origin", "CloudFront-Viewer-Address", "X-CSRF-Token"],
+        },
+        CookiesConfig: { CookieBehavior: "all" },
+      }),
+    });
+  });
+
+  it("data bucket expires abandoned OTP challenges and rate-limit counters", () => {
+    template("SwarmData").hasResourceProperties("AWS::S3::Bucket", {
+      LifecycleConfiguration: {
+        Rules: Match.arrayWith([
+          Match.objectLike({ Prefix: "auth/otp/", ExpirationInDays: 1 }),
+          Match.objectLike({ Prefix: "auth/ratelimit/", ExpirationInDays: 2 }),
+        ]),
+      },
     });
   });
 

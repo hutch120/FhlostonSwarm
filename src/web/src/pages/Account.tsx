@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { api } from "../api/client.js";
@@ -6,13 +7,14 @@ import { useSession } from "../state/session.js";
 const CONFIRM_WORD = "DELETE";
 
 export function Account() {
-  const { email, signOut } = useSession();
+  const { email, role } = useSession();
   const navigate = useNavigate();
   const [typed, setTyped] = useState("");
+  const account = useQuery({ queryKey: ["account"], queryFn: () => api.getAccount() });
 
   const deleteAccount = async () => {
     await api.deleteAccount();
-    signOut();
+    useSession.getState().setAnonymous();
     navigate("/login");
   };
 
@@ -27,13 +29,15 @@ export function Account() {
           Profile
         </h2>
         <p>
-          {email ? (
-            <>
-              Signed in as <strong>{email}</strong>
-            </>
-          ) : (
-            "You are not signed in (preview)."
-          )}
+          Signed in as <strong>{email}</strong>
+          {role === "staff" && <span className="badge"> Staff</span>}
+        </p>
+        <p data-testid="free-report">
+          {account.data
+            ? account.data.freeLiteRemaining > 0
+              ? `${account.data.freeLiteRemaining} free Lite report available`
+              : "Your free Lite report has been used"
+            : "Loading…"}
         </p>
       </section>
 

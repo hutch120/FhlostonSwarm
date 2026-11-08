@@ -1,17 +1,28 @@
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Duration, RemovalPolicy, Stack, type StackProps, Validations } from "aws-cdk-lib";
 import { Certificate } from "aws-cdk-lib/aws-certificatemanager";
 import {
   AllowedMethods,
+  CachePolicy,
   Distribution,
+  Function as CloudFrontFunction,
+  FunctionCode,
+  FunctionEventType,
+  FunctionRuntime,
   HeadersFrameOption,
   HeadersReferrerPolicy,
   HttpVersion,
+  OriginRequestCookieBehavior,
+  OriginRequestHeaderBehavior,
+  OriginRequestPolicy,
+  OriginRequestQueryStringBehavior,
+  OriginProtocolPolicy,
   ResponseHeadersPolicy,
   SecurityPolicyProtocol,
   ViewerProtocolPolicy,
 } from "aws-cdk-lib/aws-cloudfront";
-import { S3BucketOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
+import { HttpOrigin, S3BucketOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import { AaaaRecord, ARecord, type IHostedZone, RecordTarget } from "aws-cdk-lib/aws-route53";
 import { CloudFrontTarget } from "aws-cdk-lib/aws-route53-targets";
@@ -29,11 +40,18 @@ import type { SwarmConfig } from "../config.js";
 export interface EdgeStackProps extends StackProps {
   config: SwarmConfig;
   zone: IHostedZone;
+  /** Host name of the API's HTTP API; routed at /api/* when given. */
+  apiDomain?: string;
 }
 
 const PLACEHOLDER_DIR = fileURLToPath(new URL("../../assets/placeholder", import.meta.url));
+const WEB_DIST_DIR = fileURLToPath(new URL("../../../web/dist", import.meta.url));
 
-// Phase 2+ widens connect-src (API / realtime endpoints) as those arrive.
+// The real SPA when it has been built (`swarm deploy` builds it first); otherwise the placeholder.
+const siteAssetDir = () => (existsSync(WEB_DIST_DIR) ? WEB_DIST_DIR : PLACEHOLDER_DIR);
+
+// Phase 2+ widens connect-src (API / realtime endpoints) as those arrive. The API is same-origin
+// (/api/*), so 'self' already covers it.
 export const CONTENT_SECURITY_POLICY = [
   "default-src 'none'",
   "script-src 'self'",
@@ -90,6 +108,34 @@ export class EdgeStack extends Stack {
       },
     });
 
+    const spaRouting = new CloudFrontFunction(this, "SpaRouting", {
+      comment: "Serve index.html for client-side routes (paths whose last segment has no dot)",
+      runtime: FunctionRuntime.JS_2_0,
+      code: FunctionCode.fromInline(
+        [
+          "function handler(event) {",
+          "  var request = event.request;",
+          "  var last = request.uri.split('/').pop();",
+          "  if (last.indexOf('.') === -1) request.uri = '/index.html';",
+          "  return request;",
+          "}",
+        ].join("\n"),
+      ),
+    });
+
+    // The API sees the real client address (for per-IP limits) and the Origin (for CSRF checks),
+    // plus the session cookies. The Host header is not forwarded: API Gateway needs its own.
+    const apiOriginRequests = new OriginRequestPolicy(this, "ApiOriginRequests", {
+      comment: "Cookies, query strings, Origin and the viewer address for the API",
+      cookieBehavior: OriginRequestCookieBehavior.all(),
+      queryStringBehavior: OriginRequestQueryStringBehavior.all(),
+      headerBehavior: OriginRequestHeaderBehavior.allowList(
+        "Origin",
+        "CloudFront-Viewer-Address",
+        "X-CSRF-Token",
+      ),
+    });
+
     // The CloudFront certificate must be in us-east-1 and is created by hand (the org SCP
     // blocks CloudFormation there). Until its ARN is configured the site is served from the
     // default *.cloudfront.net domain.
@@ -110,14 +156,26 @@ export class EdgeStack extends Stack {
         viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         allowedMethods: AllowedMethods.ALLOW_GET_HEAD,
         responseHeadersPolicy: headers,
+        // SPA routing: extensionless paths are served index.html. This is a function (not
+        // distribution-wide error pages) so API 403/404 responses are never rewritten.
+        functionAssociations: [
+          { function: spaRouting, eventType: FunctionEventType.VIEWER_REQUEST },
+        ],
       },
-      // SPA routing: unknown paths fall back to index.html.
-      errorResponses: [403, 404].map((httpStatus) => ({
-        httpStatus,
-        responseHttpStatus: 200,
-        responsePagePath: "/index.html",
-        ttl: Duration.seconds(0),
-      })),
+      additionalBehaviors: props.apiDomain
+        ? {
+            "/api/*": {
+              origin: new HttpOrigin(props.apiDomain, {
+                protocolPolicy: OriginProtocolPolicy.HTTPS_ONLY,
+              }),
+              viewerProtocolPolicy: ViewerProtocolPolicy.HTTPS_ONLY,
+              allowedMethods: AllowedMethods.ALLOW_ALL,
+              cachePolicy: CachePolicy.CACHING_DISABLED,
+              originRequestPolicy: apiOriginRequests,
+              responseHeadersPolicy: headers,
+            },
+          }
+        : undefined,
     });
 
     if (certificate) {
@@ -127,7 +185,7 @@ export class EdgeStack extends Stack {
     }
 
     new BucketDeployment(this, "Placeholder", {
-      sources: [Source.asset(PLACEHOLDER_DIR)],
+      sources: [Source.asset(siteAssetDir())],
       destinationBucket: this.siteBucket,
       distribution: this.distribution,
       distributionPaths: ["/*"],

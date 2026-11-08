@@ -58,8 +58,13 @@ Export a full backup any time:
 
 Apex alias to CloudFront, CAA record, SES DKIM CNAMEs, `bounce.` MAIL FROM, `_dmarc` TXT, the data bucket, budgets and so on, all via `swarm deploy`. The Google Workspace records above stay manual unless the `googleWorkspace` block in `src/infra/config/swarm.json` is filled in (delete the manual ones first). The CloudFront ACM certificate is the one manual exception: it was requested in `us-east-1` by CLI (ARN in `src/infra/config/swarm.json`), and its DNS validation CNAME (`_2685cd7e54a5807f7e0d471d23da1148.fhlostonswarm.com`) was added to the zone by hand and must be kept for renewal. To rebuild: `aws acm request-certificate --domain-name fhlostonswarm.com --validation-method DNS --profile swarm --region us-east-1`, add the validation CNAME, then update the ARN.
 
+## 6a. Added by Phase 3 (one manual step)
+
+The auth pepper and JWT signing key are SSM SecureStrings (`/swarm/auth/pepper`, `/swarm/auth/jwt-key`, AWS-managed key, no cost) that CloudFormation cannot create. Run `swarm init-secrets` once before (or right after) the first `swarm deploy` of `SwarmApi`; it never overwrites. **Losing or replacing the pepper orphans every stored identity** (users, claims, suppressions are keyed by its HMAC), so treat it like data, not config: there is no copy in git. For a full rebuild you would restore it from a backup you keep out of band (`aws ssm get-parameter --with-decryption`), otherwise every user re-registers and free-report claims reset.
+
 ## 7. Out-of-band items to keep safe
 
 - AWS account root and Google Workspace super-admin credentials/MFA (password manager, not in git).
 - The domain's registrant contact email must stay reachable, since ICANN verification and renewal notices go there.
 - Any billing/payment method on the AWS account and Google Workspace subscription (renewals).
+- A backup of the `/swarm/auth/pepper` SSM parameter (see section 6a), stored in the password manager.

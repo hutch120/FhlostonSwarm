@@ -11,5 +11,13 @@
     "policy": "none",
     "reportEmail": "support@fhlostonswarm.com"
   },
-  "googleWorkspace": null
+  "googleWorkspace": null,
+  "api": {
+    "pepperParameter": "/swarm/auth/pepper",
+    "jwtKeyParameter": "/swarm/auth/jwt-key",
+    "turnstileSecretParameter": null,
+    "mailFrom": "login@fhlostonswarm.com",
+    "mailReplyTo": "support@fhlostonswarm.com",
+    "throttle": { "rateLimit": 20, "burstLimit": 40 }
+  }
 }

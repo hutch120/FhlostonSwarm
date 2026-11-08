@@ -1,19 +1,22 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { App } from "./App.js";
+import { ApiError, mockApi, setApi } from "./api/client.js";
 import { useSession } from "./state/session.js";
 import { renderWithProviders } from "./test/render.js";
 
-afterEach(() => {
-  useSession.setState({ email: null, role: null });
-});
+const EMAILS = { customer: "buyer@example.com", staff: "ops@fhlostonswarm.com" } as const;
 
-const renderApp = (route: string) => renderWithProviders(<App />, { route });
+// Signed in as a customer unless a test says otherwise (the store is reset before each test).
+const renderApp = (route: string, as: keyof typeof EMAILS | null = "customer") => {
+  if (as) useSession.getState().setUser({ email: EMAILS[as], role: as }, "csrf");
+  return renderWithProviders(<App />, { route });
+};
 
 describe("Login", () => {
   it("signs in with an email and a 6-digit code", async () => {
-    renderApp("/login");
+    renderApp("/login", null);
     await userEvent.type(screen.getByLabelText(/email address/i), "buyer@example.com");
     await userEvent.click(screen.getByRole("button", { name: /email me a code/i }));
     const code = await screen.findByLabelText(/6-digit code/i);
@@ -23,7 +26,11 @@ describe("Login", () => {
     expect(code).toHaveValue("123456");
     await userEvent.click(submit);
     expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
-    expect(useSession.getState()).toMatchObject({ email: "buyer@example.com", role: "user" });
+    expect(useSession.getState()).toMatchObject({
+      status: "authenticated",
+      email: "buyer@example.com",
+      role: "customer",
+    });
   });
 });
 
@@ -139,32 +146,148 @@ describe("Schedules", () => {
 });
 
 describe("Account", () => {
-  it("only enables account deletion after typing DELETE", async () => {
+  it("shows the free Lite report and only enables deletion after typing DELETE", async () => {
     renderApp("/account");
+    await waitFor(() =>
+      expect(screen.getByTestId("free-report")).toHaveTextContent("1 free Lite report available"),
+    );
+    expect(screen.getAllByText("buyer@example.com")).toHaveLength(2);
     const button = screen.getByRole("button", { name: "Delete my account" });
     expect(button).toBeDisabled();
     await userEvent.type(screen.getByLabelText(/to confirm/i), "DELETE");
     expect(button).toBeEnabled();
   });
+
+  it("reports a used free report", async () => {
+    setApi({ ...mockApi, getAccount: async () => ({ freeLiteRemaining: 0, paidCredits: 0 }) });
+    renderApp("/account");
+    await waitFor(() =>
+      expect(screen.getByTestId("free-report")).toHaveTextContent("has been used"),
+    );
+  });
+});
+
+describe("Session", () => {
+  it("sends signed-out visitors from a protected page to the login screen", async () => {
+    renderApp("/dashboard", null);
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+  });
+
+  it("returns to the page they asked for after signing in", async () => {
+    renderApp("/account", null);
+    await userEvent.type(await screen.findByLabelText(/email address/i), "buyer@example.com");
+    await userEvent.click(screen.getByRole("button", { name: /email me a code/i }));
+    await userEvent.type(await screen.findByLabelText(/6-digit code/i), "123456");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByRole("heading", { name: "Account" })).toBeInTheDocument();
+  });
+
+  it("keeps the public demo open without signing in", async () => {
+    renderApp("/demo?autoplay=0", null);
+    expect(await screen.findByRole("heading", { name: "Live swarm view" })).toBeInTheDocument();
+  });
+
+  it("restores a session the server still knows about on load", async () => {
+    useSession.setState({ status: "loading" });
+    setApi({
+      ...mockApi,
+      getSession: async () => ({
+        authenticated: true,
+        user: { email: "back@example.com", role: "customer" },
+        csrfToken: "c",
+      }),
+    });
+    renderApp("/dashboard", null);
+    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+    expect(screen.getByText("back@example.com")).toBeInTheDocument();
+  });
+
+  it("treats a failed or empty session lookup as signed out", async () => {
+    useSession.setState({ status: "loading" });
+    setApi({
+      ...mockApi,
+      getSession: async () => {
+        throw new Error("offline");
+      },
+    });
+    renderApp("/dashboard", null);
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+  });
+
+  it("signs out through the server and clears the page", async () => {
+    let loggedOut = false;
+    setApi({
+      ...mockApi,
+      logout: async () => {
+        loggedOut = true;
+      },
+    });
+    renderApp("/dashboard");
+    await userEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+    expect(loggedOut).toBe(true);
+    expect(useSession.getState()).toMatchObject({
+      status: "anonymous",
+      email: null,
+      csrfToken: null,
+    });
+  });
+
+  it("shows a clear message when the code is wrong", async () => {
+    setApi({
+      ...mockApi,
+      verifyCode: async () => {
+        throw new ApiError(401, "invalid_or_expired_code");
+      },
+    });
+    renderApp("/login", null);
+    await userEvent.type(screen.getByLabelText(/email address/i), "buyer@example.com");
+    await userEvent.click(screen.getByRole("button", { name: /email me a code/i }));
+    await userEvent.type(await screen.findByLabelText(/6-digit code/i), "123456");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/wrong or has expired/i);
+  });
+
+  it("completes a magic-link sign-in on a click", async () => {
+    renderApp("/auth/verify?token=abc.def", null);
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+  });
+
+  it("explains an incomplete magic link", () => {
+    renderApp("/auth/verify", null);
+    expect(screen.getByText(/link is incomplete/i)).toBeInTheDocument();
+  });
 });
 
 describe("Staff", () => {
-  it("is gated for everyone except staff", () => {
-    renderApp("/staff");
+  it("is gated when signed out", () => {
+    renderApp("/staff", null);
     expect(screen.getByTestId("staff-denied")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Staff" })).not.toBeInTheDocument();
   });
 
   it("is gated for a normal customer", () => {
-    useSession.getState().signIn("buyer@example.com");
-    renderApp("/staff");
+    renderApp("/staff", "customer");
     expect(screen.getByTestId("staff-denied")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Staff" })).not.toBeInTheDocument();
   });
 
-  it("opens for a staff email and adds the nav link", () => {
-    useSession.getState().signIn("ops@fhlostonswarm.com");
-    renderApp("/staff");
-    expect(screen.getByTestId("staff-home")).toBeInTheDocument();
+  it("opens for staff once the server confirms the role, and adds the nav link", async () => {
+    renderApp("/staff", "staff");
+    expect(await screen.findByTestId("staff-home")).toBeInTheDocument();
+    expect(await screen.findByTestId("staff-verified")).toHaveTextContent("confirmed you as staff");
     expect(screen.getByRole("link", { name: "Staff" })).toBeInTheDocument();
+  });
+
+  it("stays closed when the server disagrees with the browser's idea of the role", async () => {
+    setApi({
+      ...mockApi,
+      staffWhoami: async () => {
+        throw new ApiError(403, "forbidden");
+      },
+    });
+    renderApp("/staff", "staff");
+    expect(await screen.findByTestId("staff-denied")).toBeInTheDocument();
   });
 });
