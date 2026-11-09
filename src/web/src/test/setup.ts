@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
-import { mockApi, setApi } from "../api/client.js";
+import { createMockApi, setApi } from "../api/client.js";
 import { useSession } from "../state/session.js";
 
 // jsdom has no canvas, ResizeObserver or matchMedia; the swarm canvas degrades to a no-op without them.
@@ -16,7 +16,7 @@ globalThis.ResizeObserver ??= ResizeObserverStub;
 
 // Component tests use the offline mock API and start signed out; tests sign in via the store.
 beforeEach(() => {
-  setApi(mockApi);
+  setApi(createMockApi());
   useSession.getState().setAnonymous();
 });
 

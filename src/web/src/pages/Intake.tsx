@@ -8,16 +8,22 @@ import {
   frequencySchema,
   tierAreas,
   tiers,
+  type TargetView,
   type TierConfig,
 } from "@swarm/shared";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router";
-import { api } from "../api/client.js";
+import { Link, useNavigate, useParams } from "react-router";
+import { api, fieldForError, messageFor } from "../api/client.js";
 import { useSession } from "../state/session.js";
 import {
   LOGIN_SLOTS,
+  editLogin,
   emptyIntake,
+  fitLogins,
   validateIntake,
+  valuesFromScan,
+  withTarget,
   type IntakeErrors,
   type IntakeValues,
   type LoginSlotId,
@@ -85,28 +91,96 @@ function FieldError({ id, message }: { id: string; message?: string }) {
   ) : null;
 }
 
+/** Loads what the form needs, then renders it: blank for a new scan, filled in to edit a saved one. */
 export function Intake() {
+  const { scanId } = useParams();
   const { email } = useSession();
-  const [values, setValues] = useState<IntakeValues>(() => emptyIntake(email ?? ""));
+  const targets = useQuery({ queryKey: ["targets"], queryFn: () => api.listTargets() });
+  const scans = useQuery({
+    queryKey: ["scans"],
+    queryFn: () => api.listScans(),
+    enabled: scanId !== undefined,
+  });
+
+  if (scanId === undefined) {
+    return <IntakeForm initial={emptyIntake(email ?? "")} targets={targets.data ?? []} />;
+  }
+  if (scans.isError || targets.isError) return <p className="error">Could not load the scan.</p>;
+  if (!scans.data || !targets.data) return <p className="muted">Loading…</p>;
+  const scan = scans.data.find((s) => s.id === scanId);
+  if (!scan) {
+    return (
+      <section className="card narrow">
+        <h1>Scan not found</h1>
+        <p>
+          It may have been deleted. <Link to="/scans">Back to your scans</Link>
+        </p>
+      </section>
+    );
+  }
+  return (
+    <IntakeForm
+      key={scanId}
+      scanId={scanId}
+      initial={valuesFromScan(
+        scan,
+        targets.data.find((t) => t.id === scan.targetId),
+        email ?? "",
+      )}
+      targets={targets.data}
+    />
+  );
+}
+
+function IntakeForm({
+  initial,
+  targets,
+  scanId,
+}: {
+  initial: IntakeValues;
+  targets: TargetView[];
+  /** Set when editing a saved scan: saving does not start a run. */
+  scanId?: string;
+}) {
+  const [values, setValues] = useState<IntakeValues>(initial);
   const [errors, setErrors] = useState<IntakeErrors>({});
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const account = useQuery({ queryKey: ["account"], queryFn: () => api.getAccount() });
+  const editing = scanId !== undefined;
   const tier = tiers[values.tier];
   const recurring = isRecurring(values.frequency);
+  const target = targets.find((t) => t.id === values.targetId);
+  const credits = account.data?.credits[values.tier];
+  const unmetered = account.data?.unmetered === true;
+  // With no credit for the chosen depth the scan can still be saved, and run once there is one.
+  const canStart = !editing && (unmetered || (credits ?? 0) > 0);
 
   const setField = <K extends keyof IntakeValues>(key: K, value: IntakeValues[K]) =>
     setValues((v) => ({ ...v, [key]: value }));
   const setLogin = (slot: LoginSlotId, patch: Partial<LoginValues>) =>
-    setValues((v) => ({ ...v, logins: { ...v.logins, [slot]: { ...v.logins[slot], ...patch } } }));
+    setValues((v) => editLogin(v, slot, patch));
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    setSubmitError(null);
     const found = validateIntake(values);
     setErrors(found);
     if (Object.keys(found).length > 0) return;
     setBusy(true);
-    const { runId } = await api.submitIntake(values);
-    navigate(`/runs/${runId}`);
+    try {
+      const saved = await api.saveScan(values, { ...(editing ? { scanId } : {}), start: canStart });
+      await queryClient.invalidateQueries();
+      navigate(saved.runId ? `/runs/${saved.runId}` : "/scans");
+    } catch (err) {
+      const field = fieldForError(err);
+      const message = messageFor(err, "Could not save the scan. Try again.");
+      if (field) setErrors({ [field]: message });
+      else setSubmitError(message);
+      setBusy(false);
+    }
   };
 
   const errorCount = Object.keys(errors).length;
@@ -118,15 +192,46 @@ export function Intake() {
   return (
     <>
       <div className="page-head">
-        <h1>New assessment</h1>
+        <h1>{editing ? "Edit scan" : "New assessment"}</h1>
       </div>
-      <p className="notice" role="note">
-        Preview: nothing is sent or stored. Submitting opens the demo replay.
-      </p>
 
       <form onSubmit={submit} noValidate className="stack">
         <fieldset className="card">
           <legend>Target</legend>
+          {editing ? (
+            <p className="notice" role="note" data-testid="shared-target-note">
+              This scan uses a saved target. Changing the URLs or logins updates the target for{" "}
+              {target && target.scans.length > 1
+                ? `all ${target.scans.length} scans on it`
+                : "this scan"}
+              .
+            </p>
+          ) : (
+            targets.length > 0 && (
+              <div className="field">
+                <label htmlFor="savedTarget">Use a saved target</label>
+                <select
+                  id="savedTarget"
+                  value={values.targetId ?? ""}
+                  onChange={(e) =>
+                    setValues((v) =>
+                      withTarget(v, targets.find((t) => t.id === e.target.value) ?? null),
+                    )
+                  }
+                >
+                  <option value="">New target</option>
+                  {targets.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.hosts[0]}
+                    </option>
+                  ))}
+                </select>
+                <p className="hint">
+                  A saved target brings its URLs and logins, so you do not enter them again.
+                </p>
+              </div>
+            )
+          )}
           <div className="field">
             <label htmlFor="appUrl">Application URL (required)</label>
             <input
@@ -171,17 +276,42 @@ export function Intake() {
                 key={t.id}
                 tier={t}
                 selected={values.tier === t.id}
-                onSelect={() => setField("tier", t.id)}
+                onSelect={() => setValues((v) => fitLogins(v, t.id))}
               />
             ))}
           </div>
-          <p className="hint">
-            Every scan uses one paid credit of its depth. Pricing arrives soon.
-          </p>
+          {editing || credits === undefined ? null : unmetered ? (
+            <p className="hint" data-testid="credit-note">
+              As staff you can start runs without a credit.
+            </p>
+          ) : credits === 0 ? (
+            <p className="notice" role="note" data-testid="no-credit">
+              You have no {tier.name} credits, so this scan will be saved but not started. During
+              the private beta credits are granted by our team: email{" "}
+              <a href="mailto:support@fhlostonswarm.com">support@fhlostonswarm.com</a> and say which
+              depth you need. Once you have one, run the scan from the Scans page.
+            </p>
+          ) : (
+            <p className="hint" data-testid="credit-note">
+              Starting this scan uses one {tier.name} credit (you have {credits}).
+            </p>
+          )}
         </fieldset>
 
         <fieldset className="card">
           <legend>Schedule</legend>
+          <div className="field">
+            <label htmlFor="scanName">Scan name (optional)</label>
+            <input
+              id="scanName"
+              maxLength={80}
+              placeholder="e.g. Weekly staging review"
+              value={values.name}
+              onChange={(e) => setField("name", e.target.value)}
+              {...fieldProps("name")}
+            />
+            <FieldError id="name-error" message={errors["name"]} />
+          </div>
           <div className="field">
             <label htmlFor="frequency">How often?</label>
             <select
@@ -251,8 +381,9 @@ export function Intake() {
             </p>
           ) : (
             <p className="muted" data-testid="login-limit">
-              {tier.name} uses up to {plural(tier.logins, "login")}. Fill in the ones you want to
-              use.
+              {tier.name} uses up to {plural(tier.logins, "login")}. Fill in the logins you have and
+              tick the ones this scan signs in with. Saved passwords are never shown; leave one
+              blank to keep it.
             </p>
           )}
           <FieldError id="logins-error" message={errors["logins"]} />
@@ -260,10 +391,22 @@ export function Intake() {
             {LOGIN_SLOTS.map((slot) => {
               const prefix = `login.${slot.id}`;
               const login = values.logins[slot.id];
+              const started =
+                login.saved ||
+                [login.username, login.password, login.description].some((v) => v.trim());
               return (
                 <fieldset key={slot.id} className="login">
                   <legend>{slot.label}</legend>
                   <p className="hint">{slot.hint}</p>
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={login.use}
+                      disabled={!started}
+                      onChange={(e) => setLogin(slot.id, { use: e.target.checked })}
+                    />
+                    Use {slot.label} in this scan
+                  </label>
                   <fieldset className="login-fields">
                     <legend className="sr-only">{slot.label} credentials</legend>
                     <div className="field">
@@ -286,6 +429,7 @@ export function Intake() {
                         id={`${slot.id}-password`}
                         type="password"
                         autoComplete="new-password"
+                        placeholder={login.saved ? "Saved. Leave blank to keep it." : undefined}
                         value={login.password}
                         onChange={(e) => setLogin(slot.id, { password: e.target.value })}
                         {...fieldProps(`${prefix}.password`)}
@@ -350,19 +494,31 @@ export function Intake() {
               {...fieldProps("acknowledged")}
             />
             I am authorised to test these systems, and I understand the swarm will send real
-            requests to them.
+            requests to them. I accept the <Link to="/terms">terms of use</Link>.
           </label>
           <FieldError id="acknowledged-error" message={errors["acknowledged"]} />
           <p className="hint">
-            We record this confirmation with a timestamp. See the{" "}
-            <Link to="/account">account page</Link> for how to delete your data.
+            We record this confirmation with a timestamp, your network address and the version of
+            the terms. Read the <Link to="/privacy">privacy notice</Link> for what we keep and how
+            to delete it.
           </p>
         </fieldset>
 
         <div className="actions-row">
           <button type="submit" className="btn btn-primary" disabled={busy}>
-            {recurring ? "Save and start scan" : "Start scan"}
+            {editing
+              ? "Save changes"
+              : !canStart
+                ? "Save scan"
+                : recurring
+                  ? "Save and start scan"
+                  : "Start scan"}
           </button>
+          {submitError && (
+            <p className="error" role="alert">
+              {submitError}
+            </p>
+          )}
           {errorCount > 0 && (
             <p className="error" role="alert">
               Please fix the {errorCount} highlighted problem{errorCount === 1 ? "" : "s"}.

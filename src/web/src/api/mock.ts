@@ -7,21 +7,18 @@ import {
   createRunState,
   replayEvents,
   summarise,
+  type RunListItem,
   type ScanSummary,
   type Summary,
+  type TargetView,
   type TierId,
 } from "@swarm/shared";
-
-export interface RunListItem {
-  summary: Summary;
-  target: string;
-  /** The saved scan this run came from, so it can be run again without reconfiguring. */
-  scanId?: string;
-}
 
 export interface AccountInfo {
   /** Credits held per tier. Every run consumes a paid or granted credit. */
   credits: Record<TierId, number>;
+  /** Staff may start runs without a credit. */
+  unmetered: boolean;
 }
 
 const demoSummary = (): Summary =>
@@ -51,10 +48,15 @@ const scoutSummary: Summary = {
   agents: { total: 4, done: 4 },
 };
 
-/** Fixed mock rows for the static screens. Replaced by the real API in Phase 4. */
+/** Fixed rows for component tests and offline review; the real app reads them from the API. */
 export const MOCK_RUNS: RunListItem[] = [
-  { summary: demoSummary(), target: DEMO_TARGET, scanId: "scan_monthly01" },
-  { summary: scoutSummary, target: "staging.example-shop.test", scanId: "scan_daily001" },
+  { summary: demoSummary(), target: DEMO_TARGET, scanId: "scan_monthly01", trigger: "manual" },
+  {
+    summary: scoutSummary,
+    target: "staging.example-shop.test",
+    scanId: "scan_daily001",
+    trigger: "manual",
+  },
 ];
 
 const STAGING = "staging.example-shop.test";
@@ -66,6 +68,9 @@ const STAGING = "staging.example-shop.test";
 export const MOCK_SCANS: ScanSummary[] = [
   {
     id: "scan_daily001",
+    targetId: "tgt_staging01",
+    timezone: "Australia/Sydney",
+    loginSlots: [],
     name: "Daily quick check",
     target: STAGING,
     tier: "scout",
@@ -79,6 +84,9 @@ export const MOCK_SCANS: ScanSummary[] = [
   },
   {
     id: "scan_weekly01",
+    targetId: "tgt_staging01",
+    timezone: "Australia/Sydney",
+    loginSlots: ["user1", "admin"],
     name: "Weekly review",
     target: STAGING,
     tier: "probe",
@@ -91,6 +99,9 @@ export const MOCK_SCANS: ScanSummary[] = [
   },
   {
     id: "scan_monthly01",
+    targetId: "tgt_staging01",
+    timezone: "Australia/Sydney",
+    loginSlots: ["admin", "user1", "user2", "other"],
     name: "Monthly deep scan",
     target: STAGING,
     tier: "siege",
@@ -103,6 +114,9 @@ export const MOCK_SCANS: ScanSummary[] = [
   },
   {
     id: "scan_once0001",
+    targetId: "tgt_portal001",
+    timezone: "Australia/Sydney",
+    loginSlots: ["admin", "user1", "user2", "other"],
     name: "Pre-launch report",
     target: "portal.swarm-demo.test",
     tier: "siege",
@@ -115,4 +129,50 @@ export const MOCK_SCANS: ScanSummary[] = [
   },
 ];
 
-export const MOCK_ACCOUNT: AccountInfo = { credits: { scout: 0, sweep: 0, probe: 0, siege: 0 } };
+export const MOCK_ACCOUNT: AccountInfo = {
+  credits: { scout: 0, sweep: 0, probe: 0, siege: 0 },
+  unmetered: false,
+};
+
+const login = (username: string, description: string) => ({
+  username,
+  description,
+  notes: "",
+  passwordSaved: true as const,
+});
+
+/** The targets behind MOCK_SCANS. Saved passwords are only flagged, never present. */
+export const MOCK_TARGETS: TargetView[] = [
+  {
+    id: "tgt_staging01",
+    appUrl: `https://${STAGING}`,
+    marketingUrl: "",
+    scopeNotes: "",
+    hosts: [STAGING],
+    logins: {
+      admin: login("swarm-test-admin", "Administrator"),
+      user1: login("swarm-test-user1", "Standard customer"),
+    },
+    acknowledgedAt: "2026-10-01T00:00:00.000Z",
+    scans: [
+      { id: "scan_daily001", name: "Daily quick check" },
+      { id: "scan_weekly01", name: "Weekly review" },
+      { id: "scan_monthly01", name: "Monthly deep scan" },
+    ],
+  },
+  {
+    id: "tgt_portal001",
+    appUrl: "https://portal.swarm-demo.test",
+    marketingUrl: "",
+    scopeNotes: "",
+    hosts: ["portal.swarm-demo.test"],
+    logins: {
+      admin: login("swarm-test-admin", "Administrator"),
+      user1: login("swarm-test-user1", "Standard customer"),
+      user2: login("swarm-test-user2", "Second customer"),
+      other: login("swarm-test-readonly", "Read-only auditor"),
+    },
+    acknowledgedAt: "2026-10-01T00:00:00.000Z",
+    scans: [{ id: "scan_once0001", name: "Pre-launch report" }],
+  },
+];

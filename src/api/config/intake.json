@@ -1,0 +1,34 @@
+{
+  "quotas": {
+    "maxTargets": 20,
+    "maxScans": 50
+  },
+  "notifyConfirm": {
+    "ttlHours": 48,
+    "perScanPerHour": 3,
+    "perAccountPerHour": 10
+  },
+  "blockedHosts": {
+    "domains": [
+      "fhlostonswarm.com",
+      "google.com",
+      "googleapis.com",
+      "microsoft.com",
+      "office.com",
+      "apple.com",
+      "amazon.com",
+      "aws.amazon.com",
+      "github.com",
+      "cloudflare.com",
+      "fastly.net",
+      "akamai.net",
+      "stripe.com",
+      "paypal.com",
+      "salesforce.com",
+      "okta.com",
+      "auth0.com"
+    ],
+    "suffixes": ["gov", "mil", "int", "gov.au", "gov.uk", "gov.nz", "gov.ca"],
+    "unroutable": ["localhost", "local", "localdomain", "internal", "intranet", "lan", "home.arpa"]
+  }
+}

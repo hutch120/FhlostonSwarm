@@ -1,8 +1,8 @@
 import { TIERS } from "@swarm/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { api } from "../api/client.js";
+import { api, messageFor } from "../api/client.js";
 import { useSession } from "../state/session.js";
 
 const CONFIRM_WORD = "DELETE";
@@ -10,13 +10,39 @@ const CONFIRM_WORD = "DELETE";
 export function Account() {
   const { email, role } = useSession();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [typed, setTyped] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const account = useQuery({ queryKey: ["account"], queryFn: () => api.getAccount() });
 
+  const sendCode = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.requestAccountDeletion();
+      setCodeSent(true);
+    } catch (err) {
+      setError(messageFor(err, "Could not send the code. Try again."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const deleteAccount = async () => {
-    await api.deleteAccount();
-    useSession.getState().setAnonymous();
-    navigate("/login");
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteAccount(code);
+      useSession.getState().setAnonymous();
+      queryClient.clear();
+      navigate("/login");
+    } catch (err) {
+      setError(messageFor(err, "Could not delete the account."));
+      setBusy(false);
+    }
   };
 
   return (
@@ -45,13 +71,10 @@ export function Account() {
           Delete account
         </h2>
         <p>
-          Deleting your account stops every scheduled scan and removes every saved scan, run,
-          report, piece of evidence and credential we hold for you. This cannot be undone.
+          Deleting your account removes every saved target and login, scan, run, report, piece of
+          evidence and credit we hold for you, and signs you out everywhere. This cannot be undone.
           Anonymised cost figures (depth, timings, token counts, cost; never your email, targets or
-          findings) are kept for cost analysis.
-        </p>
-        <p className="notice" role="note">
-          Preview: nothing is stored, so there is nothing to delete yet.
+          findings) are kept for cost analysis. See the privacy notice for what else is kept.
         </p>
         <div className="field">
           <label htmlFor="confirm-delete">
@@ -64,14 +87,43 @@ export function Account() {
             onChange={(e) => setTyped(e.target.value)}
           />
         </div>
-        <button
-          type="button"
-          className="btn btn-danger"
-          disabled={typed !== CONFIRM_WORD}
-          onClick={deleteAccount}
-        >
-          Delete my account
-        </button>
+        {!codeSent ? (
+          <button
+            type="button"
+            className="btn btn-danger"
+            disabled={typed !== CONFIRM_WORD || busy}
+            onClick={sendCode}
+          >
+            Email me a deletion code
+          </button>
+        ) : (
+          <>
+            <div className="field">
+              <label htmlFor="delete-code">6-digit code from the email we sent to {email}</label>
+              <input
+                id="delete-code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              />
+            </div>
+            <button
+              type="button"
+              className="btn btn-danger"
+              disabled={typed !== CONFIRM_WORD || code.length !== 6 || busy}
+              onClick={deleteAccount}
+            >
+              Delete my account
+            </button>
+          </>
+        )}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
       </section>
     </>
   );

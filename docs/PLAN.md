@@ -159,8 +159,10 @@ Everything lives in one S3 bucket (`swarm-data-885922397779`), default encryptio
 users/{emailHash}/profile.json              user profile (plain email, created, role: customer|staff)
 users/{emailHash}/entitlements.json         credit ledger per scan depth (purchased, staff-granted, consumed)
 users/{emailHash}/targets/{targetId}.json   saved target: URLs, scope notes, logins, ToS ack (see section 13)
-users/{emailHash}/scans/{scanId}.json       saved scan: targetId, tier, schedule, notification email + confirmation, status
+users/{emailHash}/scans/{scanId}.json       saved scan: targetId, tier, schedule, notification email + confirmation, login slots used, status
 users/{emailHash}/runs/{runId}/input.json   snapshot of the target + scan at start: URLs, scope, logins, tier, trigger, scanId, ToS ack
+users/{emailHash}/runs/{runId}/summary.json small run summary the dashboard lists (status, counts, tier, timestamps, scanId, trigger)
+users/{emailHash}/runs/{runId}/credit.json  marks the run's credit spent (or waived for staff); created first, so a run id is used once
 users/{emailHash}/runs/{runId}/events/...   append-only event chunks (seq-numbered objects)
 users/{emailHash}/runs/{runId}/evidence/... HAR, screenshots, tool output
 users/{emailHash}/runs/{runId}/report/...   report.html, report.pdf, findings.json
@@ -171,6 +173,7 @@ auth/ratelimit/{emailHash|ipHash}/{window}.json  coarse counters
 auth/notify-confirm/{tokenHash}.json        pending confirmation of a notification address (section 13)
 suppression/{emailHash}.json                SES bounce/complaint suppression
 admin/run-index/{yyyy}/{mm}/{dd}/{runId}.json   anonymised per-run summary + cost for the staff dashboard
+admin/audit/{yyyy}/{mm}/{dd}/{id}.json     staff actions on accounts (credit grants): account hash, never the email; survives account deletion
 ```
 
 How each requirement maps onto S3:
@@ -370,8 +373,9 @@ A customer should never have to configure a scan from scratch twice. Everything 
 ### Data model
 
 - **Target** (`users/{emailHash}/targets/{targetId}.json`): application URL, optional marketing URL, scope notes, the four login slots with descriptions and credentials, and the authorisation acknowledgement (timestamp, IP). One target can back many scans, so updating a password once fixes every scan on that application.
-- **Scan** (`users/{emailHash}/scans/{scanId}.json`): `{ targetId, name, tier, schedule, notify, status }`.
+- **Scan** (`users/{emailHash}/scans/{scanId}.json`): `{ targetId, name, tier, schedule, notify, loginSlots, status }`.
   - `tier`: `scout | sweep | probe | siege` ([section 11](#11-scan-depths-tiers-entitlements--payments)).
+  - `loginSlots`: which of the target's logins (`admin | user1 | user2 | other`) this scan signs in with. A target can hold all four, so one target backs a Scout scan (none), a Sweep scan (one) and a Siege scan (all four); the depth caps how many a scan uses (Scout 0, Sweep 1, Probe 2, Siege 4) and any depth above Scout needs at least one.
   - `schedule`: `{ frequency: once | daily | weekly | monthly | yearly, timezone }`. A `once` scan is saved and runs now; recurring scans run now and then repeat at the same time of day (and weekday/day of month/date) as the first run. The customer can edit this later.
   - `notify`: `{ email, confirmed, on: always | new | never }`. Each scan has its own **configurable notification email**, defaulting to the account email, so a team mailbox can receive weekly results while the owner keeps the monthly one.
   - `status`: `active | paused`. Pausing stops the schedule without deleting the scan.

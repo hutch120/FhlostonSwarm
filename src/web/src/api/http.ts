@@ -1,3 +1,5 @@
+import type { RunListItem, ScanStatus, ScanSummary, TargetView } from "@swarm/shared";
+import { toScanInput, toTargetInput, type IntakeValues } from "../intake.js";
 import { useSession, type SessionUser } from "../state/session.js";
 import type { AccountInfo } from "./mock.js";
 
@@ -22,8 +24,14 @@ export interface SignedIn {
   csrfToken: string;
 }
 
-/** The calls the real backend serves today: auth, session and account. */
-export interface AuthApi {
+export interface SavedScan {
+  scanId: string;
+  /** Set when the scan was also started. */
+  runId?: string;
+}
+
+/** Everything the screens need from the backend. */
+export interface ApiClient {
   requestCode(email: string): Promise<{ sent: true }>;
   verifyCode(email: string, code: string): Promise<SignedIn>;
   verifyLink(token: string): Promise<SignedIn>;
@@ -31,24 +39,80 @@ export interface AuthApi {
   logout(): Promise<void>;
   getAccount(): Promise<AccountInfo>;
   staffWhoami(): Promise<{ email: string; role: "staff" }>;
+
+  listRuns(): Promise<RunListItem[]>;
+  getRun(runId: string): Promise<RunListItem>;
+  deleteRun(runId: string): Promise<void>;
+
+  listTargets(): Promise<TargetView[]>;
+  /** Deletes the target and the scans that use it; returns the ids of those scans. */
+  deleteTarget(targetId: string): Promise<{ deletedScans: string[] }>;
+
+  listScans(): Promise<ScanSummary[]>;
+  /**
+   * Saves the target and the scan (creating or updating each), and starts a run when `start` is
+   * set. A new target is removed again if the scan cannot be saved.
+   */
+  saveScan(values: IntakeValues, options: { scanId?: string; start: boolean }): Promise<SavedScan>;
+  /** Starts a new run from a saved scan, with no reconfiguration. */
+  runScan(scanId: string): Promise<{ runId: string }>;
+  setScanStatus(scanId: string, status: ScanStatus): Promise<void>;
+  deleteScan(scanId: string): Promise<void>;
+  resendNotifyConfirmation(scanId: string): Promise<void>;
+  /** Follows a notification-address confirmation link. */
+  confirmNotify(token: string): Promise<void>;
+
+  /** Emails a fresh code that confirms deleting the account. */
+  requestAccountDeletion(): Promise<void>;
+  deleteAccount(code: string): Promise<void>;
 }
+
+const URL_PROBLEMS: Record<string, string> = {
+  invalid_url: "Enter a full URL starting with https:// (or http://).",
+  credentials_in_url: "Remove the username and password from the URL. Add logins below instead.",
+  private_address: "That address is private or reserved. Enter a public staging hostname.",
+  unroutable_host: "That name only works inside a private network. Enter a public hostname.",
+  blocked_host: "We cannot scan that host. It is on our blocked list.",
+};
 
 const MESSAGES: Record<string, string> = {
   invalid_email: "Enter a valid email address.",
   rate_limited: "Too many attempts. Please wait a while and try again.",
   invalid_or_expired_code: "That code is wrong or has expired. Request a new one.",
+  invalid_or_expired_link: "That link has expired or was already used.",
   verification_failed: "We could not verify that you are human. Try again.",
+  no_credit: "You have no credit for that scan depth.",
+  quota_exceeded: "You have reached the limit for saved items. Delete some you no longer need.",
+  password_required: "Enter a password for each new login.",
+  login_in_use: "A scan uses a login you removed. Edit or delete that scan first.",
+  login_missing: "That scan uses a login the target does not have.",
+  not_found: "That no longer exists.",
+  busy: "The service is busy. Try again in a moment.",
+  ...Object.fromEntries(
+    Object.entries(URL_PROBLEMS).flatMap(([problem, text]) => [
+      [`app_url_${problem}`, text],
+      [`marketing_url_${problem}`, text],
+    ]),
+  ),
 };
 
 export const messageFor = (err: unknown, fallback: string): string =>
   err instanceof ApiError ? (MESSAGES[err.code] ?? fallback) : fallback;
 
+/** The intake field an API error code belongs to, if it names one. */
+export const fieldForError = (err: unknown): "appUrl" | "marketingUrl" | null =>
+  err instanceof ApiError
+    ? err.code.startsWith("app_url_")
+      ? "appUrl"
+      : err.code.startsWith("marketing_url_")
+        ? "marketingUrl"
+        : null
+    : null;
+
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 /** Talks to /api (same origin). Cookies carry the session; a CSRF header goes on mutations. */
-export function createHttpAuthApi(
-  fetchFn: FetchLike = (input, init) => fetch(input, init),
-): AuthApi {
+export function createHttpApi(fetchFn: FetchLike = (input, init) => fetch(input, init)): ApiClient {
   let refreshing: Promise<boolean> | null = null;
 
   const send = async (method: string, path: string, body?: unknown): Promise<Response> => {
@@ -92,7 +156,9 @@ export function createHttpAuthApi(
     return data;
   };
 
-  return {
+  const id = encodeURIComponent;
+
+  const api: ApiClient = {
     requestCode: async (email) => {
       await call("POST", "/api/auth/request", { email }, { retry: false });
       return { sent: true };
@@ -105,12 +171,60 @@ export function createHttpAuthApi(
       await call("POST", "/api/auth/logout", {}, { retry: false });
     },
     getAccount: async () => {
-      const me = await call<{ entitlements: { credits: AccountInfo["credits"] } }>(
-        "GET",
-        "/api/me",
-      );
-      return { credits: me.entitlements.credits };
+      const me = await call<{ entitlements: AccountInfo }>("GET", "/api/me");
+      return { credits: me.entitlements.credits, unmetered: me.entitlements.unmetered };
     },
     staffWhoami: () => call("GET", "/api/staff/whoami"),
+
+    listRuns: () => call("GET", "/api/runs"),
+    getRun: (runId) => call("GET", `/api/runs/${id(runId)}`),
+    deleteRun: async (runId) => {
+      await call("DELETE", `/api/runs/${id(runId)}`);
+    },
+
+    listTargets: () => call("GET", "/api/targets"),
+    deleteTarget: (targetId) => call("DELETE", `/api/targets/${id(targetId)}`),
+
+    listScans: () => call("GET", "/api/scans"),
+    saveScan: async (values, { scanId, start }) => {
+      const targetBody = toTargetInput(values);
+      const target = values.targetId
+        ? await call<TargetView>("PUT", `/api/targets/${id(values.targetId)}`, targetBody)
+        : await call<TargetView>("POST", "/api/targets", targetBody);
+      let scan: ScanSummary;
+      try {
+        const scanBody = toScanInput(values, target.id, useSession.getState().email ?? "");
+        scan = scanId
+          ? await call<ScanSummary>("PUT", `/api/scans/${id(scanId)}`, scanBody)
+          : await call<ScanSummary>("POST", "/api/scans", scanBody);
+      } catch (err) {
+        if (!values.targetId) await api.deleteTarget(target.id).catch(() => undefined);
+        throw err;
+      }
+      if (!start) return { scanId: scan.id };
+      const { runId } = await api.runScan(scan.id);
+      return { scanId: scan.id, runId };
+    },
+    runScan: (scanId) => call("POST", `/api/scans/${id(scanId)}/run`),
+    setScanStatus: async (scanId, status) => {
+      await call("PATCH", `/api/scans/${id(scanId)}/status`, { status });
+    },
+    deleteScan: async (scanId) => {
+      await call("DELETE", `/api/scans/${id(scanId)}`);
+    },
+    resendNotifyConfirmation: async (scanId) => {
+      await call("POST", `/api/scans/${id(scanId)}/notify/resend`);
+    },
+    confirmNotify: async (token) => {
+      await call("POST", "/api/notify/confirm", { token }, { retry: false });
+    },
+
+    requestAccountDeletion: async () => {
+      await call("POST", "/api/account/delete-code");
+    },
+    deleteAccount: async (code) => {
+      await call("DELETE", "/api/account", { code });
+    },
   };
+  return api;
 }

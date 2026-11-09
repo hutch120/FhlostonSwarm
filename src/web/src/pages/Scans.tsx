@@ -1,36 +1,65 @@
 import { FREQUENCY_LABELS, isRecurring, tiers, type ScanStatus } from "@swarm/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { api } from "../api/client.js";
+import { api, messageFor } from "../api/client.js";
 import { formatDateTime } from "../format.js";
 
 /**
  * Saved scans. Each one remembers the target, logins, depth, schedule and notification address, so
- * running it again never means configuring it from scratch.
+ * running it again never means configuring it from scratch. Saved targets are listed below, where
+ * their stored logins can be removed.
  */
 export function Scans() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const scans = useQuery({ queryKey: ["scans"], queryFn: () => api.listScans() });
-  const [removed, setRemoved] = useState<Set<string>>(new Set());
-  const [statuses, setStatuses] = useState<Record<string, ScanStatus>>({});
+  const targets = useQuery({ queryKey: ["targets"], queryFn: () => api.listTargets() });
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [confirmingTarget, setConfirmingTarget] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const rows = (scans.data ?? []).filter((s) => !removed.has(s.id));
+  const rows = scans.data ?? [];
 
-  const runAgain = async (scanId: string) => {
-    const { runId } = await api.runScan(scanId);
-    navigate(`/runs/${runId}`);
+  // Runs the action, reports any failure, and reloads everything the change can affect.
+  const act = async (action: () => Promise<unknown>, fallback: string, then?: () => void) => {
+    setError(null);
+    setNotice(null);
+    try {
+      await action();
+      await queryClient.invalidateQueries();
+      then?.();
+    } catch (err) {
+      setError(messageFor(err, fallback));
+    }
   };
-  const setStatus = async (scanId: string, status: ScanStatus) => {
-    await api.setScanStatus(scanId, status);
-    setStatuses((prev) => ({ ...prev, [scanId]: status }));
-  };
-  const remove = async (scanId: string) => {
-    await api.deleteScan(scanId);
-    setRemoved((prev) => new Set(prev).add(scanId));
-    setConfirming(null);
-  };
+
+  const runAgain = (scanId: string) =>
+    act(async () => {
+      const { runId } = await api.runScan(scanId);
+      navigate(`/runs/${runId}`);
+    }, "Could not start the run.");
+  const setStatus = (scanId: string, status: ScanStatus) =>
+    act(() => api.setScanStatus(scanId, status), "Could not change the scan.");
+  const remove = (scanId: string) =>
+    act(
+      () => api.deleteScan(scanId),
+      "Could not delete the scan.",
+      () => setConfirming(null),
+    );
+  const resend = (scanId: string) =>
+    act(
+      () => api.resendNotifyConfirmation(scanId),
+      "Could not send the link.",
+      () => setNotice("We sent a new confirmation link."),
+    );
+  const removeTarget = (targetId: string) =>
+    act(
+      () => api.deleteTarget(targetId),
+      "Could not delete the target.",
+      () => setConfirmingTarget(null),
+    );
 
   return (
     <>
@@ -41,13 +70,25 @@ export function Scans() {
         </Link>
       </div>
 
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="notice" role="status">
+          {notice}
+        </p>
+      )}
+
       <section className="card" aria-labelledby="scans-title">
         <h2 id="scans-title" className="card-title">
           Saved scans
         </h2>
         <p className="muted">
           A scan remembers the application, logins, depth, schedule and who to email. Run it again
-          at any time, or let it repeat daily, weekly, monthly or yearly. Each run uses one credit.
+          at any time. Each run uses one credit. Repeating schedules are saved but do not run by
+          themselves yet.
         </p>
         {scans.isPending ? (
           <p className="muted">Loading…</p>
@@ -72,7 +113,6 @@ export function Scans() {
               </thead>
               <tbody>
                 {rows.map((s) => {
-                  const status = statuses[s.id] ?? s.status;
                   const recurring = isRecurring(s.frequency);
                   return (
                     <tr key={s.id} data-testid="scan-row">
@@ -89,15 +129,25 @@ export function Scans() {
                           <>
                             {s.notifyEmail}
                             {!s.notifyEmailConfirmed && (
-                              <span className="badge badge-unverified"> Unconfirmed</span>
+                              <>
+                                <span className="badge badge-unverified"> Unconfirmed</span>
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost"
+                                  onClick={() => resend(s.id)}
+                                  aria-label={`Resend confirmation link for ${s.name}`}
+                                >
+                                  Resend link
+                                </button>
+                              </>
                             )}
                           </>
                         )}
                       </td>
                       <td>
                         {recurring ? (
-                          <span className="badge badge-status" data-status={status}>
-                            {status}
+                          <span className="badge badge-status" data-status={s.status}>
+                            {s.status}
                           </span>
                         ) : (
                           <span className="muted">-</span>
@@ -108,12 +158,14 @@ export function Scans() {
                           <Link to={`/runs/${s.lastRun.runId}/report`}>
                             {formatDateTime(s.lastRun.finishedAt)}
                           </Link>
+                        ) : s.lastRun ? (
+                          <Link to={`/runs/${s.lastRun.runId}`}>{s.lastRun.status}</Link>
                         ) : (
                           <span className="muted">Not yet</span>
                         )}
                       </td>
                       <td>
-                        {recurring && status === "active" && s.nextRunAt ? (
+                        {recurring && s.status === "active" && s.nextRunAt ? (
                           formatDateTime(s.nextRunAt)
                         ) : (
                           <span className="muted">-</span>
@@ -128,16 +180,19 @@ export function Scans() {
                         >
                           Run again
                         </button>
+                        <Link to={`/scans/${s.id}/edit`} aria-label={`Edit ${s.name}`}>
+                          Edit
+                        </Link>
                         {recurring && (
                           <button
                             type="button"
                             className="btn btn-ghost"
                             onClick={() =>
-                              setStatus(s.id, status === "active" ? "paused" : "active")
+                              setStatus(s.id, s.status === "active" ? "paused" : "active")
                             }
-                            aria-label={`${status === "active" ? "Pause" : "Resume"} ${s.name}`}
+                            aria-label={`${s.status === "active" ? "Pause" : "Resume"} ${s.name}`}
                           >
-                            {status === "active" ? "Pause" : "Resume"}
+                            {s.status === "active" ? "Pause" : "Resume"}
                           </button>
                         )}
                         {confirming === s.id ? (
@@ -176,10 +231,71 @@ export function Scans() {
           </div>
         )}
         <p className="muted small">
-          Sample data. A notification address other than your account email must be confirmed before
-          it receives anything. Deleting a scan stops its schedule; past runs and reports stay until
-          you delete them.
+          A notification address other than your account email must be confirmed before it receives
+          anything. Deleting a scan stops its schedule; past runs and reports stay until you delete
+          them.
         </p>
+      </section>
+
+      <section className="card" aria-labelledby="targets-title">
+        <h2 id="targets-title" className="card-title">
+          Saved targets
+        </h2>
+        <p className="muted">
+          A target holds the application URLs and the test logins. Several scans can share one, so
+          changing a password once fixes every scan on it. Saved passwords are never shown again.
+        </p>
+        {targets.isPending ? (
+          <p className="muted">Loading…</p>
+        ) : (targets.data ?? []).length === 0 ? (
+          <p className="muted">No saved targets.</p>
+        ) : (
+          <ul className="plain" data-testid="targets">
+            {(targets.data ?? []).map((t) => (
+              <li key={t.id} data-testid="target-row">
+                <strong>{t.hosts[0]}</strong>
+                <span className="muted small">
+                  {" "}
+                  · {Object.keys(t.logins).length} saved login
+                  {Object.keys(t.logins).length === 1 ? "" : "s"} · {t.scans.length} scan
+                  {t.scans.length === 1 ? "" : "s"}
+                </span>{" "}
+                {confirmingTarget === t.id ? (
+                  <span role="group" aria-label={`Confirm deleting ${t.hosts[0] ?? "target"}`}>
+                    <span className="muted small">
+                      This also deletes{" "}
+                      {t.scans.length === 0 ? "no scans" : t.scans.map((s) => s.name).join(", ")}.
+                      Past runs stay.
+                    </span>{" "}
+                    <button
+                      type="button"
+                      className="btn btn-danger"
+                      onClick={() => removeTarget(t.id)}
+                    >
+                      Confirm delete target
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => setConfirmingTarget(null)}
+                    >
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => setConfirmingTarget(t.id)}
+                    aria-label={`Delete target ${t.hosts[0] ?? ""}`}
+                  >
+                    Delete target
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </>
   );

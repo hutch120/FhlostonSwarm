@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
+import { getCredits, grantCredits } from "./credits.js";
+import { emailHash, parseEmail } from "./identity.js";
 import { issueChallenge, verifyChallenge } from "./otp.js";
 import { createSession, rotateSession } from "./sessions.js";
 import { createHarness, testConfig, testSecrets } from "./testkit.js";
@@ -120,4 +122,116 @@ describe.skipIf(!enabled)("S3 integration (_test/ prefix)", () => {
     expect((await b.withCsrf("POST", "/api/auth/logout", {})).status).toBe(200);
     expect((await b.request("GET", "/api/me")).status).toBe(401);
   }, 60_000);
+
+  describe("intake, credits and deletion", () => {
+    const EMAIL = "swarm-test-intake-int@example.com";
+    const emailKey = emailHash(testSecrets.pepper, parseEmail(EMAIL)!);
+    const target = {
+      appUrl: "https://staging.example.com",
+      logins: { user1: { username: "swarm-test-u", password: "p", description: "Standard" } },
+      acknowledged: true,
+    };
+    const scan = (targetId: string) => ({
+      targetId,
+      name: "Integration sweep",
+      tier: "sweep",
+      frequency: "once",
+      timezone: "UTC",
+      notifyEmail: EMAIL,
+      notifyOn: "never",
+      loginSlots: ["user1"],
+    });
+
+    it("with one credit, fifty concurrent starts create exactly one run and spend the credit once", async () => {
+      const h = createHarness({ store });
+      const b = h.browser();
+      await h.signIn(b, EMAIL);
+      await grantCredits(
+        store,
+        emailKey,
+        { tier: "sweep", count: 1, source: "comp", reason: "integration test", by: "test" },
+        Date.now(),
+        true,
+      );
+      const { id: targetId } = (await (
+        await b.withCsrf("POST", "/api/targets", target)
+      ).json()) as { id: string };
+      const { id: scanId } = (await (
+        await b.withCsrf("POST", "/api/scans", scan(targetId))
+      ).json()) as { id: string };
+
+      const results = await Promise.all(
+        Array.from({ length: 50 }, () => b.withCsrf("POST", `/api/scans/${scanId}/run`)),
+      );
+      const statuses = results.map((r) => r.status);
+      expect(statuses.filter((s) => s === 201)).toHaveLength(1);
+      expect(statuses.filter((s) => s === 402)).toHaveLength(49);
+      expect(await getCredits(store, emailKey)).toMatchObject({ sweep: 0 });
+      const runs = (await store.list(keys.runsPrefix(emailKey))).filter((k) =>
+        k.endsWith("/summary.json"),
+      );
+      expect(runs).toHaveLength(1);
+
+      // A Scout credit cannot start a Sweep scan.
+      await grantCredits(
+        store,
+        emailKey,
+        { tier: "scout", count: 3, source: "comp", reason: "integration test", by: "test" },
+        Date.now(),
+        true,
+      );
+      expect((await b.withCsrf("POST", `/api/scans/${scanId}/run`)).status).toBe(402);
+    }, 120_000);
+
+    it("deleting the account leaves nothing under the user's prefix, and another user's data is untouched", async () => {
+      const h = createHarness({ store });
+      const owner = h.browser();
+      await h.signIn(owner, EMAIL);
+      const otherEmail = "swarm-test-intake-int-b@example.com";
+      const other = h.browser("198.51.100.77");
+      await h.signIn(other, otherEmail);
+      const otherKey = emailHash(testSecrets.pepper, parseEmail(otherEmail)!);
+
+      for (const [b, address, key] of [
+        [owner, EMAIL, emailKey],
+        [other, otherEmail, otherKey],
+      ] as const) {
+        await grantCredits(
+          store,
+          key,
+          { tier: "sweep", count: 2, source: "comp", reason: "integration test", by: "test" },
+          Date.now(),
+          true,
+        );
+        const { id: targetId } = (await (
+          await b.withCsrf("POST", "/api/targets", target)
+        ).json()) as { id: string };
+        const { id: scanId } = (await (
+          await b.withCsrf("POST", "/api/scans", {
+            ...scan(targetId),
+            notifyEmail: "team@example.org",
+            notifyOn: "always",
+          })
+        ).json()) as { id: string };
+        expect((await b.withCsrf("POST", `/api/scans/${scanId}/run`)).status, address).toBe(201);
+      }
+      const before = await store.list(keys.userPrefix(otherKey));
+      expect((await store.list(keys.userPrefix(emailKey))).length).toBeGreaterThan(6);
+
+      // Another user cannot reach the owner's scan.
+      const { id: ownerScan } = (
+        (await (await owner.request("GET", "/api/scans")).json()) as { id: string }[]
+      )[0]!;
+      expect((await other.request("GET", `/api/scans/${ownerScan}`)).status).toBe(404);
+
+      await owner.withCsrf("POST", "/api/account/delete-code");
+      const { code } = h.mailer.lastDeletionCodeTo(EMAIL)!;
+      expect((await owner.withCsrf("DELETE", "/api/account", { code })).status).toBe(200);
+
+      expect(await store.list(keys.userPrefix(emailKey))).toEqual([]);
+      expect(await store.get(keys.otp(emailKey))).toBeNull();
+      expect(await store.list(keys.emailRateLimits(emailKey))).toEqual([]);
+      expect(await store.list(keys.userPrefix(otherKey))).toEqual(before);
+    }, 120_000);
+  });
 });

@@ -32,7 +32,7 @@ npm run format:check  # Prettier check (npm run format to fix)
 
 ## Web app
 
-`src/web` is the Vite + React + TypeScript SPA. Sign-in, sessions and the account page use the real API (`src/api`); the live swarm view still runs against a replayed, simulated event feed, and the dashboard rows, saved scans and intake are mock data until later phases. The event contract, reducer, roster and tier limits live in `src/shared`.
+`src/web` is the Vite + React + TypeScript SPA. Sign-in, sessions, the account page, intake, saved targets and scans, credits, runs (queued) and data deletion use the real API (`src/api`); the live swarm view still runs against a replayed, simulated event feed until agents run (Phase 5). The event contract, reducer, roster and tier limits live in `src/shared`; the terms of use and privacy notice shown in the intake flow are in `src/web/content/legal.ts`.
 
 ```
 npm run dev -w src/api         # local API on :8787 (in-memory data, mail collected, no AWS)
@@ -43,20 +43,27 @@ npx playwright install chromium   # one-off, for the end-to-end tests
 npm run test:e2e -w src/web    # Playwright (starts the dev server and the local API)
 ```
 
-The replay accepts `?speed=<n>` (e.g. `/demo?speed=8`) and `?autoplay=0`. Colours and the look live in `src/web/src/theme.ts`; the customer-facing scan depths (Scout, Sweep, Probe, Siege: each a group of agents) live in `src/shared/config/tiers.json` and the server-only cost limits in `src/shared/config/limits.json`. Every run, one-off or scheduled, uses a paid credit of its depth. Saved scans (target, depth, schedule, notification email) are in `src/shared/src/scans.ts`; the **Scans** screen lets you run one again without reconfiguring.
+The replay accepts `?speed=<n>` (e.g. `/demo?speed=8`) and `?autoplay=0`. Colours and the look live in `src/web/src/theme.ts`; the customer-facing scan depths (Scout, Sweep, Probe, Siege: each a group of agents) live in `src/shared/config/tiers.json` and the server-only cost limits in `src/shared/config/limits.json`. Every run, one-off or scheduled, uses a paid credit of its depth. Saved scans (target, depth, schedule, notification email) are in `src/shared/src/scans.ts`; the **Scans** screen lets you run one again, edit it or delete it without reconfiguring.
 
-To sign in locally, run both servers, enter any address on `/login`, then read the code from the local mailbox: `http://localhost:8787/__dev/mail?to=<address>` (dev server only, never deployed).
+To sign in locally, run both servers, enter any address on `/login`, then read the code from the local mailbox: `http://localhost:8787/__dev/mail?to=<address>`. The dev server also exposes `/__dev/deletion-code?to=`, `/__dev/confirmation?to=` and `POST /__dev/grant` (`{ to, tier, count }`, adds credits) so every flow can be driven locally. These exist only in the local dev server, never deployed.
 
 ## API
 
-`src/api` is a Hono app (`createApp`) that runs on Lambda behind an API Gateway HTTP API, served at `/api/*` on the same CloudFront distribution as the site (so cookies are first-party). Phase 3 covers: `GET /api/health`, `POST /api/auth/request|verify|refresh|logout`, `GET /api/auth/session`, `GET /api/me` (account, role and credits per scan depth; all zero until the Phase 4 ledger) and `GET /api/staff/whoami`.
+`src/api` is a Hono app (`createApp`) that runs on Lambda behind an API Gateway HTTP API, served at `/api/*` on the same CloudFront distribution as the site (so cookies are first-party). It covers:
+
+- Auth: `GET /api/health`, `POST /api/auth/request|verify|refresh|logout`, `GET /api/auth/session`, `GET /api/me` (account, role, credits per scan depth, and whether the account is unmetered staff), `GET /api/staff/whoami`.
+- Targets and scans (all need a session and the CSRF token): `GET|POST /api/targets`, `PUT|DELETE /api/targets/:id` (delete also removes the scans on it), `GET|POST /api/scans`, `GET|PUT|DELETE /api/scans/:id`, `PATCH /api/scans/:id/status`, `POST /api/scans/:id/notify/resend`. A saved password is never returned; an update keeps it unless a new one is sent.
+- Runs: `POST /api/scans/:id/run` (spends one credit of the scan's depth, snapshots the target and scan into `runs/{runId}/input.json`, writes a `queued` `summary.json`; 402 `no_credit` otherwise), `GET /api/runs`, `GET|DELETE /api/runs/:id`. Nothing executes until Phase 5.
+- Notification addresses: `POST /api/notify/confirm` (public, single-use link token). An address other than the account email gets no mail until confirmed.
+- Account deletion: `POST /api/account/delete-code` emails a fresh code, then `DELETE /api/account` with `{ code }` removes everything under `users/{emailHash}/`.
 
 - **Data** is S3 only (`swarm-data-885922397779`), using conditional writes (`If-None-Match`/`If-Match`) in `src/api/src/storage`. Layout and keys follow [PLAN.md section 5](./docs/PLAN.md#where-data-lives-s3-only-decided).
-- **Auth tuning** (OTP lifetime, attempt limit, rate limits, session lifetimes, staff domain, reserved addresses, disposable-domain list) is in `src/api/config/auth.json`.
+- **Credits**: `users/{emailHash}/entitlements.json` is a compare-and-swap ledger (granted per source, consumed per depth). Grant `comp` credits with `swarm grant-credit <email> <scout|sweep|probe|siege> [count] --reason "<why>"`; each grant is audit-logged under `admin/audit/` (account hash, never the email). Staff accounts can start runs without a credit.
+- **Auth tuning** (OTP lifetime, attempt limit, rate limits, session lifetimes, staff domain, reserved addresses, disposable-domain list) is in `src/api/config/auth.json`. **Intake tuning** (per-account target and scan limits, notification-link lifetime and limits, and the blocked-host lists for private addresses, internal names, our own domains and public-sector suffixes) is in `src/api/config/intake.json`.
 - **Secrets**: the identity pepper and JWT key are SSM SecureStrings (`/swarm/auth/pepper`, `/swarm/auth/jwt-key`), never in git. Create them once with `swarm init-secrets` (it never overwrites; replacing the pepper would orphan every stored identity).
 - **Integration tests** against the real bucket (only under `_test/<runId>/`, removed afterwards): `npm run test:integration` (uses the `swarm` profile; `npm test` skips them).
 - **Test identities**: any address whose local part starts with `swarm-test-` (and the SES simulator) gets `"test": true` on every record it creates, so `swarm test-cleanup` finds it.
-- SES is still in the sandbox, so sign-in mail reaches only verified addresses until production access is granted.
+- SES is still in the sandbox, so mail (sign-in codes, deletion codes, notification confirmation links) reaches only verified addresses until production access is granted.
 
 ## Infrastructure
 
@@ -69,6 +76,7 @@ swarm diff                   # show pending changes
 swarm deploy                 # build the web app and deploy all stacks (e.g. --require-approval never)
 swarm test-cleanup           # list test data (_test/ objects, test:true records, swarm-test-* resources)
 swarm test-cleanup --delete  # remove it
+swarm grant-credit <email> <depth> [count] --reason "<why>"   # comp credits for an account (audit-logged)
 ```
 
 `swarm synth|diff|deploy` build `src/web` first, so the edge stack publishes the real app (`src/web/dist`); without a build it falls back to the Phase 1 placeholder.

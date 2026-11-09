@@ -1,18 +1,29 @@
+import { DEMO_RUN_ID } from "@swarm/shared";
 import { useEffect } from "react";
-import { Link, Navigate, Route, Routes } from "react-router";
+import { Link, Navigate, Route, Routes, useParams } from "react-router";
+import { privacy, terms } from "../content/legal.js";
 import { api } from "./api/client.js";
 import { Layout } from "./components/Layout.js";
 import { RequireAuth } from "./components/RequireAuth.js";
 import { Account } from "./pages/Account.js";
 import { Dashboard } from "./pages/Dashboard.js";
 import { Intake } from "./pages/Intake.js";
+import { Legal } from "./pages/Legal.js";
 import { LiveRun } from "./pages/LiveRun.js";
 import { Login } from "./pages/Login.js";
+import { NotifyConfirm } from "./pages/NotifyConfirm.js";
+import { QueuedRun } from "./pages/QueuedRun.js";
 import { Report } from "./pages/Report.js";
 import { Scans } from "./pages/Scans.js";
 import { Staff } from "./pages/Staff.js";
 import { VerifyLink } from "./pages/VerifyLink.js";
 import { useSession } from "./state/session.js";
+
+/** The scripted demo replays in the live view; a real run is queued until the agents exist. */
+function RunPage() {
+  const { runId = "" } = useParams();
+  return runId === DEMO_RUN_ID ? <LiveRun /> : <QueuedRun runId={runId} />;
+}
 
 function NotFound() {
   return (
@@ -47,13 +58,17 @@ export function App() {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="login" element={<Login />} />
         <Route path="auth/verify" element={<VerifyLink />} />
+        <Route path="notify/confirm" element={<NotifyConfirm />} />
+        <Route path="terms" element={<Legal doc={terms} testId="terms" />} />
+        <Route path="privacy" element={<Legal doc={privacy} testId="privacy" />} />
         <Route path="demo" element={<LiveRun />} />
         <Route element={<RequireAuth />}>
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="new" element={<Intake />} />
-          <Route path="runs/:runId" element={<LiveRun />} />
+          <Route path="runs/:runId" element={<RunPage />} />
           <Route path="runs/:runId/report" element={<Report />} />
           <Route path="scans" element={<Scans />} />
+          <Route path="scans/:scanId/edit" element={<Intake />} />
           <Route path="account" element={<Account />} />
         </Route>
         <Route path="staff" element={<Staff />} />

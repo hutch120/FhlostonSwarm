@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { cdk, type CdkAction } from "./utils/deploy.js";
+import { grantCredit } from "./utils/grant-credit.js";
 import { login } from "./utils/login.js";
 import { requireSwarmAccount } from "./utils/aws.js";
 import { initSecrets } from "./utils/secrets.js";
@@ -57,6 +58,25 @@ program
     try {
       await requireSwarmAccount();
       await initSecrets();
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("grant-credit")
+  .description(
+    "Grant comp (staff-granted) credits of a scan depth to an account email; audit-logged. Until payments exist this is the only way for a customer to start a run",
+  )
+  .argument("<email>", "the account's email address")
+  .argument("<tier>", "scan depth: scout, sweep, probe or siege")
+  .argument("[count]", "how many credits (default 1)", "1")
+  .requiredOption("--reason <text>", "why the credit is granted (recorded in the audit log)")
+  .action(async (email: string, tier: string, count: string, opts: { reason: string }) => {
+    try {
+      await requireSwarmAccount();
+      await grantCredit({ email, tier, count: Number(count), reason: opts.reason });
     } catch (err) {
       console.error(err instanceof Error ? err.message : err);
       process.exitCode = 1;

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { emptyIntake, type IntakeValues } from "../intake.js";
 import { useSession } from "../state/session.js";
-import { ApiError, createHttpAuthApi, messageFor } from "./http.js";
+import { ApiError, createHttpApi, fieldForError, messageFor } from "./http.js";
 
 interface Call {
   method: string;
@@ -34,7 +35,7 @@ beforeEach(() => {
 describe("http auth client", () => {
   it("posts JSON to the auth endpoints without retrying on 401", async () => {
     const { calls, fetchFn } = fakeFetch(() => reply(401, { error: "invalid_or_expired_code" }));
-    const api = createHttpAuthApi(fetchFn);
+    const api = createHttpApi(fetchFn);
     await expect(api.verifyCode("a@example.com", "123456")).rejects.toMatchObject({
       status: 401,
       code: "invalid_or_expired_code",
@@ -46,7 +47,7 @@ describe("http auth client", () => {
 
   it("sends the CSRF token on mutations but not on reads", async () => {
     const { calls, fetchFn } = fakeFetch(() => reply(200, { ok: true, authenticated: false }));
-    const api = createHttpAuthApi(fetchFn);
+    const api = createHttpApi(fetchFn);
     await api.logout();
     await api.getSession();
     expect(calls[0]!.headers["x-csrf-token"]).toBe("csrf-1");
@@ -63,10 +64,15 @@ describe("http auth client", () => {
         });
       return ++meCalls === 1
         ? reply(401)
-        : reply(200, { entitlements: { credits: { scout: 2, sweep: 0, probe: 0, siege: 1 } } });
+        : reply(200, {
+            entitlements: { credits: { scout: 2, sweep: 0, probe: 0, siege: 1 }, unmetered: false },
+          });
     });
-    const account = await createHttpAuthApi(fetchFn).getAccount();
-    expect(account).toEqual({ credits: { scout: 2, sweep: 0, probe: 0, siege: 1 } });
+    const account = await createHttpApi(fetchFn).getAccount();
+    expect(account).toEqual({
+      credits: { scout: 2, sweep: 0, probe: 0, siege: 1 },
+      unmetered: false,
+    });
     expect(calls.map((c) => c.path)).toEqual(["/api/me", "/api/auth/refresh", "/api/me"]);
     expect(useSession.getState().csrfToken).toBe("csrf-2");
   });
@@ -82,20 +88,20 @@ describe("http auth client", () => {
       seen.add(call.path);
       return first ? reply(401) : reply(200, { entitlements: { credits: {} } });
     });
-    const api = createHttpAuthApi(fetchFn);
+    const api = createHttpApi(fetchFn);
     await Promise.all([api.getAccount(), api.staffWhoami().catch(() => undefined)]);
     expect(calls.filter((c) => c.path === "/api/auth/refresh")).toHaveLength(1);
   });
 
   it("signs the page out when the refresh fails", async () => {
     const { fetchFn } = fakeFetch(() => reply(401, { error: "unauthenticated" }));
-    await expect(createHttpAuthApi(fetchFn).getAccount()).rejects.toBeInstanceOf(ApiError);
+    await expect(createHttpApi(fetchFn).getAccount()).rejects.toBeInstanceOf(ApiError);
     expect(useSession.getState().status).toBe("anonymous");
   });
 
   it("does not sign the page out for a 403", async () => {
     const { fetchFn } = fakeFetch(() => reply(403, { error: "forbidden" }));
-    await expect(createHttpAuthApi(fetchFn).staffWhoami()).rejects.toMatchObject({ status: 403 });
+    await expect(createHttpApi(fetchFn).staffWhoami()).rejects.toMatchObject({ status: 403 });
     expect(useSession.getState().status).toBe("authenticated");
   });
 });
@@ -103,7 +109,133 @@ describe("http auth client", () => {
 describe("messageFor", () => {
   it("maps known codes and falls back otherwise", () => {
     expect(messageFor(new ApiError(429, "rate_limited"), "x")).toMatch(/too many/i);
+    expect(messageFor(new ApiError(402, "no_credit"), "x")).toMatch(/no credit/i);
+    expect(messageFor(new ApiError(400, "app_url_private_address"), "x")).toMatch(/private/i);
+    expect(messageFor(new ApiError(400, "marketing_url_blocked_host"), "x")).toMatch(/blocked/i);
     expect(messageFor(new ApiError(500, "weird"), "fallback")).toBe("fallback");
     expect(messageFor(new Error("boom"), "fallback")).toBe("fallback");
+  });
+
+  it("says which intake field a URL error belongs to", () => {
+    expect(fieldForError(new ApiError(400, "app_url_invalid_url"))).toBe("appUrl");
+    expect(fieldForError(new ApiError(400, "marketing_url_blocked_host"))).toBe("marketingUrl");
+    expect(fieldForError(new ApiError(402, "no_credit"))).toBeNull();
+    expect(fieldForError(new Error("x"))).toBeNull();
+  });
+});
+
+describe("saving a scan", () => {
+  const values = (over: Partial<IntakeValues> = {}): IntakeValues => {
+    const v = emptyIntake("a@example.com");
+    v.appUrl = "https://staging.example.com";
+    v.acknowledged = true;
+    v.logins.user1 = {
+      username: "u",
+      password: "p",
+      description: "Standard",
+      notes: "",
+      use: true,
+      saved: false,
+    };
+    return { ...v, ...over };
+  };
+
+  const server = (failScan = false) => {
+    const created: string[] = [];
+    return fakeFetch((call) => {
+      created.push(`${call.method} ${call.path}`);
+      if (call.path === "/api/targets" && call.method === "POST")
+        return reply(201, { id: "tgt_abcd1234" });
+      if (call.path.startsWith("/api/targets/") && call.method === "PUT")
+        return reply(200, { id: "tgt_abcd1234" });
+      if (call.path.startsWith("/api/targets/") && call.method === "DELETE")
+        return reply(200, { ok: true, deletedScans: [] });
+      if (call.path.startsWith("/api/scans") && call.path.endsWith("/run"))
+        return reply(201, { runId: "run_abcd1234" });
+      return failScan
+        ? reply(409, { error: "quota_exceeded" })
+        : reply(201, { id: "scan_abcd1234" });
+      return reply(404);
+    });
+  };
+
+  it("creates the target, then the scan, then starts the run", async () => {
+    const { calls, fetchFn } = server();
+    const saved = await createHttpApi(fetchFn).saveScan(values(), { start: true });
+    expect(saved).toEqual({ scanId: "scan_abcd1234", runId: "run_abcd1234" });
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "POST /api/targets",
+      "POST /api/scans",
+      "POST /api/scans/scan_abcd1234/run",
+    ]);
+    const [targetBody, scanBody] = [JSON.parse(calls[0]!.body!), JSON.parse(calls[1]!.body!)];
+    expect(targetBody.logins.user1.password).toBe("p");
+    expect(scanBody).toMatchObject({
+      targetId: "tgt_abcd1234",
+      tier: "sweep",
+      loginSlots: ["user1"],
+    });
+  });
+
+  it("without a credit it only saves, and an existing target and scan are updated", async () => {
+    const { calls, fetchFn } = server();
+    const saved = await createHttpApi(fetchFn).saveScan(values({ targetId: "tgt_abcd1234" }), {
+      scanId: "scan_abcd1234",
+      start: false,
+    });
+    expect(saved).toEqual({ scanId: "scan_abcd1234" });
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "PUT /api/targets/tgt_abcd1234",
+      "PUT /api/scans/scan_abcd1234",
+    ]);
+  });
+
+  it("removes a target it just created if the scan cannot be saved, but never an existing one", async () => {
+    const fresh = server(true);
+    await expect(
+      createHttpApi(fresh.fetchFn).saveScan(values(), { start: true }),
+    ).rejects.toMatchObject({ code: "quota_exceeded" });
+    expect(fresh.calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "POST /api/targets",
+      "POST /api/scans",
+      "DELETE /api/targets/tgt_abcd1234",
+    ]);
+    const existing = server(true);
+    await expect(
+      createHttpApi(existing.fetchFn).saveScan(values({ targetId: "tgt_abcd1234" }), {
+        start: true,
+      }),
+    ).rejects.toBeInstanceOf(ApiError);
+    expect(existing.calls.map((c) => c.method)).toEqual(["PUT", "POST"]);
+  });
+});
+
+describe("account and notification calls", () => {
+  it("asks for a deletion code, then deletes with it", async () => {
+    const { calls, fetchFn } = fakeFetch(() => reply(200, { ok: true }));
+    const api = createHttpApi(fetchFn);
+    await api.requestAccountDeletion();
+    await api.deleteAccount("123456");
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "POST /api/account/delete-code",
+      "DELETE /api/account",
+    ]);
+    expect(JSON.parse(calls[1]!.body!)).toEqual({ code: "123456" });
+    expect(calls[1]!.headers["x-csrf-token"]).toBe("csrf-1");
+  });
+
+  it("confirms a notification link without a retry on 401", async () => {
+    const { calls, fetchFn } = fakeFetch(() => reply(400, { error: "invalid_or_expired_link" }));
+    await expect(createHttpApi(fetchFn).confirmNotify("tok")).rejects.toMatchObject({
+      status: 400,
+    });
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ token: "tok" });
+  });
+
+  it("encodes ids in paths", async () => {
+    const { calls, fetchFn } = fakeFetch(() => reply(200, {}));
+    await createHttpApi(fetchFn).getRun("../x");
+    expect(calls[0]!.path).toBe("/api/runs/..%2Fx");
   });
 });

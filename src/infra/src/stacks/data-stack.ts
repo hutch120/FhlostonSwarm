@@ -32,6 +32,12 @@ export class DataStack extends Stack {
         // Backstops: expiry is enforced in code, these only tidy abandoned challenges and counters.
         { id: "expire-otp", prefix: "auth/otp/", expiration: Duration.days(1) },
         { id: "expire-ratelimit", prefix: "auth/ratelimit/", expiration: Duration.days(2) },
+        // Confirmation links live 48 hours (config/intake.json); S3 expires in whole days.
+        {
+          id: "expire-notify-confirm",
+          prefix: "auth/notify-confirm/",
+          expiration: Duration.days(3),
+        },
       ],
     });
 

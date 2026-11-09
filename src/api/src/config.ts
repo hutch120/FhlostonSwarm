@@ -1,5 +1,6 @@
 import { z } from "zod";
 import authJson from "../config/auth.json" with { type: "json" };
+import intakeJson from "../config/intake.json" with { type: "json" };
 
 /** Auth behaviour is data, not code: edit config/auth.json to tune it. */
 export const authConfigSchema = z.object({
@@ -27,3 +28,31 @@ export const authConfigSchema = z.object({
 export type AuthConfig = z.infer<typeof authConfigSchema>;
 
 export const authConfig: AuthConfig = authConfigSchema.parse(authJson);
+
+const hostList = z.array(z.string().regex(/^[a-z0-9.-]+$/, "lowercase hostname suffix"));
+
+/** Intake behaviour is data, not code: edit config/intake.json to tune it. */
+export const intakeConfigSchema = z.object({
+  quotas: z.object({
+    maxTargets: z.number().int().positive(),
+    maxScans: z.number().int().positive(),
+  }),
+  /** Confirmation links for notification addresses other than the account email. */
+  notifyConfirm: z.object({
+    ttlHours: z.number().positive(),
+    perScanPerHour: z.number().int().positive(),
+    perAccountPerHour: z.number().int().positive(),
+  }),
+  blockedHosts: z.object({
+    /** Our own domains and well-known third-party services: the domain and its subdomains. */
+    domains: hostList,
+    /** Public-sector and similar suffixes, e.g. `gov.au`. */
+    suffixes: hostList,
+    /** Names that only resolve inside a private network. */
+    unroutable: hostList,
+  }),
+});
+
+export type IntakeConfig = z.infer<typeof intakeConfigSchema>;
+
+export const intakeConfig: IntakeConfig = intakeConfigSchema.parse(intakeJson);

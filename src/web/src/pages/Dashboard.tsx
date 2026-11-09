@@ -1,29 +1,55 @@
-import { useQuery } from "@tanstack/react-query";
-import { TIERS, tiers } from "@swarm/shared";
+import { TIERS, tiers, type TierId } from "@swarm/shared";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { api } from "../api/client.js";
+import { api, messageFor } from "../api/client.js";
 import { formatClock, formatDateTime } from "../format.js";
+
+/** Credits per depth, and what to do when a depth has none. */
+export function CreditsLine({ credits }: { credits: Record<TierId, number> }) {
+  return (
+    <p data-testid="credits">
+      {TIERS.map((t, i) => (
+        <span key={t.id}>
+          {i > 0 && " · "}
+          <strong>{credits[t.id]}</strong> {t.name}
+        </span>
+      ))}
+    </p>
+  );
+}
 
 export function Dashboard() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const runs = useQuery({ queryKey: ["runs"], queryFn: () => api.listRuns() });
   const account = useQuery({ queryKey: ["account"], queryFn: () => api.getAccount() });
-  const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const remove = async (runId: string) => {
-    await api.deleteRun(runId);
-    setRemoved((prev) => new Set(prev).add(runId));
+    setError(null);
+    try {
+      await api.deleteRun(runId);
+      await queryClient.invalidateQueries({ queryKey: ["runs"] });
+    } catch (err) {
+      setError(messageFor(err, "Could not delete the run."));
+    }
     setConfirming(null);
   };
 
   const runAgain = async (scanId: string) => {
-    const { runId } = await api.runScan(scanId);
-    navigate(`/runs/${runId}`);
+    setError(null);
+    try {
+      const { runId } = await api.runScan(scanId);
+      await queryClient.invalidateQueries();
+      navigate(`/runs/${runId}`);
+    } catch (err) {
+      setError(messageFor(err, "Could not start the run."));
+    }
   };
 
-  const rows = (runs.data ?? []).filter((r) => !removed.has(r.summary.runId));
+  const rows = runs.data ?? [];
 
   return (
     <>
@@ -40,23 +66,24 @@ export function Dashboard() {
         </h2>
         {account.data ? (
           <>
-            <p data-testid="credits">
-              {TIERS.map((t, i) => (
-                <span key={t.id}>
-                  {i > 0 && " · "}
-                  <strong>{account.data.credits[t.id]}</strong> {t.name}
-                </span>
-              ))}
-            </p>
+            <CreditsLine credits={account.data.credits} />
             <p className="muted small">
-              Every scan, one-off or scheduled, uses one credit of its depth. Purchasing arrives
-              soon.
+              Every scan, one-off or scheduled, uses one credit of its depth.{" "}
+              {account.data.unmetered
+                ? "As staff you can start runs without a credit."
+                : "During the private beta credits are granted by our team; purchasing arrives later."}
             </p>
           </>
         ) : (
           <p className="muted">Loading…</p>
         )}
       </section>
+
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
 
       <section className="card" aria-labelledby="runs-title">
         <h2 id="runs-title" className="card-title">
@@ -108,7 +135,9 @@ export function Dashboard() {
                     <td>{Math.round(s.coverage * 100)}%</td>
                     <td className="actions">
                       <Link to={`/runs/${s.runId}`}>Watch</Link>
-                      <Link to={`/runs/${s.runId}/report`}>Report</Link>
+                      {s.status === "complete" && (
+                        <Link to={`/runs/${s.runId}/report`}>Report</Link>
+                      )}
                       {scanId && (
                         <button
                           type="button"
@@ -153,7 +182,9 @@ export function Dashboard() {
             </table>
           </div>
         )}
-        <p className="muted small">Sample data. Deleting a run removes its report and evidence.</p>
+        <p className="muted small">
+          Deleting a run permanently removes its saved logins, report and evidence.
+        </p>
       </section>
     </>
   );

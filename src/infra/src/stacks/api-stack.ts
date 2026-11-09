@@ -109,7 +109,7 @@ export class ApiStack extends Stack {
       ...common("ApiFunction"),
       entry: `${API_SRC}lambda.ts`,
       handler: "handler",
-      description: "Swarm API (Hono): auth, sessions, account",
+      description: "Swarm API (Hono): auth, sessions, targets, scans, runs, account",
     });
     for (const statement of [
       ...readSecrets,

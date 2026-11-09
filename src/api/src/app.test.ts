@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { emailHash, parseEmail } from "./identity.js";
 import { keys } from "./storage/keys.js";
-import { createHarness, SITE, testConfig, testSecrets } from "./testkit.js";
+import { createHarness, failingMailer, SITE, testConfig, testSecrets } from "./testkit.js";
 
 const hashOf = (address: string) => emailHash(testSecrets.pepper, parseEmail(address)!);
 const sessionBody = async (res: Response) =>
@@ -115,13 +115,7 @@ describe("POST /api/auth/request", () => {
   });
 
   it("still answers ok when the mailer fails", async () => {
-    const h = createHarness({
-      mailer: {
-        sendLoginCode: async () => {
-          throw new Error("ses down");
-        },
-      },
-    });
+    const h = createHarness({ mailer: failingMailer });
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const res = await h
       .browser()
@@ -195,7 +189,7 @@ describe("sign in, session and sign out", () => {
     expect(me).toEqual({
       email: "buyer@example.com",
       role: "customer",
-      entitlements: { credits: { scout: 0, sweep: 0, probe: 0, siege: 0 } },
+      entitlements: { credits: { scout: 0, sweep: 0, probe: 0, siege: 0 }, unmetered: false },
     });
   });
 

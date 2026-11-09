@@ -1,11 +1,23 @@
 import { createApp, type AppDeps } from "./app.js";
 import { authConfig, type AuthConfig } from "./config.js";
-import { FakeMailer } from "./mailer.js";
+import { FakeMailer, type Mailer } from "./mailer.js";
 import type { Secrets } from "./sessions.js";
 import { MemoryStore } from "./storage/memory.js";
 import type { ObjectStore } from "./storage/store.js";
 
 export const SITE = "https://fhlostonswarm.com";
+
+const down = async (): Promise<never> => {
+  throw new Error("ses down");
+};
+
+/** A mailer whose every send fails, to prove requests still succeed when SES is down. */
+export const failingMailer: Mailer = {
+  sendLoginCode: down,
+  sendDeletionCode: down,
+  sendAccountDeleted: down,
+  sendNotifyConfirmation: down,
+};
 
 export const testSecrets: Secrets = {
   pepper: "test-pepper-not-a-secret",

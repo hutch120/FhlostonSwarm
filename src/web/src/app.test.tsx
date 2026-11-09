@@ -1,8 +1,9 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App.js";
-import { ApiError, mockApi, setApi } from "./api/client.js";
+import { ApiError, createMockApi, setApi, type ApiClient } from "./api/client.js";
+import { MOCK_RUNS } from "./api/mock.js";
 import { useSession } from "./state/session.js";
 import { renderWithProviders } from "./test/render.js";
 
@@ -72,7 +73,18 @@ const fillValidIntake = async () => {
   await userEvent.click(screen.getByLabelText(/I am authorised to test/i));
 };
 
+const withCredits = (over: Partial<ApiClient> = {}): ApiClient => ({
+  ...createMockApi(),
+  getAccount: async () => ({
+    credits: { scout: 5, sweep: 5, probe: 5, siege: 5 },
+    unmetered: false,
+  }),
+  ...over,
+});
+
 describe("Intake", () => {
+  beforeEach(() => setApi(withCredits()));
+
   it("offers four depths from shallow to deep", () => {
     renderApp("/new");
     const depths = within(screen.getByRole("radiogroup", { name: "Scan depth" })).getAllByRole(
@@ -89,7 +101,7 @@ describe("Intake", () => {
     expect(screen.getByLabelText(/I am authorised to test/i)).not.toBeChecked();
   });
 
-  it("defaults to a one-off scan and the account email, and offers every cadence", () => {
+  it("defaults to a one-off scan and the account email, and offers every cadence", async () => {
     renderApp("/new");
     const how = screen.getByLabelText("How often?");
     expect(how).toHaveValue("once");
@@ -99,13 +111,13 @@ describe("Intake", () => {
         .map((o) => o.textContent),
     ).toEqual(["One-off", "Daily", "Weekly", "Monthly", "Yearly"]);
     expect(screen.getByLabelText(/email the report notice to/i)).toHaveValue("buyer@example.com");
-    expect(screen.getByRole("button", { name: "Start scan" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Start scan" })).toBeInTheDocument();
   });
 
   it("changes the button and explains repeats when a cadence is chosen", async () => {
     renderApp("/new");
     await userEvent.selectOptions(screen.getByLabelText("How often?"), "weekly");
-    expect(screen.getByRole("button", { name: "Save and start scan" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Save and start scan" })).toBeInTheDocument();
     expect(screen.getByText(/then repeats weekly/i)).toBeInTheDocument();
   });
 
@@ -128,7 +140,7 @@ describe("Intake", () => {
 
   it("blocks an empty submission and reports each problem", async () => {
     renderApp("/new");
-    await userEvent.click(screen.getByRole("button", { name: "Start scan" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Start scan" }));
     expect(await screen.findByText(/enter a full url/i)).toBeInTheDocument();
     expect(screen.getByText(/must confirm you are authorised/i)).toBeInTheDocument();
     expect(screen.getByText(/add at least one login/i)).toBeInTheDocument();
@@ -139,17 +151,17 @@ describe("Intake", () => {
     renderApp("/new");
     await fillValidIntake();
     await userEvent.clear(screen.getByLabelText(/email the report notice to/i));
-    await userEvent.click(screen.getByRole("button", { name: "Start scan" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Start scan" }));
     expect(await screen.findByText(/enter the email address/i)).toBeInTheDocument();
     await userEvent.selectOptions(screen.getByLabelText("Notify me"), "never");
-    await userEvent.click(screen.getByRole("button", { name: "Start scan" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Start scan" }));
     expect(await screen.findByRole("heading", { name: "Live swarm view" })).toBeInTheDocument();
   });
 
   it("opens the demo run once the form is valid", async () => {
     renderApp("/new");
     await fillValidIntake();
-    await userEvent.click(screen.getByRole("button", { name: "Start scan" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Start scan" }));
     expect(await screen.findByRole("heading", { name: "Live swarm view" })).toBeInTheDocument();
   });
 });
@@ -218,7 +230,9 @@ describe("Scans", () => {
   it("pauses and resumes a recurring scan, but not a one-off", async () => {
     renderApp("/scans");
     await userEvent.click(await screen.findByRole("button", { name: "Pause Daily quick check" }));
-    expect(screen.getByRole("button", { name: "Resume Daily quick check" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Resume Daily quick check" }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /pause pre-launch report/i })).toBeNull();
   });
 
@@ -228,10 +242,61 @@ describe("Scans", () => {
     await userEvent.click(screen.getByRole("button", { name: "Confirm delete" }));
     await waitFor(() => expect(screen.getAllByTestId("scan-row")).toHaveLength(3));
   });
+
+  it("links each scan to its edit form", async () => {
+    renderApp("/scans");
+    expect(await screen.findByRole("link", { name: "Edit Weekly review" })).toHaveAttribute(
+      "href",
+      "/scans/scan_weekly01/edit",
+    );
+  });
+
+  it("says when a run cannot start because there is no credit", async () => {
+    setApi({
+      ...createMockApi(),
+      runScan: async () => {
+        throw new ApiError(402, "no_credit");
+      },
+    });
+    renderApp("/scans");
+    await userEvent.click(await screen.findByRole("button", { name: "Run Weekly review again" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/no credit/i);
+  });
+
+  it("resends the confirmation link for an unconfirmed address", async () => {
+    const resend = vi.fn(async () => undefined);
+    setApi({ ...createMockApi(), resendNotifyConfirmation: resend });
+    renderApp("/scans");
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Resend confirmation link for Weekly review" }),
+    );
+    expect(resend).toHaveBeenCalledWith("scan_weekly01");
+    expect(await screen.findByRole("status")).toHaveTextContent(/new confirmation link/i);
+  });
+
+  it("lists saved targets and names the scans that go with one before deleting it", async () => {
+    renderApp("/scans");
+    const rows = await screen.findAllByTestId("target-row");
+    expect(rows).toHaveLength(2);
+    await userEvent.click(
+      within(rows[0]!).getByRole("button", { name: "Delete target staging.example-shop.test" }),
+    );
+    expect(rows[0]).toHaveTextContent("Daily quick check, Weekly review, Monthly deep scan");
+    await userEvent.click(screen.getByRole("button", { name: "Confirm delete target" }));
+    await waitFor(() => expect(screen.getAllByTestId("target-row")).toHaveLength(1));
+    // Its scans went with it.
+    await waitFor(() => expect(screen.getAllByTestId("scan-row")).toHaveLength(1));
+  });
 });
 
 describe("Account", () => {
-  it("shows credits and only enables deletion after typing DELETE", async () => {
+  it("shows credits and walks through deleting the account with a fresh code", async () => {
+    const calls: string[] = [];
+    setApi({
+      ...createMockApi(),
+      requestAccountDeletion: async () => void calls.push("code"),
+      deleteAccount: async (code) => void calls.push(`delete ${code}`),
+    });
     renderApp("/account");
     await waitFor(() =>
       expect(screen.getByTestId("account-credits")).toHaveTextContent(
@@ -239,16 +304,44 @@ describe("Account", () => {
       ),
     );
     expect(screen.getAllByText("buyer@example.com")).toHaveLength(2);
-    const button = screen.getByRole("button", { name: "Delete my account" });
-    expect(button).toBeDisabled();
+    const send = screen.getByRole("button", { name: "Email me a deletion code" });
+    expect(send).toBeDisabled();
     await userEvent.type(screen.getByLabelText(/to confirm/i), "DELETE");
-    expect(button).toBeEnabled();
+    await userEvent.click(send);
+
+    const remove = await screen.findByRole("button", { name: "Delete my account" });
+    expect(remove).toBeDisabled();
+    await userEvent.type(screen.getByLabelText(/6-digit code/i), "12a3456");
+    expect(screen.getByLabelText(/6-digit code/i)).toHaveValue("123456");
+    await userEvent.click(remove);
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+    expect(calls).toEqual(["code", "delete 123456"]);
+    expect(useSession.getState().status).toBe("anonymous");
+  });
+
+  it("keeps the account when the code is wrong", async () => {
+    setApi({
+      ...createMockApi(),
+      deleteAccount: async () => {
+        throw new ApiError(400, "invalid_or_expired_code");
+      },
+    });
+    renderApp("/account");
+    await userEvent.type(await screen.findByLabelText(/to confirm/i), "DELETE");
+    await userEvent.click(screen.getByRole("button", { name: "Email me a deletion code" }));
+    await userEvent.type(await screen.findByLabelText(/6-digit code/i), "123456");
+    await userEvent.click(screen.getByRole("button", { name: "Delete my account" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/wrong or has expired/i);
+    expect(useSession.getState().status).toBe("authenticated");
   });
 
   it("shows the credits the API reports", async () => {
     setApi({
-      ...mockApi,
-      getAccount: async () => ({ credits: { scout: 5, sweep: 2, probe: 0, siege: 1 } }),
+      ...createMockApi(),
+      getAccount: async () => ({
+        credits: { scout: 5, sweep: 2, probe: 0, siege: 1 },
+        unmetered: false,
+      }),
     });
     renderApp("/account");
     await waitFor(() =>
@@ -256,6 +349,270 @@ describe("Account", () => {
         "5 Scout · 2 Sweep · 0 Probe · 1 Siege credits",
       ),
     );
+  });
+});
+
+describe("Terms and privacy", () => {
+  it("show without signing in, and the privacy notice covers deletion and what is kept", () => {
+    renderApp("/privacy", null);
+    const privacy = screen.getByTestId("privacy");
+    expect(privacy).toHaveTextContent(/delete a single run, a scan, a target/i);
+    expect(privacy).toHaveTextContent(/anonymised cost records/i);
+    expect(privacy).toHaveTextContent(/one-way hash/i);
+    expect(privacy).toHaveTextContent(/never show a saved password/i);
+  });
+
+  it("the terms require authorisation and staging-only credentials", () => {
+    renderApp("/terms", null);
+    const terms = screen.getByTestId("terms");
+    expect(terms).toHaveTextContent(/authorised to test/i);
+    expect(terms).toHaveTextContent(/staging, never production/i);
+    expect(terms).toHaveTextContent(/one credit/i);
+  });
+
+  it("are linked from the footer and from the intake acknowledgement", () => {
+    renderApp("/new");
+    expect(screen.getAllByRole("link", { name: /terms/i }).length).toBeGreaterThan(1);
+    expect(screen.getAllByRole("link", { name: /privacy/i }).length).toBeGreaterThan(1);
+  });
+});
+
+describe("Notification confirmation", () => {
+  it("confirms the address on a click, without signing in", async () => {
+    const confirm = vi.fn(async () => undefined);
+    setApi({ ...createMockApi(), confirmNotify: confirm });
+    renderApp("/notify/confirm?token=abc123", null);
+    expect(confirm).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Confirm this address" }));
+    expect(await screen.findByTestId("notify-confirmed")).toBeInTheDocument();
+    expect(confirm).toHaveBeenCalledWith("abc123");
+  });
+
+  it("explains a used or expired link, and an incomplete one", async () => {
+    setApi({
+      ...createMockApi(),
+      confirmNotify: async () => {
+        throw new ApiError(400, "invalid_or_expired_link");
+      },
+    });
+    renderApp("/notify/confirm?token=abc123", null);
+    await userEvent.click(screen.getByRole("button", { name: "Confirm this address" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/expired or was already used/i);
+  });
+
+  it("needs a token", () => {
+    renderApp("/notify/confirm", null);
+    expect(screen.getByText(/link is incomplete/i)).toBeInTheDocument();
+  });
+});
+
+describe("A queued run", () => {
+  const queued = {
+    ...MOCK_RUNS[1]!,
+    summary: { ...MOCK_RUNS[1]!.summary, runId: "run_queued001", status: "queued" as const },
+  };
+
+  it("waits on its own page: no replay, and no report link on the dashboard", async () => {
+    setApi({
+      ...createMockApi(),
+      listRuns: async () => [queued],
+      getRun: async () => queued,
+    });
+    renderApp("/dashboard");
+    const row = await screen.findByTestId("run-row");
+    expect(within(row).getByText("queued")).toBeInTheDocument();
+    expect(within(row).queryByRole("link", { name: "Report" })).toBeNull();
+
+    await userEvent.click(within(row).getByRole("link", { name: "Watch" }));
+    expect(await screen.findByTestId("queued-note")).toHaveTextContent(/credit is spent/i);
+    expect(screen.queryByTestId("swarm-canvas")).toBeNull();
+    expect(screen.getByTestId("run-status")).toHaveTextContent("queued");
+  });
+
+  it("says when the run is gone", async () => {
+    setApi({
+      ...createMockApi(),
+      getRun: async () => {
+        throw new ApiError(404, "not_found");
+      },
+    });
+    renderApp("/runs/run_gone00001");
+    expect(await screen.findByRole("heading", { name: "Run not found" })).toBeInTheDocument();
+  });
+});
+
+describe("Intake: credits, saved targets and editing", () => {
+  beforeEach(() => setApi(withCredits()));
+
+  const stubSave = () =>
+    vi.fn<ApiClient["saveScan"]>(async (_values, { scanId, start }) => ({
+      scanId: scanId ?? "scan_new00001",
+      ...(start ? { runId: "run_new000001" } : {}),
+    }));
+
+  it("with no credit for the depth it explains how to get one and only saves the scan", async () => {
+    const save = stubSave();
+    setApi({ ...createMockApi(), saveScan: save });
+    renderApp("/new");
+    expect(await screen.findByTestId("no-credit")).toHaveTextContent(/no sweep credits/i);
+    expect(screen.getByRole("link", { name: "support@fhlostonswarm.com" })).toHaveAttribute(
+      "href",
+      "mailto:support@fhlostonswarm.com",
+    );
+    await fillValidIntake();
+    await userEvent.click(screen.getByRole("button", { name: "Save scan" }));
+    expect(await screen.findByRole("heading", { name: "Scans" })).toBeInTheDocument();
+    expect(save).toHaveBeenCalledWith(expect.anything(), { start: false });
+  });
+
+  it("tells a customer with credit how many they have, and staff that none is needed", async () => {
+    setApi({
+      ...createMockApi(),
+      getAccount: async () => ({
+        credits: { scout: 0, sweep: 3, probe: 0, siege: 0 },
+        unmetered: false,
+      }),
+    });
+    renderApp("/new");
+    expect(await screen.findByTestId("credit-note")).toHaveTextContent("you have 3");
+    await userEvent.click(screen.getByRole("radio", { name: "Scout" }));
+    expect(await screen.findByTestId("no-credit")).toHaveTextContent(/no scout credits/i);
+  });
+
+  it("lets staff start without a credit", async () => {
+    setApi({
+      ...createMockApi(),
+      getAccount: async () => ({
+        credits: { scout: 0, sweep: 0, probe: 0, siege: 0 },
+        unmetered: true,
+      }),
+    });
+    renderApp("/new", "staff");
+    expect(await screen.findByTestId("credit-note")).toHaveTextContent(/without a credit/i);
+    expect(screen.getByRole("button", { name: "Start scan" })).toBeInTheDocument();
+  });
+
+  it("starts the run and opens it when the form is valid", async () => {
+    const save = stubSave();
+    const run = {
+      ...MOCK_RUNS[1]!,
+      summary: { ...MOCK_RUNS[1]!.summary, runId: "run_new000001", status: "queued" as const },
+    };
+    setApi({ ...withCredits(), saveScan: save, getRun: async () => run });
+    renderApp("/new");
+    await fillValidIntake();
+    await userEvent.click(await screen.findByRole("button", { name: "Start scan" }));
+    expect(await screen.findByTestId("queued-note")).toBeInTheDocument();
+    expect(save).toHaveBeenCalledTimes(1);
+    const [values, options] = save.mock.calls[0]!;
+    expect(options).toEqual({ start: true });
+    expect(values).toMatchObject({ tier: "sweep", appUrl: "https://staging.example.com" });
+    expect(values.logins.user1).toMatchObject({ username: "swarm-test-user", use: true });
+  });
+
+  it("shows a server rejection of a URL on that field", async () => {
+    setApi({
+      ...withCredits(),
+      saveScan: async () => {
+        throw new ApiError(400, "app_url_private_address");
+      },
+    });
+    renderApp("/new");
+    await fillValidIntake();
+    await userEvent.click(await screen.findByRole("button", { name: "Start scan" }));
+    expect(await screen.findByText(/private or reserved/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/application url/i)).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("shows another server error above the button, and lets the customer retry", async () => {
+    setApi({
+      ...withCredits(),
+      saveScan: async () => {
+        throw new ApiError(402, "no_credit");
+      },
+    });
+    renderApp("/new");
+    await fillValidIntake();
+    await userEvent.click(await screen.findByRole("button", { name: "Start scan" }));
+    expect(await screen.findByText(/no credit for that scan depth/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start scan" })).toBeEnabled();
+  });
+
+  it("reuses a saved target: its URLs and logins come with it, and passwords stay hidden", async () => {
+    renderApp("/new");
+    await screen.findByRole("option", { name: "staging.example-shop.test" });
+    const select = screen.getByLabelText("Use a saved target");
+    expect(within(select).getAllByRole("option")).toHaveLength(3);
+    await userEvent.selectOptions(select, "tgt_staging01");
+    expect(screen.getByLabelText(/application url/i)).toHaveValue(
+      "https://staging.example-shop.test",
+    );
+    const password = screen.getByLabelText("Password", { selector: "#admin-password" });
+    expect(password).toHaveValue("");
+    expect(password).toHaveAttribute("placeholder", "Saved. Leave blank to keep it.");
+    expect(screen.getByLabelText("Use Admin in this scan")).toBeChecked();
+    expect(screen.getByLabelText("Use User 1 in this scan")).not.toBeChecked();
+
+    await userEvent.selectOptions(select, "");
+    expect(screen.getByLabelText(/application url/i)).toHaveValue("");
+  });
+
+  it("limits the logins a scan uses to the depth, with a clear message", async () => {
+    renderApp("/new");
+    await screen.findByRole("option", { name: "staging.example-shop.test" });
+    await userEvent.selectOptions(screen.getByLabelText("Use a saved target"), "tgt_staging01");
+    await userEvent.click(screen.getByLabelText("Use User 1 in this scan"));
+    await userEvent.click(screen.getByLabelText(/I am authorised to test/i));
+    await userEvent.click(await screen.findByRole("button", { name: "Start scan" }));
+    expect(await screen.findByText(/up to 1 login and 2 are selected/i)).toBeInTheDocument();
+  });
+
+  it("edits a saved scan: filled in from the scan, and saving does not start a run", async () => {
+    const save = stubSave();
+    setApi({ ...withCredits(), saveScan: save });
+    renderApp("/scans/scan_weekly01/edit");
+    expect(await screen.findByRole("heading", { name: "Edit scan" })).toBeInTheDocument();
+    expect(screen.getByLabelText(/scan name/i)).toHaveValue("Weekly review");
+    expect(screen.getByRole("radio", { name: "Probe" })).toBeChecked();
+    expect(screen.getByLabelText("How often?")).toHaveValue("weekly");
+    expect(screen.getByLabelText(/email the report notice to/i)).toHaveValue(
+      "security@example-shop.test",
+    );
+    expect(screen.getByTestId("shared-target-note")).toHaveTextContent("all 3 scans");
+    expect(screen.queryByLabelText("Use a saved target")).toBeNull();
+    expect(screen.queryByTestId("no-credit")).toBeNull();
+
+    await userEvent.click(screen.getByLabelText(/I am authorised to test/i));
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(await screen.findByRole("heading", { name: "Scans" })).toBeInTheDocument();
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ targetId: "tgt_staging01" }), {
+      scanId: "scan_weekly01",
+      start: false,
+    });
+  });
+
+  it("says when the scan to edit does not exist", async () => {
+    renderApp("/scans/scan_missing01/edit");
+    expect(await screen.findByRole("heading", { name: "Scan not found" })).toBeInTheDocument();
+  });
+});
+
+describe("Dashboard credits and errors", () => {
+  it("explains how credits are granted", async () => {
+    renderApp("/dashboard");
+    expect(await screen.findByText(/granted by our team/i)).toBeInTheDocument();
+  });
+
+  it("shows why a run could not start", async () => {
+    setApi({
+      ...createMockApi(),
+      runScan: async () => {
+        throw new ApiError(402, "no_credit");
+      },
+    });
+    renderApp("/dashboard");
+    await userEvent.click(await screen.findByRole("button", { name: /run again for staging/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/no credit/i);
   });
 });
 
@@ -282,7 +639,7 @@ describe("Session", () => {
   it("restores a session the server still knows about on load", async () => {
     useSession.setState({ status: "loading" });
     setApi({
-      ...mockApi,
+      ...createMockApi(),
       getSession: async () => ({
         authenticated: true,
         user: { email: "back@example.com", role: "customer" },
@@ -297,7 +654,7 @@ describe("Session", () => {
   it("treats a failed or empty session lookup as signed out", async () => {
     useSession.setState({ status: "loading" });
     setApi({
-      ...mockApi,
+      ...createMockApi(),
       getSession: async () => {
         throw new Error("offline");
       },
@@ -309,7 +666,7 @@ describe("Session", () => {
   it("signs out through the server and clears the page", async () => {
     let loggedOut = false;
     setApi({
-      ...mockApi,
+      ...createMockApi(),
       logout: async () => {
         loggedOut = true;
       },
@@ -327,7 +684,7 @@ describe("Session", () => {
 
   it("shows a clear message when the code is wrong", async () => {
     setApi({
-      ...mockApi,
+      ...createMockApi(),
       verifyCode: async () => {
         throw new ApiError(401, "invalid_or_expired_code");
       },
@@ -374,7 +731,7 @@ describe("Staff", () => {
 
   it("stays closed when the server disagrees with the browser's idea of the role", async () => {
     setApi({
-      ...mockApi,
+      ...createMockApi(),
       staffWhoami: async () => {
         throw new ApiError(403, "forbidden");
       },

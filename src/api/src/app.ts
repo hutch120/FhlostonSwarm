@@ -1,14 +1,16 @@
-import { TIER_IDS } from "@swarm/shared";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 import { secureHeaders } from "hono/secure-headers";
 import { z, ZodError } from "zod";
-import type { AuthConfig } from "./config.js";
+import { intakeConfig, type AuthConfig, type IntakeConfig } from "./config.js";
+import { getCredits } from "./credits.js";
+import { clientIp, MUTATING, readJson, type Vars } from "./http.js";
 import { deriveRole, emailHash, ipHash, isDisposable, parseEmail } from "./identity.js";
 import type { Mailer } from "./mailer.js";
 import { issueChallenge, verifyChallenge } from "./otp.js";
 import { hit } from "./ratelimit.js";
+import { dataRoutes } from "./routes.js";
 import {
   authenticate,
   createSession,
@@ -21,6 +23,7 @@ import {
   type IssuedSession,
   type Secrets,
 } from "./sessions.js";
+import { ContentionError } from "./storage/json.js";
 import type { ObjectStore } from "./storage/store.js";
 import { safeEqual } from "./identity.js";
 import { isSuppressed, recordLogin } from "./users.js";
@@ -30,6 +33,8 @@ export interface AppDeps {
   secrets: () => Promise<Secrets>;
   mailer: Mailer;
   config: AuthConfig;
+  /** Intake limits and the target block list. Defaults to config/intake.json. */
+  intake?: IntakeConfig;
   /** The public origin of the site, e.g. https://fhlostonswarm.com. Mutating calls must come from it. */
   siteOrigin: string;
   /** Use Secure cookies with __Host-/__Secure- prefixes. Only the local dev server turns this off. */
@@ -39,12 +44,6 @@ export interface AppDeps {
   /** Optional bot check (Turnstile). Absent = no check. */
   verifyHuman?: (token: string | undefined, ip: string) => Promise<boolean>;
 }
-
-interface Vars {
-  auth: AuthenticatedSession;
-}
-
-const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 const requestBody = z.object({
   email: z.string().max(254),
@@ -57,33 +56,6 @@ const verifyBody = z.union([
 ]);
 
 const sleepMs = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-function clientIp(c: Context): string {
-  const viewer = c.req.header("cloudfront-viewer-address");
-  if (viewer) {
-    const colon = viewer.lastIndexOf(":");
-    return (colon > 0 ? viewer.slice(0, colon) : viewer).replace(/^\[|\]$/g, "");
-  }
-  const env = c.env as
-    | {
-        event?: { requestContext?: { http?: { sourceIp?: string } } };
-        incoming?: { socket?: { remoteAddress?: string } };
-      }
-    | undefined;
-  return (
-    env?.event?.requestContext?.http?.sourceIp ?? env?.incoming?.socket?.remoteAddress ?? "unknown"
-  );
-}
-
-async function readJson<S extends z.ZodType>(c: Context, schema: S): Promise<z.infer<S>> {
-  let raw: unknown;
-  try {
-    raw = await c.req.json();
-  } catch {
-    throw new HTTPException(400, { message: "invalid_request" });
-  }
-  return schema.parse(raw);
-}
 
 const json = (c: Context, status: 200 | 400 | 401 | 403 | 429, body: unknown) =>
   c.json(body, status);
@@ -140,6 +112,7 @@ export function createApp(deps: AppDeps) {
   app.onError((err, c) => {
     if (err instanceof ZodError) return c.json({ error: "invalid_request" }, 400);
     if (err instanceof HTTPException) return c.json({ error: err.message }, err.status);
+    if (err instanceof ContentionError) return c.json({ error: "busy" }, 503);
     console.error(JSON.stringify({ msg: "unhandled_error", name: err.name }));
     return c.json({ error: "internal_error" }, 500);
   });
@@ -357,11 +330,35 @@ export function createApp(deps: AppDeps) {
   app.use("/me", requireAuth, requireCsrf);
   app.get("/me", async (c) => {
     const auth = c.get("auth");
-    // Every run needs a paid or staff-granted credit. The credit ledger
-    // (users/{hash}/entitlements.json) arrives with intake in Phase 4, so nobody holds credits yet.
-    const credits = Object.fromEntries(TIER_IDS.map((tier) => [tier, 0]));
-    return c.json({ email: auth.email, role: auth.role, entitlements: { credits } });
+    // Every run consumes a credit of its depth; staff may run without one (flagged).
+    return c.json({
+      email: auth.email,
+      role: auth.role,
+      entitlements: {
+        credits: await getCredits(store, auth.emailHash),
+        unmetered: auth.role === "staff",
+      },
+    });
   });
+
+  // Everything below needs a signed-in session; mutations also need the CSRF token.
+  for (const path of ["/targets", "/scans", "/runs", "/account"]) {
+    app.use(path, requireAuth, requireCsrf);
+    app.use(`${path}/*`, requireAuth, requireCsrf);
+  }
+  app.route(
+    "/",
+    dataRoutes({
+      store,
+      mailer,
+      config,
+      intake: deps.intake ?? intakeConfig,
+      secrets: deps.secrets,
+      siteOrigin: allowedOrigin,
+      now,
+      clearSessionCookies,
+    }),
+  );
 
   // Staff routes re-check the role from the server-side session on every call.
   app.use("/staff/*", requireAuth, requireCsrf, requireStaff);

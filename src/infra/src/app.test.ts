@@ -247,12 +247,13 @@ describe("infrastructure app", () => {
     });
   });
 
-  it("data bucket expires abandoned OTP challenges and rate-limit counters", () => {
+  it("data bucket expires abandoned OTP challenges, confirmation links and rate-limit counters", () => {
     template("SwarmData").hasResourceProperties("AWS::S3::Bucket", {
       LifecycleConfiguration: {
         Rules: Match.arrayWith([
           Match.objectLike({ Prefix: "auth/otp/", ExpirationInDays: 1 }),
           Match.objectLike({ Prefix: "auth/ratelimit/", ExpirationInDays: 2 }),
+          Match.objectLike({ Prefix: "auth/notify-confirm/", ExpirationInDays: 3 }),
         ]),
       },
     });
