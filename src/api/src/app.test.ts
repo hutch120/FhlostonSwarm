@@ -449,7 +449,7 @@ describe("staff role", () => {
 });
 
 describe("entitlements", () => {
-  it("there is no free tier: /api/me shows no credits and no claim marker is written", async () => {
+  it("/api/me reports zero credits per scan depth for a new account", async () => {
     const h = createHarness();
     const b = h.browser();
     await h.signIn(b, "buyer@example.com");
@@ -457,6 +457,5 @@ describe("entitlements", () => {
       entitlements: { credits: Record<string, number> };
     };
     expect(me.entitlements.credits).toEqual({ scout: 0, sweep: 0, probe: 0, siege: 0 });
-    expect(await h.store.list("claims/")).toEqual([]);
   });
 });

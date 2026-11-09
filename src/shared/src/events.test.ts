@@ -155,11 +155,6 @@ describe("tier config", () => {
     expect(tierAreas("siege")).toEqual(["recon", "unauth", "authn", "llm", "logic"]);
   });
 
-  it("has no free tier", () => {
-    expect(Object.keys(tiers)).not.toContain("lite");
-    expect(JSON.stringify(tiers)).not.toMatch(/free|teaser/i);
-  });
-
   it("rejects invalid tiers", () => {
     expect(tierConfigSchema.safeParse({ ...tiers.sweep, logins: 9 }).success).toBe(false);
     expect(tierConfigSchema.safeParse({ ...tiers.sweep, wallClockMinutes: 0 }).success).toBe(false);

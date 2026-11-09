@@ -32,8 +32,8 @@ describe("scan settings", () => {
     expect(FREQUENCIES.filter(isRecurring)).toEqual(["daily", "weekly", "monthly", "yearly"]);
   });
 
-  it("rejects the removed free tier, unknown cadences and bad emails", () => {
-    expect(scanSettingsSchema.safeParse({ ...settings, tier: "lite" }).success).toBe(false);
+  it("rejects unknown tiers and cadences and bad emails", () => {
+    expect(scanSettingsSchema.safeParse({ ...settings, tier: "platinum" }).success).toBe(false);
     expect(scanSettingsSchema.safeParse({ ...settings, frequency: "hourly" }).success).toBe(false);
     expect(scanSettingsSchema.safeParse({ ...settings, notifyEmail: "nope" }).success).toBe(false);
     expect(scanSettingsSchema.safeParse({ ...settings, notifyEmail: "" }).success).toBe(false);

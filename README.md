@@ -43,7 +43,7 @@ npx playwright install chromium   # one-off, for the end-to-end tests
 npm run test:e2e -w src/web    # Playwright (starts the dev server and the local API)
 ```
 
-The replay accepts `?speed=<n>` (e.g. `/demo?speed=8`) and `?autoplay=0`. Colours and the look live in `src/web/src/theme.ts`; the customer-facing scan depths (Scout, Sweep, Probe, Siege: each a group of agents) live in `src/shared/config/tiers.json` and the server-only cost limits in `src/shared/config/limits.json`. There is no free tier: every run, one-off or scheduled, uses a paid credit of its depth. Saved scans (target, depth, schedule, notification email) are in `src/shared/src/scans.ts`; the **Scans** screen lets you run one again without reconfiguring.
+The replay accepts `?speed=<n>` (e.g. `/demo?speed=8`) and `?autoplay=0`. Colours and the look live in `src/web/src/theme.ts`; the customer-facing scan depths (Scout, Sweep, Probe, Siege: each a group of agents) live in `src/shared/config/tiers.json` and the server-only cost limits in `src/shared/config/limits.json`. Every run, one-off or scheduled, uses a paid credit of its depth. Saved scans (target, depth, schedule, notification email) are in `src/shared/src/scans.ts`; the **Scans** screen lets you run one again without reconfiguring.
 
 To sign in locally, run both servers, enter any address on `/login`, then read the code from the local mailbox: `http://localhost:8787/__dev/mail?to=<address>` (dev server only, never deployed).
 

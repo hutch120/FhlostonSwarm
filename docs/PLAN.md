@@ -12,7 +12,7 @@ Turn the *simulated* swarm on the Fhloston Advisory marketing site into a real, 
 | **Staff dashboard** | `@fhlostonswarm.com` logins only: per-run cost analysis, usage, support tools |
 | **Backend** (AWS, `ap-southeast-2`, account `885922397779`) | Auth, run orchestration, sandboxed agent execution on Bedrock, event streaming, report generation. **All data in S3.** |
 | **Agent runtime** | Driven by the baseline methodology in [instructions/](./instructions/README.md), adapted per target by a discovery phase |
-| **Entitlements / payments** | **No free tier.** Every run (one-off or scheduled) consumes a paid credit of its scan depth (Scout, Sweep, Probe or Siege) via Stripe; staff can grant complimentary credits for testing and beta |
+| **Entitlements / payments** | Every run (one-off or scheduled) consumes a paid credit of its scan depth (Scout, Sweep, Probe or Siege) via Stripe; staff can grant complimentary credits for testing and beta |
 | **Saved scans** | A scan saves the target, logins, scan depth, schedule (one-off, daily, weekly, monthly, yearly) and a notification email, so it can be re-run or repeated without reconfiguring |
 
 **Branding:** Swarm has its own brand and does not reuse the Fhloston Advisory look or name. "Fhloston Advisory" is not part of the product name, domain, logo, email sender names, report titles or UI copy; the only mention allowed is the attribution "a Fhloston Advisory product" in the footer/ToS. The marketing-site simulation is a functional reference only. Starting direction (to iterate on): **modern, exciting, AI/tech theme** — dark UI, neon/electric accents with soft glow, glassy panels, monospace/terminal touches, generative "swarm" motion. M1 ships a placeholder identity (wordmark + palette + design tokens in one theme file) so it's cheap to change later.
@@ -83,7 +83,7 @@ utils/        Existing CLI (swarm login, later: swarm deploy / swarm run-local)
 
 ### Screens
 
-1. **Login** — email → 6-digit code → session. No passwords, and no free allowance: a new account holds no credits until it buys some.
+1. **Login** — email → 6-digit code → session. No passwords. A new account holds no credits until it buys some.
 2. **Dashboard** — past runs, status, report links, credits held per scan depth, "New assessment", per-run **Run again** and **Delete** actions.
 3. **New assessment (intake)** — creates a **saved scan** and starts its first run ([section 13](#13-saved-scans-schedules--notifications)):
    - Application URL (required) and marketing/landing page URL (optional). Their hostnames become the run's allowed scope.
@@ -202,7 +202,7 @@ A self-serve tool that attacks customer-supplied URLs can be misused. **Decision
 2. **Non-destructive, rate-limited by default:** per-run requests-per-second cap, no DoS/high-volume fuzzing tools, agents told to avoid delete/payment/email-sending actions and the tool layer blocks the obvious ones.
 3. **Terms + authorization acknowledgement** stored with timestamp/IP/email (in `input.json`). Customer confirms they are authorised to test and accept impact; the form recommends staging and says never to use production credentials.
 4. **Abuse controls:** per-user/day run caps, global concurrency cap, block lists (gov/critical-infra, our own domains, other well-known third-party SaaS/CDN hosts, cloud metadata IPs), RFC1918/link-local/IMDS blocked at the proxy (stops SSRF *from* our runners), kill switch (global + per-run, available in the staff dashboard), customers can press **Stop** at any time.
-5. **There is no free tier, so nothing can be farmed:** every run, one-off or scheduled, consumes a paid (or staff-granted) credit, so throwaway email accounts get no scanning and cannot spam the system with requests. The cheap **Scout** depth is passive and unauthenticated, and the proxy still enforces hard time/request/spend caps per depth (see [section 11](#11-scan-depths-tiers-entitlements--payments)). Because scans can repeat, scheduled runs also get a per-account cap on how many may be active and a minimum spacing (see [section 13](#13-saved-scans-schedules--notifications)).
+5. **Every run needs a credit:** every run, one-off or scheduled, consumes a paid (or staff-granted) credit, so throwaway email accounts get no scanning and cannot spam the system with requests. The cheap **Scout** depth is passive and unauthenticated, and the proxy still enforces hard time/request/spend caps per depth (see [section 11](#11-scan-depths-tiers-entitlements--payments)). Because scans can repeat, scheduled runs also get a per-account cap on how many may be active and a minimum spacing (see [section 13](#13-saved-scans-schedules--notifications)).
 6. **Simple identification, no fixed egress IPs:** requests carry `User-Agent: Swarm/<version> (+https://fhlostonswarm.com/about)`. Customers start the scan themselves against their own staging site, so recognising or allow-listing our traffic isn't our concern, and we don't need fixed egress IPs (which would require an always-on NAT gateway).
 7. **Verification later (designed in, switched off):** the `input.json` schema reserves `targetVerification: { method: dns|file|meta, verifiedAt }`, and the proxy takes its host list from a single allow-list function, so adding "prove you own it" (DNS TXT / `/.well-known` file / meta tag) before active testing is a small change. Recommended before heavy public launch or any paid active/authenticated testing at scale.
 
@@ -282,13 +282,13 @@ Mechanics: messages go to `POST /runs/{id}/steer` → stored as events → an **
 - Exports: self-contained HTML, **PDF** (headless Chromium in the report task), JSON; SARIF/CSV later.
 - LLM writes prose (exec summary, remediation) **from validated findings only**; numbers (counts by severity) are computed, not generated.
 - Redaction pass: test passwords, tokens, cookies, PII and verbatim jailbreak output are scrubbed from customer-facing output (per [phase-6-reporting.md](./instructions/phase-6-reporting.md)); raw evidence stays in the private run prefix.
-- **Every depth gets the full report format.** Depth changes *what is tested*, not what is shown: a Scout report is complete for the checks it ran and lists the areas it did not cover ("not included at this depth") so the customer can see what a deeper scan would add. There is no gated or teaser output.
+- **Every depth gets the full report format.** Depth changes *what is tested*, not what is shown: a Scout report is complete for the checks it ran and lists the areas it did not cover ("not included at this depth") so the customer can see what a deeper scan would add.
 - Delivery: presigned S3 URLs behind an authenticated API call. Reports are kept until the customer deletes the run or their account (no automatic expiry yet).
 - Clear disclaimer: **automated**, AI-assisted assessment (no human review); not a certification or a substitute for a full manual penetration test (positioning vs. a human-led engagement). Shallower depths say plainly which areas they did not cover.
 
 ## 11. Scan depths (tiers), entitlements & payments
 
-**There is no free tier (decided).** A free demo invites throwaway email accounts that spam the system with scan requests. Every run, whether a one-off report or one firing of a schedule, consumes a paid credit. The cheapest depth (Scout) is priced low enough to be a real entry point instead.
+**Every run needs a credit.** Every run, whether a one-off report or one firing of a schedule, consumes a paid credit, so throwaway email accounts cannot spam the system with scan requests. The cheapest depth (Scout) is priced low enough to be a real entry point.
 
 ### Scan depths
 
@@ -329,7 +329,7 @@ Dollar caps are estimates to be checked against the current Bedrock price list o
 
 - **Stripe Checkout** (credits per depth, one-off) → webhook → credit. Stripe Tax for AU GST. Customer portal for invoices. Recurring scans either draw down prepaid credits or are billed per run through a subscription with metered usage.
 - **Pricing: TBD, but ordered.** Price per run rises with depth (Scout lowest, Siege highest), set from measured cost per run (see [section 12](#12-staff-support-dashboard--cost-tracking)): `price ≈ measured_cost × margin`, plus a floor. Because a daily Scout run repeats 365 times a year, its price is checked against that annual volume, not just one run. [revenue.md](./revenue.md#4-product-ladder-packaging-ideas) holds the starting hypotheses.
-- **Abuse controls without a free tier:**
+- **Abuse controls:**
   - Nothing runs without a credit, so signup alone gives no scanning capability and no spend for us beyond the OTP email.
   - Disposable/temporary-email domain blocking (maintained list) and no `+tag`/dot aliasing keep one mailbox as one account.
   - Per-email/IP counters, API Gateway throttling and Turnstile/hCaptcha on signup (`/auth/request`) (add WAF IP/ASN rate rules later if needed).
@@ -408,7 +408,7 @@ Shared contract: `src/shared/src/scans.ts` (`frequencySchema`, `notifyOnSchema`,
   - **Delete a scan** (Scans → Delete): removes the scan and its EventBridge schedule; the target, past runs and reports stay. **Delete a target** removes its saved credentials and any scans on it (confirmation lists them).
   - **Delete account** (Account → Delete account): cancels in-flight runs and removes every EventBridge schedule, then deletes everything under `users/{emailHash}/` (profile, sessions, targets, scans, runs, entitlements), `auth/otp/{emailHash}.json` and the user's rate-limit counters, revokes all sessions, and emails a confirmation. Requires a fresh OTP re-confirmation.
   - Because versioning is off, deletes are permanent; CloudTrail data events/logs must not store customer content.
-  - **Retained after account deletion (called out in the privacy notice):** (a) anonymised cost records ([section 12](#12-staff-support-dashboard--cost-tracking)); (b) future payment records Stripe/tax law require us to keep. There is no free-claim marker any more, because there is no free tier to protect.
+  - **Retained after account deletion (called out in the privacy notice):** (a) anonymised cost records ([section 12](#12-staff-support-dashboard--cost-tracking)); (b) future payment records Stripe/tax law require us to keep.
   - A formal retention/lifecycle policy and a full privacy/ToS review are deferred; for now deletion is user-driven.
 - **Data handling:** encrypted at rest/in transit (default AWS encryption); documented subprocessors (AWS, Stripe later, Bedrock model provider via AWS — no training on customer data); Australian Privacy Act alignment to be reviewed.
 - **Observability:** structured logs (no credentials/customer content), alarms on SES bounce/complaint rate, Bedrock throttling, stuck runs, proxy-blocked egress spikes.
@@ -469,7 +469,6 @@ The riskiest unknowns (agent quality/cost, scope enforcement) should be hit by *
 | Hostname | `fhlostonswarm.com` (dedicated domain, registered in the swarm account) |
 | Auth | Custom OTP + `jose` JWT (no Passport) |
 | Storage | S3 only, all data in one bucket (conditional writes for atomicity) |
-| Free tier | **None (decided 2026-11-10).** A free demo would let throwaway email accounts spam the system with scan requests, so every run costs a credit. Removes the Lite tier, teaser reports and the free-claim markers |
 | Scan depths | Four tiers named by depth, each a group of agents: **Scout** (shallow), **Sweep**, **Probe**, **Siege** (deep). Cost and price rise with depth. Details in [section 11](#11-scan-depths-tiers-entitlements--payments) |
 | Scans | A saved scan = target + depth + schedule (one-off, daily, weekly, monthly, yearly) + a per-scan notification email; always re-runnable without reconfiguring. Different depths can run on different schedules for the same application. Details in [section 13](#13-saved-scans-schedules--notifications) |
 | Target verification | Not required for now (hooks reserved; see [section 6](#6-scope-enforcement--abuse-prevention)) |

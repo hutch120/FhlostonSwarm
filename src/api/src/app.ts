@@ -357,7 +357,7 @@ export function createApp(deps: AppDeps) {
   app.use("/me", requireAuth, requireCsrf);
   app.get("/me", async (c) => {
     const auth = c.get("auth");
-    // There is no free tier: every run needs a paid or staff-granted credit. The credit ledger
+    // Every run needs a paid or staff-granted credit. The credit ledger
     // (users/{hash}/entitlements.json) arrives with intake in Phase 4, so nobody holds credits yet.
     const credits = Object.fromEntries(TIER_IDS.map((tier) => [tier, 0]));
     return c.json({ email: auth.email, role: auth.role, entitlements: { credits } });

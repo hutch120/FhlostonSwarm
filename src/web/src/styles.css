@@ -318,15 +318,13 @@ textarea:disabled,
 select:disabled {
   opacity: 0.55;
 }
-.check,
-.radio {
+.check {
   display: flex;
   align-items: flex-start;
   gap: 0.55rem;
   font-weight: 400;
 }
-.check input,
-.radio input {
+.check input {
   margin-top: 0.25rem;
 }
 .actions-row {
@@ -392,9 +390,6 @@ select:disabled {
   border-radius: var(--radius);
   padding: 0.8rem;
   min-inline-size: 0;
-}
-.login[data-locked="true"] {
-  opacity: 0.7;
 }
 .login-fields {
   border: 0;

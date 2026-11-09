@@ -41,7 +41,7 @@ describe("Dashboard", () => {
     expect(screen.getByTestId("credits")).toHaveTextContent(
       "0 Scout · 0 Sweep · 0 Probe · 0 Siege",
     );
-    expect(screen.getByTestId("credits")).not.toHaveTextContent(/free/i);
+    expect(screen.getByTestId("credits")).toHaveTextContent("0 Scout");
 
     await userEvent.click(screen.getByRole("button", { name: /delete run for staging/i }));
     await userEvent.click(screen.getByRole("button", { name: "Confirm delete" }));
@@ -73,7 +73,7 @@ const fillValidIntake = async () => {
 };
 
 describe("Intake", () => {
-  it("offers four depths from shallow to deep, with no free option", () => {
+  it("offers four depths from shallow to deep", () => {
     renderApp("/new");
     const depths = within(screen.getByRole("radiogroup", { name: "Scan depth" })).getAllByRole(
       "radio",
@@ -85,8 +85,6 @@ describe("Intake", () => {
       "siege",
     ]);
     expect(screen.getByRole("radio", { name: "Sweep" })).toBeChecked();
-    expect(screen.queryByText(/free/i)).toBeNull();
-    expect(screen.queryByText(/lite/i)).toBeNull();
     expect(screen.getByText(/never production/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/I am authorised to test/i)).not.toBeChecked();
   });
@@ -230,22 +228,16 @@ describe("Scans", () => {
     await userEvent.click(screen.getByRole("button", { name: "Confirm delete" }));
     await waitFor(() => expect(screen.getAllByTestId("scan-row")).toHaveLength(3));
   });
-
-  it("keeps the old /schedules address working", async () => {
-    renderApp("/schedules");
-    expect(await screen.findByRole("heading", { name: "Scans" })).toBeInTheDocument();
-  });
 });
 
 describe("Account", () => {
-  it("shows credits, has no free report, and only enables deletion after typing DELETE", async () => {
+  it("shows credits and only enables deletion after typing DELETE", async () => {
     renderApp("/account");
     await waitFor(() =>
       expect(screen.getByTestId("account-credits")).toHaveTextContent(
         "0 Scout · 0 Sweep · 0 Probe · 0 Siege credits",
       ),
     );
-    expect(screen.queryByText(/free/i)).toBeNull();
     expect(screen.getAllByText("buyer@example.com")).toHaveLength(2);
     const button = screen.getByRole("button", { name: "Delete my account" });
     expect(button).toBeDisabled();

@@ -49,8 +49,8 @@ export function Dashboard() {
               ))}
             </p>
             <p className="muted small">
-              Every scan, one-off or scheduled, uses one credit of its depth. There is no free scan.
-              Purchasing arrives soon.
+              Every scan, one-off or scheduled, uses one credit of its depth. Purchasing arrives
+              soon.
             </p>
           </>
         ) : (

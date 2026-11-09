@@ -20,7 +20,7 @@ export interface RunListItem {
 }
 
 export interface AccountInfo {
-  /** Credits held per tier. There is no free tier: every run consumes a paid or granted credit. */
+  /** Credits held per tier. Every run consumes a paid or granted credit. */
   credits: Record<TierId, number>;
 }
 

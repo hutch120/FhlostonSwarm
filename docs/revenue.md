@@ -1,6 +1,6 @@
 # Revenue & pricing plan
 
-Status: **draft for discussion**. Nothing here is implemented. Complements [PLAN.md section 11](./PLAN.md#11-scan-depths-tiers-entitlements--payments) (scan depths, entitlements, "pricing TBD") and [section 12](./PLAN.md#12-staff-support-dashboard--cost-tracking) (cost tracking). **Updated 2026-11-10:** there is no free tier; the product is four scan depths (Scout, Sweep, Probe, Siege) that can be bought as one-off reports or run on a schedule.
+Status: **draft for discussion**. Nothing here is implemented. Complements [PLAN.md section 11](./PLAN.md#11-scan-depths-tiers-entitlements--payments) (scan depths, entitlements, "pricing TBD") and [section 12](./PLAN.md#12-staff-support-dashboard--cost-tracking) (cost tracking). The product is four scan depths (Scout, Sweep, Probe, Siege) that can be bought as one-off reports or run on a schedule.
 
 ## 1. The problem
 
@@ -55,7 +55,7 @@ Customers still need to feel the swarm is working and be told when it is wrappin
    - Hand-built pen test: about A$5K and up, with weeks of lead time.
    - Us: an evidence-backed, role-aware, application-specific report in about an hour, priced at a meaningful fraction of the consultant, not at scanner prices. Starting hypothesis is **A$1,000 to A$2,000 per assessment** (to be validated, see section 7).
 3. **Sell the outcome and the evidence.** Verified findings with reproduction evidence, "what we understood about your application", role-based access findings, a prioritised remediation list, and an executive summary. That is what buyers pay for.
-4. **Never discount ad hoc.** There is no free tier: every run is paid, so the cheapest depth (Scout) is the entry point instead of a free demo. Discounts are structural (retest, annual commit, multi-app, prepaid schedules) and never ad hoc or public.
+4. **Never discount ad hoc.** Every run is paid, so the cheapest depth (Scout) is the entry point. Discounts are structural (retest, annual commit, multi-app, prepaid schedules) and never ad hoc or public.
 5. **Keep an honest positioning gap:** the report is not a certified pen test. Offer an optional human-reviewed upgrade (section 4) rather than discounting the premium away.
 
 ## 4. Product ladder (packaging ideas)
@@ -89,7 +89,7 @@ Internal only. Price must clear this with a healthy margin.
 
 - Bedrock tokens (dominant), Fargate compute, egress, S3/AppSync/SES/Step Functions.
 - Stripe fees (percentage plus fixed fee per charge) and GST handling.
-- Per-run cost, summed over the cadence the customer chose; the free-tier acquisition term is gone because there is no free tier.
+- Per-run cost, summed over the cadence the customer chose.
 
 **Fixed and ongoing cost:**
 
@@ -116,7 +116,7 @@ floor_price = (p95_run_cost × (1 + overrun_buffer) + payment_fees + support_all
 - **Overruns are our cost.** If a run hits its cap, we deliver what was covered, mark gaps honestly ("not covered in this run"), and offer a top-up or rescan at a fixed price. We do not bill per token.
 - **Large or unusual targets are quote-based** ("Contact us for an enterprise scope"), rather than auto-priced from cost.
 - **Fair-use and terms** cover abuse of retests and rescans (for example a retest window of 30 days) and of schedules (a per-account limit on active recurring scans and a minimum spacing between runs of one target).
-- **No free tier, so no free-tier abuse.** Every run needs a paid or staff-granted credit; throwaway accounts get nothing to spam. Staff-granted credits are audit-logged and visible on the staff dashboard.
+- **Credit-gated runs.** Every run needs a paid or staff-granted credit; throwaway accounts get nothing to spam. Staff-granted credits are audit-logged and visible on the staff dashboard.
 - **Price table and tier limits are versioned** (already planned for cost); do the same for list prices so old customers keep what they bought.
 
 ## 7. Validating price (no guessing)
@@ -128,7 +128,7 @@ floor_price = (p95_run_cost × (1 + overrun_buffer) + payment_fees + support_all
 
 ## 8. Implementation work this implies
 
-Items 1 to 3 were done in the Phase 2 UI shell (2026-11-08); see the "Revenue rework" note in [IMPLEMENTATION.md](./IMPLEMENTATION.md). Item 2 is partly done: the customer stream carries no cost; the staff-only cost channel comes with Phase 5/9. The free tier was removed and the four scan depths and saved scans were added on 2026-11-10 (see the rework note there).
+Items 1 to 3 were done in the Phase 2 UI shell (2026-11-08); see the "Revenue rework" note in [IMPLEMENTATION.md](./IMPLEMENTATION.md). Item 2 is partly done: the customer stream carries no cost; the staff-only cost channel comes with Phase 5/9.
 
 1. Split tier config into public descriptor vs server-only limits; update `src/shared`, web imports and tests.
 2. Strip `spendUsd`/cost fields from the customer event stream; add a staff-only cost channel; contract test for customer payloads.

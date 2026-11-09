@@ -96,7 +96,9 @@ describe("schedule and notification", () => {
     expect(validateIntake({ ...valid(), notifyEmail: "", notifyOn: "never" })).toEqual({});
   });
 
-  it("has no free tier to choose", () => {
-    expect(validateIntake({ ...valid(), tier: "lite" as unknown as "scout" })["tier"]).toBeTruthy();
+  it("rejects an unknown tier", () => {
+    expect(
+      validateIntake({ ...valid(), tier: "platinum" as unknown as "scout" })["tier"],
+    ).toBeTruthy();
   });
 });

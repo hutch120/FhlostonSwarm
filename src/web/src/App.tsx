@@ -54,7 +54,6 @@ export function App() {
           <Route path="runs/:runId" element={<LiveRun />} />
           <Route path="runs/:runId/report" element={<Report />} />
           <Route path="scans" element={<Scans />} />
-          <Route path="schedules" element={<Navigate to="/scans" replace />} />
           <Route path="account" element={<Account />} />
         </Route>
         <Route path="staff" element={<Staff />} />
