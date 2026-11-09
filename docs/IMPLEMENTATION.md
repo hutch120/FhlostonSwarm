@@ -42,6 +42,7 @@ How we build the product described in [PLAN.md](./PLAN.md), in small phases that
 - **Quality gates on every change:** `npm run typecheck` passes (root, covers all workspaces) and `npm test` passes. These are introduced in Phase 0 and may only get stricter.
 - **Zero idle cost:** nothing introduced may violate the rules in [PLAN.md §14 "Idle cost"](./PLAN.md#idle-cost-at-rest) (no NAT, interface endpoints, provisioned capacity, always-on compute). Each infra phase re-checks this.
 - **Config, not code:** scan-depth (tier) definitions, limits, prices, model ids and caps live in config files validated by zod, never hard-coded.
+- **Pre-release: change freely.** Nothing is in production yet, so there is no backward compatibility to keep and no history to track. Rename, remove and restructure rather than layering shims, migrations, redirects or "previously X" notes; docs and tests describe only the current design. Revisit this rule when the feature set is stable and real users exist.
 - **No secrets in git.** Test credentials in fixtures are for the synthetic target only, and are named/marked as test data per the rule above.
 
 ### External lead-time items (start immediately, in parallel)
