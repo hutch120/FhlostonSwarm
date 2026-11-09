@@ -4,10 +4,9 @@ import { issueChallenge, verifyChallenge } from "./otp.js";
 import { createSession, rotateSession } from "./sessions.js";
 import { createHarness, testConfig, testSecrets } from "./testkit.js";
 import { hit } from "./ratelimit.js";
-import { getJson, updateJson } from "./storage/json.js";
+import { createJson, getJson, updateJson } from "./storage/json.js";
 import { keys } from "./storage/keys.js";
 import { PrefixedStore, S3ObjectStore } from "./storage/store.js";
-import { claimFreeReport } from "./users.js";
 import { z } from "zod";
 
 /**
@@ -30,13 +29,12 @@ afterAll(async () => {
 });
 
 describe.skipIf(!enabled)("S3 integration (_test/ prefix)", () => {
-  it("conditional create: 50 concurrent free claims, exactly one succeeds", async () => {
-    const hash = "d".repeat(64);
+  it("conditional create: 50 concurrent creates of one key, exactly one succeeds", async () => {
     const results = await Promise.all(
-      Array.from({ length: 50 }, () => claimFreeReport(store, hash, Date.now())),
+      Array.from({ length: 50 }, () => createJson(store, "create/once.json", { at: Date.now() })),
     );
-    expect(results.filter((r) => r === "claimed")).toHaveLength(1);
-    expect(results.filter((r) => r === "already-claimed")).toHaveLength(49);
+    expect(results.filter((won) => won)).toHaveLength(1);
+    expect(results.filter((won) => !won)).toHaveLength(49);
   }, 60_000);
 
   it("compare-and-swap counters do not lose updates", async () => {

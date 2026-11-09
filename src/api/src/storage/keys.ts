@@ -8,9 +8,11 @@ export const keys = {
   runsPrefix: (emailHash: string) => `users/${emailHash}/runs/`,
   runPrefix: (emailHash: string, runId: string) => `users/${emailHash}/runs/${runId}/`,
   entitlements: (emailHash: string) => `users/${emailHash}/entitlements.json`,
+  targetsPrefix: (emailHash: string) => `users/${emailHash}/targets/`,
+  target: (emailHash: string, targetId: string) => `users/${emailHash}/targets/${targetId}.json`,
+  scansPrefix: (emailHash: string) => `users/${emailHash}/scans/`,
+  scan: (emailHash: string, scanId: string) => `users/${emailHash}/scans/${scanId}.json`,
   otp: (emailHash: string) => `auth/otp/${emailHash}.json`,
   rateLimit: (scope: string, window: string) => `auth/ratelimit/${scope}/${window}.json`,
-  freeClaim: (emailHash: string) => `claims/free/${emailHash}.json`,
-  freeTargetClaim: (domainHash: string) => `claims/free-target/${domainHash}.json`,
   suppression: (emailHash: string) => `suppression/${emailHash}.json`,
 } as const;

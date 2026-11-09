@@ -195,7 +195,7 @@ describe("sign in, session and sign out", () => {
     expect(me).toEqual({
       email: "buyer@example.com",
       role: "customer",
-      entitlements: { freeLiteReports: 1 },
+      entitlements: { credits: { scout: 0, sweep: 0, probe: 0, siege: 0 } },
     });
   });
 
@@ -448,16 +448,15 @@ describe("staff role", () => {
   });
 });
 
-describe("free claim state", () => {
-  it("/api/me reports 0 once the free report has been claimed", async () => {
-    const { claimFreeReport } = await import("./users.js");
+describe("entitlements", () => {
+  it("there is no free tier: /api/me shows no credits and no claim marker is written", async () => {
     const h = createHarness();
     const b = h.browser();
     await h.signIn(b, "buyer@example.com");
-    await claimFreeReport(h.store, hashOf("buyer@example.com"), h.clock.now());
     const me = (await (await b.request("GET", "/api/me")).json()) as {
-      entitlements: { freeLiteReports: number };
+      entitlements: { credits: Record<string, number> };
     };
-    expect(me.entitlements.freeLiteReports).toBe(0);
+    expect(me.entitlements.credits).toEqual({ scout: 0, sweep: 0, probe: 0, siege: 0 });
+    expect(await h.store.list("claims/")).toEqual([]);
   });
 });

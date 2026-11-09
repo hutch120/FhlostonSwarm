@@ -85,8 +85,10 @@ export type StepOutcome = z.infer<typeof stepOutcomeSchema>;
 export const runStatusSchema = z.enum(["queued", "running", "complete", "stopped", "failed"]);
 export type RunStatus = z.infer<typeof runStatusSchema>;
 
-export const tierIdSchema = z.enum(["lite", "full"]);
+/** Scan depth, shallowest first. A tier is a group of agents (config/tiers.json). */
+export const tierIdSchema = z.enum(["scout", "sweep", "probe", "siege"]);
 export type TierId = z.infer<typeof tierIdSchema>;
+export const TIER_IDS = tierIdSchema.options;
 
 export const summarySchema = z.object({
   runId: z.string().min(1),

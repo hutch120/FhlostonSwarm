@@ -522,7 +522,7 @@ export function buildReplayEvents(runId: string = DEMO_RUN_ID): RunEvent[] {
   );
 
   const folded = applyEvents(
-    createRunState({ runId, tier: "full", areas: AREAS, agents: AGENTS }),
+    createRunState({ runId, tier: "siege", areas: AREAS, agents: AGENTS }),
     events,
   );
   const completeAt = (ordered.at(-1)?.at ?? 0) + 1500;

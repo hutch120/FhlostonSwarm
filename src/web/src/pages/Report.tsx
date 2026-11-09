@@ -32,7 +32,7 @@ export function Report() {
       applyEvents(
         createRunState({
           runId: replayEvents[0]!.runId,
-          tier: "full",
+          tier: "siege",
           areas: AREAS,
           agents: AGENTS,
         }),
@@ -48,7 +48,7 @@ export function Report() {
         <div>
           <h1>Report</h1>
           <p className="muted">
-            <code>{DEMO_TARGET}</code> · {capitalise(summary.tier)} run ·{" "}
+            <code>{DEMO_TARGET}</code> · {capitalise(summary.tier)} scan ·{" "}
             {formatClock(summary.durationMs)} · {Math.round(summary.coverage * 100)}% coverage
           </p>
         </div>

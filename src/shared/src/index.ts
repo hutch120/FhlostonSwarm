@@ -17,5 +17,6 @@ export type UserId = z.infer<typeof userIdSchema>;
 export * from "./events.js";
 export * from "./reducer.js";
 export * from "./tiers.js";
+export * from "./scans.js";
 export { AGENTS, AREAS, DEMO_RUN_ID, DEMO_TARGET } from "./fixtures/roster.js";
 export { buildReplayEvents, replayEvents } from "./fixtures/script.js";

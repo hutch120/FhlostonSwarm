@@ -35,63 +35,123 @@ describe("Login", () => {
 });
 
 describe("Dashboard", () => {
-  it("shows credits and past runs, and deletes a run after confirmation", async () => {
+  it("shows credits per depth and past runs, and deletes a run after confirmation", async () => {
     renderApp("/dashboard");
     expect(await screen.findAllByTestId("run-row")).toHaveLength(2);
-    expect(screen.getByTestId("credits")).toHaveTextContent("1 free Lite report remaining");
+    expect(screen.getByTestId("credits")).toHaveTextContent(
+      "0 Scout · 0 Sweep · 0 Probe · 0 Siege",
+    );
+    expect(screen.getByTestId("credits")).not.toHaveTextContent(/free/i);
 
     await userEvent.click(screen.getByRole("button", { name: /delete run for staging/i }));
     await userEvent.click(screen.getByRole("button", { name: "Confirm delete" }));
     await waitFor(() => expect(screen.getAllByTestId("run-row")).toHaveLength(1));
   });
+
+  it("runs a saved scan again without reconfiguring it", async () => {
+    renderApp("/dashboard");
+    await userEvent.click(await screen.findByRole("button", { name: /run again for staging/i }));
+    expect(await screen.findByRole("heading", { name: "Live swarm view" })).toBeInTheDocument();
+  });
 });
 
+const fillValidIntake = async () => {
+  await userEvent.type(screen.getByLabelText(/application url/i), "https://staging.example.com");
+  await userEvent.type(
+    screen.getByLabelText("Username", { selector: "#user1-username" }),
+    "swarm-test-user",
+  );
+  await userEvent.type(
+    screen.getByLabelText("Password", { selector: "#user1-password" }),
+    "not-a-real-password",
+  );
+  await userEvent.type(
+    screen.getByLabelText("What can this account do?", { selector: "#user1-description" }),
+    "Standard customer",
+  );
+  await userEvent.click(screen.getByLabelText(/I am authorised to test/i));
+};
+
 describe("Intake", () => {
-  it("lists four login slots and the tier information", () => {
+  it("offers four depths from shallow to deep, with no free option", () => {
     renderApp("/new");
-    for (const label of ["Admin", "User 1", "User 2", "Other"]) {
-      expect(screen.getByRole("group", { name: label })).toBeInTheDocument();
-    }
-    expect(screen.getByRole("heading", { name: /^Lite/ })).toBeInTheDocument();
+    const depths = within(screen.getByRole("radiogroup", { name: "Scan depth" })).getAllByRole(
+      "radio",
+    );
+    expect(depths.map((r) => (r as HTMLInputElement).value)).toEqual([
+      "scout",
+      "sweep",
+      "probe",
+      "siege",
+    ]);
+    expect(screen.getByRole("radio", { name: "Sweep" })).toBeChecked();
+    expect(screen.queryByText(/free/i)).toBeNull();
+    expect(screen.queryByText(/lite/i)).toBeNull();
     expect(screen.getByText(/never production/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/I am authorised to test/i)).not.toBeChecked();
   });
 
-  it("only enables the chosen login on Lite and offers the others in Full", async () => {
+  it("defaults to a one-off scan and the account email, and offers every cadence", () => {
     renderApp("/new");
-    expect(screen.getByLabelText("Username", { selector: "#user1-username" })).toBeEnabled();
-    expect(screen.getByLabelText("Username", { selector: "#admin-username" })).toBeDisabled();
-    await userEvent.click(screen.getAllByLabelText(/use this login for the lite run/i)[0]!);
-    expect(screen.getByLabelText("Username", { selector: "#admin-username" })).toBeEnabled();
-    expect(screen.getByLabelText("Username", { selector: "#user1-username" })).toBeDisabled();
+    const how = screen.getByLabelText("How often?");
+    expect(how).toHaveValue("once");
+    expect(
+      within(how)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["One-off", "Daily", "Weekly", "Monthly", "Yearly"]);
+    expect(screen.getByLabelText(/email the report notice to/i)).toHaveValue("buyer@example.com");
+    expect(screen.getByRole("button", { name: "Start scan" })).toBeInTheDocument();
+  });
+
+  it("changes the button and explains repeats when a cadence is chosen", async () => {
+    renderApp("/new");
+    await userEvent.selectOptions(screen.getByLabelText("How often?"), "weekly");
+    expect(screen.getByRole("button", { name: "Save and start scan" })).toBeInTheDocument();
+    expect(screen.getByText(/then repeats weekly/i)).toBeInTheDocument();
+  });
+
+  it("shows the four login slots and how many the depth uses", async () => {
+    renderApp("/new");
+    for (const label of ["Admin", "User 1", "User 2", "Other"]) {
+      expect(screen.getByRole("group", { name: label })).toBeInTheDocument();
+    }
+    expect(screen.getByTestId("login-limit")).toHaveTextContent("Sweep uses up to 1 login");
+    await userEvent.click(screen.getByRole("radio", { name: "Siege" }));
+    expect(screen.getByTestId("login-limit")).toHaveTextContent("Siege uses up to 4 logins");
+  });
+
+  it("needs no logins at Scout depth", async () => {
+    renderApp("/new");
+    await userEvent.click(screen.getByRole("radio", { name: "Scout" }));
+    expect(screen.getByTestId("no-logins")).toHaveTextContent(/no logins are needed/i);
+    expect(screen.queryByRole("group", { name: "Admin" })).toBeNull();
   });
 
   it("blocks an empty submission and reports each problem", async () => {
     renderApp("/new");
-    await userEvent.click(screen.getByRole("button", { name: /start lite assessment/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Start scan" }));
     expect(await screen.findByText(/enter a full url/i)).toBeInTheDocument();
     expect(screen.getByText(/must confirm you are authorised/i)).toBeInTheDocument();
-    expect(screen.getByText("Username is required")).toBeInTheDocument();
+    expect(screen.getByText(/add at least one login/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/application url/i)).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("requires a notification address unless notifications are off", async () => {
+    renderApp("/new");
+    await fillValidIntake();
+    await userEvent.clear(screen.getByLabelText(/email the report notice to/i));
+    await userEvent.click(screen.getByRole("button", { name: "Start scan" }));
+    expect(await screen.findByText(/enter the email address/i)).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Notify me"), "never");
+    await userEvent.click(screen.getByRole("button", { name: "Start scan" }));
+    expect(await screen.findByRole("heading", { name: "Live swarm view" })).toBeInTheDocument();
   });
 
   it("opens the demo run once the form is valid", async () => {
     renderApp("/new");
-    await userEvent.type(screen.getByLabelText(/application url/i), "https://staging.example.com");
-    await userEvent.type(
-      screen.getByLabelText("Username", { selector: "#user1-username" }),
-      "swarm-test-user",
-    );
-    await userEvent.type(
-      screen.getByLabelText("Password", { selector: "#user1-password" }),
-      "not-a-real-password",
-    );
-    await userEvent.type(
-      screen.getByLabelText("What can this account do?", { selector: "#user1-description" }),
-      "Standard customer",
-    );
-    await userEvent.click(screen.getByLabelText(/I am authorised to test/i));
-    await userEvent.click(screen.getByRole("button", { name: /start lite assessment/i }));
+    await fillValidIntake();
+    await userEvent.click(screen.getByRole("button", { name: "Start scan" }));
     expect(await screen.findByRole("heading", { name: "Live swarm view" })).toBeInTheDocument();
   });
 });
@@ -136,21 +196,56 @@ describe("Report", () => {
   });
 });
 
-describe("Schedules", () => {
-  it("is switched off", () => {
+describe("Scans", () => {
+  it("lists saved scans with depth, cadence and notification address", async () => {
+    renderApp("/scans");
+    const rows = await screen.findAllByTestId("scan-row");
+    expect(rows).toHaveLength(4);
+    const daily = within(rows[0]!);
+    expect(daily.getByText("Daily quick check")).toBeInTheDocument();
+    expect(daily.getByText("Scout")).toBeInTheDocument();
+    expect(daily.getByText("Daily")).toBeInTheDocument();
+    expect(daily.getByText("buyer@example.com")).toBeInTheDocument();
+    // An address other than the account email stays unconfirmed until its owner follows the link.
+    expect(within(rows[1]!).getByText("Unconfirmed")).toBeInTheDocument();
+    expect(within(rows[3]!).getByText("One-off")).toBeInTheDocument();
+  });
+
+  it("runs a saved scan again without reconfiguring it", async () => {
+    renderApp("/scans");
+    await userEvent.click(await screen.findByRole("button", { name: "Run Weekly review again" }));
+    expect(await screen.findByRole("heading", { name: "Live swarm view" })).toBeInTheDocument();
+  });
+
+  it("pauses and resumes a recurring scan, but not a one-off", async () => {
+    renderApp("/scans");
+    await userEvent.click(await screen.findByRole("button", { name: "Pause Daily quick check" }));
+    expect(screen.getByRole("button", { name: "Resume Daily quick check" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /pause pre-launch report/i })).toBeNull();
+  });
+
+  it("deletes a scan after confirmation", async () => {
+    renderApp("/scans");
+    await userEvent.click(await screen.findByRole("button", { name: "Delete Weekly review" }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm delete" }));
+    await waitFor(() => expect(screen.getAllByTestId("scan-row")).toHaveLength(3));
+  });
+
+  it("keeps the old /schedules address working", async () => {
     renderApp("/schedules");
-    expect(screen.getByText(/coming soon/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create schedule" })).toBeDisabled();
-    expect(screen.getByLabelText("Cadence")).toBeDisabled();
+    expect(await screen.findByRole("heading", { name: "Scans" })).toBeInTheDocument();
   });
 });
 
 describe("Account", () => {
-  it("shows the free Lite report and only enables deletion after typing DELETE", async () => {
+  it("shows credits, has no free report, and only enables deletion after typing DELETE", async () => {
     renderApp("/account");
     await waitFor(() =>
-      expect(screen.getByTestId("free-report")).toHaveTextContent("1 free Lite report available"),
+      expect(screen.getByTestId("account-credits")).toHaveTextContent(
+        "0 Scout · 0 Sweep · 0 Probe · 0 Siege credits",
+      ),
     );
+    expect(screen.queryByText(/free/i)).toBeNull();
     expect(screen.getAllByText("buyer@example.com")).toHaveLength(2);
     const button = screen.getByRole("button", { name: "Delete my account" });
     expect(button).toBeDisabled();
@@ -158,11 +253,16 @@ describe("Account", () => {
     expect(button).toBeEnabled();
   });
 
-  it("reports a used free report", async () => {
-    setApi({ ...mockApi, getAccount: async () => ({ freeLiteRemaining: 0, paidCredits: 0 }) });
+  it("shows the credits the API reports", async () => {
+    setApi({
+      ...mockApi,
+      getAccount: async () => ({ credits: { scout: 5, sweep: 2, probe: 0, siege: 1 } }),
+    });
     renderApp("/account");
     await waitFor(() =>
-      expect(screen.getByTestId("free-report")).toHaveTextContent("has been used"),
+      expect(screen.getByTestId("account-credits")).toHaveTextContent(
+        "5 Scout · 2 Sweep · 0 Probe · 1 Siege credits",
+      ),
     );
   });
 });

@@ -1,24 +1,67 @@
 {
-  "lite": {
-    "id": "lite",
-    "name": "Lite",
-    "description": "Free demo: passive checks plus a short, read-only authenticated exploration, with a teaser report.",
-    "paid": false,
-    "logins": 1,
-    "wallClockMinutes": 6,
-    "teaserFindings": 2,
+  "scout": {
+    "id": "scout",
+    "name": "Scout",
+    "depth": 1,
+    "description": "Shallow scan. Passive, unauthenticated checks of DNS, the public surface, TLS and CORS. Quick and light, built for frequent runs.",
+    "logins": 0,
+    "wallClockMinutes": 10,
     "steering": false,
-    "areas": ["recon", "unauth"]
+    "agents": ["dns", "surface", "tls", "cors"]
   },
-  "full": {
-    "id": "full",
-    "name": "Full",
-    "description": "Paid: all five areas with real testing, verification and the full report.",
-    "paid": true,
+  "sweep": {
+    "id": "sweep",
+    "name": "Sweep",
+    "depth": 2,
+    "description": "Light scan. Every passive check plus a review of how sign-in works, using one login.",
+    "logins": 1,
+    "wallClockMinutes": 20,
+    "steering": false,
+    "agents": ["dns", "surface", "bundle", "tls", "zap", "cors", "authn"]
+  },
+  "probe": {
+    "id": "probe",
+    "name": "Probe",
+    "depth": 3,
+    "description": "Medium scan. Authenticated testing across two roles, with session, access-control and AI/LLM checks.",
+    "logins": 2,
+    "wallClockMinutes": 40,
+    "steering": true,
+    "agents": [
+      "dns",
+      "surface",
+      "bundle",
+      "tls",
+      "zap",
+      "cors",
+      "authn",
+      "session",
+      "authz",
+      "prompt",
+      "output"
+    ]
+  },
+  "siege": {
+    "id": "siege",
+    "name": "Siege",
+    "depth": 4,
+    "description": "Deep scan. Every agent and all four logins, including business-logic and privilege-escalation testing, with the fullest report.",
     "logins": 4,
     "wallClockMinutes": 60,
-    "teaserFindings": null,
     "steering": true,
-    "areas": ["recon", "unauth", "authn", "llm", "logic"]
+    "agents": [
+      "dns",
+      "surface",
+      "bundle",
+      "tls",
+      "zap",
+      "cors",
+      "authn",
+      "session",
+      "authz",
+      "prompt",
+      "output",
+      "idor"
+    ]
   }
 }

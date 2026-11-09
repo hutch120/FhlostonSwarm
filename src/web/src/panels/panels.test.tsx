@@ -21,7 +21,7 @@ import { EventLog } from "./EventLog.js";
 import { FindingsPanel } from "./FindingsPanel.js";
 import { ReplayControls } from "./ReplayControls.js";
 
-const fresh = (tier: TierId = "full") =>
+const fresh = (tier: TierId = "siege") =>
   createRunState({ runId: DEMO_RUN_ID, tier, areas: AREAS, agents: AGENTS });
 const finished = (): RunState => applyEvents(fresh(), replayEvents);
 const partway = (): RunState => applyEvents(fresh(), replayEvents.slice(0, 45));
@@ -130,7 +130,7 @@ describe("Counters", () => {
   });
 
   it("starts at no coverage and never shows dollars or caps", () => {
-    const { container } = render(<Counters state={fresh("lite")} />);
+    const { container } = render(<Counters state={fresh("scout")} />);
     expect(screen.getByRole("meter", { name: "Coverage" })).toHaveAttribute("aria-valuetext", "0%");
     expect(container).not.toHaveTextContent(/\$|budget|spend|cap/i);
   });
@@ -156,9 +156,13 @@ describe("AgentDrawer", () => {
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   });
 
-  it("explains that Lite runs cannot be steered", () => {
-    render(<AgentDrawer state={fresh("lite")} agentId="dns" onClose={() => {}} />);
-    expect(screen.getByText(/lite runs are watch-only/i)).toBeInTheDocument();
+  it("explains which scan depths can be steered", () => {
+    render(<AgentDrawer state={fresh("scout")} agentId="dns" onClose={() => {}} />);
+    expect(
+      screen.getByText(
+        /steering is available on probe and siege scans\. scout and sweep scans are watch-only/i,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("closes", async () => {

@@ -61,10 +61,12 @@ describe("http auth client", () => {
           user: { email: "a@example.com", role: "customer" },
           csrfToken: "csrf-2",
         });
-      return ++meCalls === 1 ? reply(401) : reply(200, { entitlements: { freeLiteReports: 1 } });
+      return ++meCalls === 1
+        ? reply(401)
+        : reply(200, { entitlements: { credits: { scout: 2, sweep: 0, probe: 0, siege: 1 } } });
     });
     const account = await createHttpAuthApi(fetchFn).getAccount();
-    expect(account).toEqual({ freeLiteRemaining: 1, paidCredits: 0 });
+    expect(account).toEqual({ credits: { scout: 2, sweep: 0, probe: 0, siege: 1 } });
     expect(calls.map((c) => c.path)).toEqual(["/api/me", "/api/auth/refresh", "/api/me"]);
     expect(useSession.getState().csrfToken).toBe("csrf-2");
   });
@@ -78,7 +80,7 @@ describe("http auth client", () => {
       }
       const first = !seen.has(call.path);
       seen.add(call.path);
-      return first ? reply(401) : reply(200, { entitlements: { freeLiteReports: 0 } });
+      return first ? reply(401) : reply(200, { entitlements: { credits: {} } });
     });
     const api = createHttpAuthApi(fetchFn);
     await Promise.all([api.getAccount(), api.staffWhoami().catch(() => undefined)]);

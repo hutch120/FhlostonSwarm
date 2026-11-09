@@ -5,6 +5,7 @@ import {
   AGENTS,
   AREAS,
   DEMO_RUN_ID,
+  TIER_IDS,
   applyEvents,
   createRunState,
   replayEvents,
@@ -29,7 +30,7 @@ function costKeys(value: unknown, path = "$"): string[] {
 
 describe("customer-facing data never exposes cost (revenue.md section 2)", () => {
   const finished = applyEvents(
-    createRunState({ runId: DEMO_RUN_ID, tier: "full", areas: AREAS, agents: AGENTS }),
+    createRunState({ runId: DEMO_RUN_ID, tier: "siege", areas: AREAS, agents: AGENTS }),
     replayEvents,
   );
 
@@ -57,16 +58,33 @@ describe("customer-facing data never exposes cost (revenue.md section 2)", () =>
 
 describe("server-only tier limits", () => {
   it("parses the shipped limits", () => {
-    expect(tierLimits.lite.spendCapUsd).toBe(0.5);
-    expect(tierLimits.lite.tokenCap).toEqual({ input: 400000, output: 20000 });
-    expect(tierLimits.full.tokenCap).toBeNull();
-    expect(server.limitsFor("full").spendCapUsd).toBe(15);
+    expect(tierLimits.scout.spendCapUsd).toBe(1);
+    expect(tierLimits.scout.tokenCap).toEqual({ input: 600000, output: 30000 });
+    expect(tierLimits.siege.tokenCap).toBeNull();
+    expect(server.limitsFor("siege").spendCapUsd).toBe(15);
+  });
+
+  it("raises every cap with depth", () => {
+    const order = TIER_IDS.map((id) => tierLimits[id]);
+    for (const [i, limits] of order.entries()) {
+      if (i === 0) continue;
+      expect(limits.spendCapUsd).toBeGreaterThan(order[i - 1]!.spendCapUsd);
+      expect(limits.requestCap).toBeGreaterThan(order[i - 1]!.requestCap);
+    }
   });
 
   it("rejects invalid limits", () => {
-    expect(server.tierLimitsSchema.safeParse({ ...tierLimits.lite, spendCapUsd: 0 }).success).toBe(
+    expect(server.tierLimitsSchema.safeParse({ ...tierLimits.scout, spendCapUsd: 0 }).success).toBe(
       false,
     );
-    expect(server.tierLimitsConfigSchema.safeParse({ lite: tierLimits.lite }).success).toBe(false);
+    expect(server.tierLimitsConfigSchema.safeParse({ scout: tierLimits.scout }).success).toBe(
+      false,
+    );
+    expect(
+      server.tierLimitsConfigSchema.safeParse({
+        ...tierLimits,
+        siege: { ...tierLimits.siege, spendCapUsd: 0.5 },
+      }).success,
+    ).toBe(false);
   });
 });

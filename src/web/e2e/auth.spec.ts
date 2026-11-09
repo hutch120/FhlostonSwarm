@@ -5,7 +5,9 @@ test.describe("auth", () => {
   test("signs in with an emailed code, survives a reload, and signs out", async ({ page }) => {
     const email = await signIn(page);
     await page.goto("/account");
-    await expect(page.getByTestId("free-report")).toHaveText("1 free Lite report available");
+    await expect(page.getByTestId("account-credits")).toHaveText(
+      "0 Scout · 0 Sweep · 0 Probe · 0 Siege credits",
+    );
 
     // The session survives a reload (cookies, not page state).
     await page.reload();

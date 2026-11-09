@@ -1,29 +1,72 @@
 import { z } from "zod";
 import tiersJson from "../config/tiers.json" with { type: "json" };
-import { areaIdSchema, tierIdSchema } from "./events.js";
+import {
+  TIER_IDS,
+  agentIdSchema,
+  areaIdSchema,
+  tierIdSchema,
+  type AreaId,
+  type TierId,
+} from "./events.js";
+import { AGENTS } from "./fixtures/roster.js";
 
 /**
- * What a tier offers the customer: scope and entitlements only. This is the only tier data the
- * browser sees. Cost controls (model, spend, token and request caps) are in `limits.ts`, which is
- * server-only (revenue.md section 2). Edit config/tiers.json to tune it.
+ * What a tier offers the customer: scan depth, the agents it runs and its entitlements. This is the
+ * only tier data the browser sees. Cost controls (model, spend, token and request caps) are in
+ * `limits.ts`, which is server-only (revenue.md section 2). Edit config/tiers.json to tune it.
  */
 export const tierConfigSchema = z.object({
   id: tierIdSchema,
   name: z.string().min(1),
+  /** 1 (shallowest) to 4 (deepest). Price and cost rise with depth. */
+  depth: z.number().int().min(1).max(TIER_IDS.length),
   description: z.string().min(1),
-  paid: z.boolean(),
-  logins: z.number().int().min(1).max(4),
+  /** Logins the scan can use; 0 means unauthenticated checks only. */
+  logins: z.number().int().min(0).max(4),
   wallClockMinutes: z.number().positive(),
-  /** Findings shown in full detail; null shows all of them. */
-  teaserFindings: z.number().int().nonnegative().nullable(),
   steering: z.boolean(),
-  areas: z.array(areaIdSchema).min(1),
+  /** The group of agents this tier runs (ids from the roster). */
+  agents: z.array(agentIdSchema).min(1),
 });
 export type TierConfig = z.infer<typeof tierConfigSchema>;
 
+const knownAgents = new Set(AGENTS.map((a) => a.id));
+
 export const tiersConfigSchema = z
-  .object({ lite: tierConfigSchema, full: tierConfigSchema })
-  .refine((t) => t.lite.id === "lite" && t.full.id === "full", "tier keys must match their ids");
+  .object({
+    scout: tierConfigSchema,
+    sweep: tierConfigSchema,
+    probe: tierConfigSchema,
+    siege: tierConfigSchema,
+  })
+  .superRefine((t, ctx) => {
+    const issue = (message: string, path: (string | number)[]) =>
+      ctx.addIssue({ code: "custom", message, path });
+    TIER_IDS.forEach((id, i) => {
+      const tier = t[id];
+      if (tier.id !== id) issue(`tier key ${id} must match its id`, [id]);
+      if (tier.depth !== i + 1) issue(`${id} must have depth ${i + 1}`, [id, "depth"]);
+      for (const agent of tier.agents) {
+        if (!knownAgents.has(agent)) issue(`unknown agent ${agent}`, [id, "agents"]);
+      }
+      const shallower = i > 0 ? t[TIER_IDS[i - 1]!] : undefined;
+      if (!shallower) return;
+      if (!shallower.agents.every((a) => tier.agents.includes(a)))
+        issue(`${id} must include every agent of ${shallower.id}`, [id, "agents"]);
+      if (tier.logins < shallower.logins)
+        issue(`${id} cannot allow fewer logins than ${shallower.id}`, [id, "logins"]);
+    });
+  });
 export type TiersConfig = z.infer<typeof tiersConfigSchema>;
 
 export const tiers: TiersConfig = tiersConfigSchema.parse(tiersJson);
+
+/** Tiers from shallowest to deepest. */
+export const TIERS: readonly TierConfig[] = TIER_IDS.map((id) => tiers[id]);
+
+/** The testing areas a tier touches, derived from its agents. */
+export function tierAreas(tier: TierId): AreaId[] {
+  const wanted = new Set(tiers[tier].agents);
+  const areas = new Set(AGENTS.filter((a) => wanted.has(a.id)).map((a) => a.area));
+  return areaIdSchema.options.filter((id) => areas.has(id));
+}

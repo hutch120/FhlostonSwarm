@@ -1,3 +1,4 @@
+import { TIERS } from "@swarm/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
@@ -32,11 +33,9 @@ export function Account() {
           Signed in as <strong>{email}</strong>
           {role === "staff" && <span className="badge"> Staff</span>}
         </p>
-        <p data-testid="free-report">
+        <p data-testid="account-credits">
           {account.data
-            ? account.data.freeLiteRemaining > 0
-              ? `${account.data.freeLiteRemaining} free Lite report available`
-              : "Your free Lite report has been used"
+            ? TIERS.map((t) => `${account.data.credits[t.id]} ${t.name}`).join(" · ") + " credits"
             : "Loading…"}
         </p>
       </section>
@@ -46,9 +45,10 @@ export function Account() {
           Delete account
         </h2>
         <p>
-          Deleting your account removes every run, report, piece of evidence and credential we hold
-          for you. This cannot be undone. Anonymised cost figures (tier, timings, token counts,
-          cost; never your email, targets or findings) are kept for cost analysis.
+          Deleting your account stops every scheduled scan and removes every saved scan, run,
+          report, piece of evidence and credential we hold for you. This cannot be undone.
+          Anonymised cost figures (depth, timings, token counts, cost; never your email, targets or
+          findings) are kept for cost analysis.
         </p>
         <p className="notice" role="note">
           Preview: nothing is stored, so there is nothing to delete yet.

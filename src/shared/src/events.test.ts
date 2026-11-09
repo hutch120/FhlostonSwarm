@@ -8,8 +8,10 @@ import {
   replayEvents,
   runEventSchema,
   summarySchema,
+  tierAreas,
   tierConfigSchema,
   tiers,
+  TIERS,
   tiersConfigSchema,
   type RunEvent,
 } from "./index.js";
@@ -127,18 +129,51 @@ describe("roster", () => {
 });
 
 describe("tier config", () => {
-  it("parses the shipped config", () => {
-    expect(tiers.lite.wallClockMinutes).toBe(6);
-    expect(tiers.lite.teaserFindings).toBe(2);
-    expect(tiers.lite.steering).toBe(false);
-    expect(tiers.full.logins).toBe(4);
-    expect(tiers.full.areas).toHaveLength(5);
+  it("parses the shipped config, shallowest to deepest", () => {
+    expect(TIERS.map((t) => t.id)).toEqual(["scout", "sweep", "probe", "siege"]);
+    expect(TIERS.map((t) => t.depth)).toEqual([1, 2, 3, 4]);
+    expect(tiers.scout.logins).toBe(0);
+    expect(tiers.scout.steering).toBe(false);
+    expect(tiers.siege.logins).toBe(4);
+    expect(tiers.siege.steering).toBe(true);
+    expect(tiers.siege.agents).toHaveLength(AGENTS.length);
+  });
+
+  it("makes each tier a superset of the one before it", () => {
+    for (const [i, tier] of TIERS.entries()) {
+      if (i === 0) continue;
+      expect(tier.agents).toEqual(expect.arrayContaining([...TIERS[i - 1]!.agents]));
+      expect(tier.agents.length).toBeGreaterThan(TIERS[i - 1]!.agents.length);
+      expect(tier.wallClockMinutes).toBeGreaterThan(TIERS[i - 1]!.wallClockMinutes);
+    }
+  });
+
+  it("derives areas from agents", () => {
+    expect(tierAreas("scout")).toEqual(["recon", "unauth"]);
+    expect(tierAreas("sweep")).toEqual(["recon", "unauth", "authn"]);
+    expect(tierAreas("probe")).toEqual(["recon", "unauth", "authn", "llm"]);
+    expect(tierAreas("siege")).toEqual(["recon", "unauth", "authn", "llm", "logic"]);
+  });
+
+  it("has no free tier", () => {
+    expect(Object.keys(tiers)).not.toContain("lite");
+    expect(JSON.stringify(tiers)).not.toMatch(/free|teaser/i);
   });
 
   it("rejects invalid tiers", () => {
-    expect(tierConfigSchema.safeParse({ ...tiers.lite, logins: 9 }).success).toBe(false);
-    expect(tierConfigSchema.safeParse({ ...tiers.lite, wallClockMinutes: 0 }).success).toBe(false);
-    expect(tiersConfigSchema.safeParse({ lite: tiers.full, full: tiers.full }).success).toBe(false);
-    expect(tiersConfigSchema.safeParse({ lite: tiers.lite }).success).toBe(false);
+    expect(tierConfigSchema.safeParse({ ...tiers.sweep, logins: 9 }).success).toBe(false);
+    expect(tierConfigSchema.safeParse({ ...tiers.sweep, wallClockMinutes: 0 }).success).toBe(false);
+    expect(tierConfigSchema.safeParse({ ...tiers.sweep, agents: [] }).success).toBe(false);
+    expect(tiersConfigSchema.safeParse({ ...tiers, scout: tiers.siege }).success).toBe(false);
+    expect(tiersConfigSchema.safeParse({ scout: tiers.scout }).success).toBe(false);
+    expect(
+      tiersConfigSchema.safeParse({ ...tiers, sweep: { ...tiers.sweep, agents: ["dns"] } }).success,
+    ).toBe(false);
+    expect(
+      tiersConfigSchema.safeParse({
+        ...tiers,
+        siege: { ...tiers.siege, agents: [...tiers.siege.agents, "nope"] },
+      }).success,
+    ).toBe(false);
   });
 });

@@ -16,7 +16,7 @@ interface RunStore {
   reset: (init?: { runId?: string; tier?: TierId }) => void;
 }
 
-const initial = (runId = DEMO_RUN_ID, tier: TierId = "full") =>
+const initial = (runId = DEMO_RUN_ID, tier: TierId = "siege") =>
   createRunState({ runId, tier, areas: AREAS, agents: AGENTS });
 
 /** Live run state. The feed (replay today, the real event stream later) only ever calls `apply`. */

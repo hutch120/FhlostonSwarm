@@ -1,15 +1,35 @@
 {
-  "lite": {
+  "scout": {
     "modelId": "au.anthropic.claude-haiku-4-5-20251001-v1:0",
-    "pageCap": 25,
-    "llmStepCap": 40,
-    "requestCap": 150,
+    "pageCap": 40,
+    "llmStepCap": 60,
+    "requestCap": 300,
     "requestsPerSecond": 2,
-    "tokenCap": { "input": 400000, "output": 20000 },
-    "spendCapUsd": 0.5,
+    "tokenCap": { "input": 600000, "output": 30000 },
+    "spendCapUsd": 1,
+    "concurrency": 4
+  },
+  "sweep": {
+    "modelId": "au.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "pageCap": 80,
+    "llmStepCap": 120,
+    "requestCap": 800,
+    "requestsPerSecond": 3,
+    "tokenCap": { "input": 1500000, "output": 60000 },
+    "spendCapUsd": 3,
     "concurrency": 3
   },
-  "full": {
+  "probe": {
+    "modelId": "au.anthropic.claude-sonnet-4-6",
+    "pageCap": null,
+    "llmStepCap": null,
+    "requestCap": 1800,
+    "requestsPerSecond": 4,
+    "tokenCap": null,
+    "spendCapUsd": 8,
+    "concurrency": 2
+  },
+  "siege": {
     "modelId": "au.anthropic.claude-sonnet-4-6",
     "pageCap": null,
     "llmStepCap": null,

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import limitsJson from "../config/limits.json" with { type: "json" };
-import { tierIdSchema } from "./events.js";
+import { TIER_IDS, tierIdSchema } from "./events.js";
 
 /**
  * Server-only run limits and model choice (PLAN.md section 11, revenue.md section 2). These are cost
@@ -22,7 +22,18 @@ export const tierLimitsSchema = z.object({
 });
 export type TierLimits = z.infer<typeof tierLimitsSchema>;
 
-export const tierLimitsConfigSchema = z.object({ lite: tierLimitsSchema, full: tierLimitsSchema });
+export const tierLimitsConfigSchema = z
+  .object({
+    scout: tierLimitsSchema,
+    sweep: tierLimitsSchema,
+    probe: tierLimitsSchema,
+    siege: tierLimitsSchema,
+  })
+  .refine(
+    (t) =>
+      TIER_IDS.every((id, i) => i === 0 || t[id].spendCapUsd >= t[TIER_IDS[i - 1]!].spendCapUsd),
+    "spend caps must not fall as depth increases",
+  );
 export type TierLimitsConfig = z.infer<typeof tierLimitsConfigSchema>;
 
 export const tierLimits: TierLimitsConfig = tierLimitsConfigSchema.parse(limitsJson);

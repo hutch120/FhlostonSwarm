@@ -26,7 +26,7 @@ const API_SRC = fileURLToPath(new URL("../../../api/src/", import.meta.url));
 const REPO_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
 
 // Keys the API may touch. Nothing else in the data bucket is reachable from the web-facing Lambda.
-const API_PREFIXES = ["users", "auth", "claims", "suppression"] as const;
+const API_PREFIXES = ["users", "auth", "suppression"] as const;
 
 /** The auth API: Hono on Lambda behind an HTTP API, plus the SES bounce/complaint handler. */
 export class ApiStack extends Stack {

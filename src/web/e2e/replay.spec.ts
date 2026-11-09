@@ -74,7 +74,8 @@ test.describe("static screens", () => {
     ["/dashboard", "Dashboard"],
     ["/new", "New assessment"],
     ["/account", "Account"],
-    ["/schedules", "Schedules"],
+    ["/scans", "Scans"],
+    ["/schedules", "Scans"],
   ] as const) {
     test(`${path} renders once signed in`, async ({ page }) => {
       await signIn(page);

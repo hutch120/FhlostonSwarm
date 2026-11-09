@@ -1,19 +1,28 @@
-import { DEMO_RUN_ID } from "@swarm/shared";
+import { DEMO_RUN_ID, type ScanStatus, type ScanSummary } from "@swarm/shared";
 import type { IntakeValues } from "../intake.js";
 import type { Role } from "../state/session.js";
 import { createHttpAuthApi, type AuthApi } from "./http.js";
-import { MOCK_ACCOUNT, MOCK_RUNS, type AccountInfo, type RunListItem } from "./mock.js";
+import { MOCK_ACCOUNT, MOCK_RUNS, MOCK_SCANS, type AccountInfo, type RunListItem } from "./mock.js";
 
 export type { AccountInfo, RunListItem } from "./mock.js";
 export { ApiError, messageFor } from "./http.js";
 
-/** The API surface the screens use. Auth and account are real; runs are still mock until Phase 4. */
+/**
+ * The API surface the screens use. Auth and account are real; runs and saved scans are still mock
+ * until Phase 4.
+ */
 export interface ApiClient extends AuthApi {
   listRuns(): Promise<RunListItem[]>;
   getAccount(): Promise<AccountInfo>;
+  /** Saves the target and scan settings, then starts the first run. */
   submitIntake(values: IntakeValues): Promise<{ runId: string }>;
   deleteRun(runId: string): Promise<void>;
   deleteAccount(): Promise<void>;
+  listScans(): Promise<ScanSummary[]>;
+  /** Starts a new run from a saved scan, with no reconfiguration. */
+  runScan(scanId: string): Promise<{ runId: string }>;
+  setScanStatus(scanId: string, status: ScanStatus): Promise<void>;
+  deleteScan(scanId: string): Promise<void>;
 }
 
 const mockRole = (email: string): Role =>
@@ -40,6 +49,10 @@ export const mockApi: ApiClient = {
   submitIntake: async () => ({ runId: DEMO_RUN_ID }),
   deleteRun: async () => undefined,
   deleteAccount: async () => undefined,
+  listScans: async () => MOCK_SCANS,
+  runScan: async () => ({ runId: DEMO_RUN_ID }),
+  setScanStatus: async () => undefined,
+  deleteScan: async () => undefined,
 };
 
 export const httpApi: ApiClient = { ...mockApi, ...createHttpAuthApi() };

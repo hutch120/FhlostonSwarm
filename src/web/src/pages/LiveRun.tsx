@@ -1,4 +1,4 @@
-import { DEMO_TARGET, replayEvents } from "@swarm/shared";
+import { DEMO_TARGET, replayEvents, tiers } from "@swarm/shared";
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { AgentDrawer } from "../panels/AgentDrawer.js";
@@ -43,7 +43,7 @@ export function LiveRun() {
         <div>
           <h1>Live swarm view</h1>
           <p className="muted">
-            Target <code>{DEMO_TARGET}</code> · {state.tier === "full" ? "Full" : "Lite"} run
+            Target <code>{DEMO_TARGET}</code> · {tiers[state.tier].name} scan
             {runId ? <> · {runId}</> : null}
           </p>
         </div>

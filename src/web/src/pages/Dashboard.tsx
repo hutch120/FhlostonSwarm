@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+import { TIERS, tiers } from "@swarm/shared";
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { api } from "../api/client.js";
-import { capitalise, formatClock, formatDateTime } from "../format.js";
+import { formatClock, formatDateTime } from "../format.js";
 
 export function Dashboard() {
+  const navigate = useNavigate();
   const runs = useQuery({ queryKey: ["runs"], queryFn: () => api.listRuns() });
   const account = useQuery({ queryKey: ["account"], queryFn: () => api.getAccount() });
   const [removed, setRemoved] = useState<Set<string>>(new Set());
@@ -14,6 +16,11 @@ export function Dashboard() {
     await api.deleteRun(runId);
     setRemoved((prev) => new Set(prev).add(runId));
     setConfirming(null);
+  };
+
+  const runAgain = async (scanId: string) => {
+    const { runId } = await api.runScan(scanId);
+    navigate(`/runs/${runId}`);
   };
 
   const rows = (runs.data ?? []).filter((r) => !removed.has(r.summary.runId));
@@ -29,13 +36,23 @@ export function Dashboard() {
 
       <section className="card" aria-labelledby="credits-title">
         <h2 id="credits-title" className="card-title">
-          Your reports
+          Your credits
         </h2>
         {account.data ? (
-          <p data-testid="credits">
-            <strong>{account.data.freeLiteRemaining}</strong> free Lite report remaining ·{" "}
-            <strong>{account.data.paidCredits}</strong> paid credits
-          </p>
+          <>
+            <p data-testid="credits">
+              {TIERS.map((t, i) => (
+                <span key={t.id}>
+                  {i > 0 && " · "}
+                  <strong>{account.data.credits[t.id]}</strong> {t.name}
+                </span>
+              ))}
+            </p>
+            <p className="muted small">
+              Every scan, one-off or scheduled, uses one credit of its depth. There is no free scan.
+              Purchasing arrives soon.
+            </p>
+          </>
         ) : (
           <p className="muted">Loading…</p>
         )}
@@ -67,10 +84,10 @@ export function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ summary: s, target }) => (
+                {rows.map(({ summary: s, target, scanId }) => (
                   <tr key={s.runId} data-testid="run-row">
                     <th scope="row">{target}</th>
-                    <td>{capitalise(s.tier)}</td>
+                    <td>{tiers[s.tier].name}</td>
                     <td>
                       <span className="badge badge-status" data-status={s.status}>
                         {s.status}
@@ -92,6 +109,16 @@ export function Dashboard() {
                     <td className="actions">
                       <Link to={`/runs/${s.runId}`}>Watch</Link>
                       <Link to={`/runs/${s.runId}/report`}>Report</Link>
+                      {scanId && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          onClick={() => runAgain(scanId)}
+                          aria-label={`Run again for ${target}`}
+                        >
+                          Run again
+                        </button>
+                      )}
                       {confirming === s.runId ? (
                         <>
                           <button

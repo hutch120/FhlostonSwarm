@@ -45,9 +45,7 @@ export function Login() {
   return (
     <section className="card narrow" aria-labelledby="login-title">
       <h1 id="login-title">Sign in</h1>
-      <p className="muted">
-        We email you a 6-digit code. No passwords. New accounts get one free Lite report.
-      </p>
+      <p className="muted">We email you a 6-digit code. No passwords.</p>
 
       {step === "email" ? (
         <form onSubmit={requestCode} noValidate={false}>

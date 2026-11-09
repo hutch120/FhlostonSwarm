@@ -9,7 +9,7 @@ import { Intake } from "./pages/Intake.js";
 import { LiveRun } from "./pages/LiveRun.js";
 import { Login } from "./pages/Login.js";
 import { Report } from "./pages/Report.js";
-import { Schedules } from "./pages/Schedules.js";
+import { Scans } from "./pages/Scans.js";
 import { Staff } from "./pages/Staff.js";
 import { VerifyLink } from "./pages/VerifyLink.js";
 import { useSession } from "./state/session.js";
@@ -53,7 +53,8 @@ export function App() {
           <Route path="new" element={<Intake />} />
           <Route path="runs/:runId" element={<LiveRun />} />
           <Route path="runs/:runId/report" element={<Report />} />
-          <Route path="schedules" element={<Schedules />} />
+          <Route path="scans" element={<Scans />} />
+          <Route path="schedules" element={<Navigate to="/scans" replace />} />
           <Route path="account" element={<Account />} />
         </Route>
         <Route path="staff" element={<Staff />} />

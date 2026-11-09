@@ -32,7 +32,7 @@ npm run format:check  # Prettier check (npm run format to fix)
 
 ## Web app
 
-`src/web` is the Vite + React + TypeScript SPA. Sign-in, sessions and the account page use the real API (`src/api`); the live swarm view still runs against a replayed, simulated event feed, and the dashboard rows and intake are mock data until later phases. The event contract, reducer, roster and tier limits live in `src/shared`.
+`src/web` is the Vite + React + TypeScript SPA. Sign-in, sessions and the account page use the real API (`src/api`); the live swarm view still runs against a replayed, simulated event feed, and the dashboard rows, saved scans and intake are mock data until later phases. The event contract, reducer, roster and tier limits live in `src/shared`.
 
 ```
 npm run dev -w src/api         # local API on :8787 (in-memory data, mail collected, no AWS)
@@ -43,13 +43,13 @@ npx playwright install chromium   # one-off, for the end-to-end tests
 npm run test:e2e -w src/web    # Playwright (starts the dev server and the local API)
 ```
 
-The replay accepts `?speed=<n>` (e.g. `/demo?speed=8`) and `?autoplay=0`. Colours and the look live in `src/web/src/theme.ts`; the customer-facing Lite/Full scope lives in `src/shared/config/tiers.json` and the server-only cost limits in `src/shared/config/limits.json`.
+The replay accepts `?speed=<n>` (e.g. `/demo?speed=8`) and `?autoplay=0`. Colours and the look live in `src/web/src/theme.ts`; the customer-facing scan depths (Scout, Sweep, Probe, Siege: each a group of agents) live in `src/shared/config/tiers.json` and the server-only cost limits in `src/shared/config/limits.json`. There is no free tier: every run, one-off or scheduled, uses a paid credit of its depth. Saved scans (target, depth, schedule, notification email) are in `src/shared/src/scans.ts`; the **Scans** screen lets you run one again without reconfiguring.
 
 To sign in locally, run both servers, enter any address on `/login`, then read the code from the local mailbox: `http://localhost:8787/__dev/mail?to=<address>` (dev server only, never deployed).
 
 ## API
 
-`src/api` is a Hono app (`createApp`) that runs on Lambda behind an API Gateway HTTP API, served at `/api/*` on the same CloudFront distribution as the site (so cookies are first-party). Phase 3 covers: `GET /api/health`, `POST /api/auth/request|verify|refresh|logout`, `GET /api/auth/session`, `GET /api/me` and `GET /api/staff/whoami`.
+`src/api` is a Hono app (`createApp`) that runs on Lambda behind an API Gateway HTTP API, served at `/api/*` on the same CloudFront distribution as the site (so cookies are first-party). Phase 3 covers: `GET /api/health`, `POST /api/auth/request|verify|refresh|logout`, `GET /api/auth/session`, `GET /api/me` (account, role and credits per scan depth; all zero until the Phase 4 ledger) and `GET /api/staff/whoami`.
 
 - **Data** is S3 only (`swarm-data-885922397779`), using conditional writes (`If-None-Match`/`If-Match`) in `src/api/src/storage`. Layout and keys follow [PLAN.md section 5](./docs/PLAN.md#where-data-lives-s3-only-decided).
 - **Auth tuning** (OTP lifetime, attempt limit, rate limits, session lifetimes, staff domain, reserved addresses, disposable-domain list) is in `src/api/config/auth.json`.

@@ -40,27 +40,6 @@ export async function getProfile(store: ObjectStore, emailHash: string): Promise
   return (await getJson(store, keys.profile(emailHash), profileSchema))?.value ?? null;
 }
 
-/**
- * The free-report claim. Created with `If-None-Match: *`, so of any number of concurrent
- * claims exactly one wins. The marker holds no personal data and outlives account deletion.
- */
-export async function claimFreeReport(
-  store: ObjectStore,
-  emailHash: string,
-  now: number,
-  marker: { test?: true } = {},
-): Promise<"claimed" | "already-claimed"> {
-  const won = await createJson(store, keys.freeClaim(emailHash), { claimedAt: now, ...marker });
-  return won ? "claimed" : "already-claimed";
-}
-
-export async function hasClaimedFreeReport(
-  store: ObjectStore,
-  emailHash: string,
-): Promise<boolean> {
-  return (await store.get(keys.freeClaim(emailHash))) !== null;
-}
-
 /** Written by the SES feedback handler; the OTP sender skips suppressed addresses. */
 export async function isSuppressed(store: ObjectStore, emailHash: string): Promise<boolean> {
   return (await store.get(keys.suppression(emailHash))) !== null;

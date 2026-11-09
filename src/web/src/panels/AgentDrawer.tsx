@@ -1,4 +1,4 @@
-import { tiers, type RunState } from "@swarm/shared";
+import { TIERS, tiers, type RunState } from "@swarm/shared";
 import { useId } from "react";
 import { capitalise } from "../format.js";
 
@@ -9,6 +9,11 @@ interface Props {
 }
 
 const OUTCOME_LABEL = { clear: "clear", info: "info", finding: "finding", gap: "gap" } as const;
+
+const joinNames = (names: string[]) =>
+  names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : (names[0] ?? "");
+const steeredTiers = joinNames(TIERS.filter((t) => t.steering).map((t) => t.name));
+const watchOnlyTiers = joinNames(TIERS.filter((t) => !t.steering).map((t) => t.name));
 
 /** Detail for the selected agent, with the steering box present but disabled until Phase 8. */
 export function AgentDrawer({ state, agentId, onClose }: Props) {
@@ -92,7 +97,7 @@ export function AgentDrawer({ state, agentId, onClose }: Props) {
         <p id={`${steerId}-hint`} className="muted">
           {steering
             ? "Steering arrives in a later release; it is switched off in this preview."
-            : "Steering is available on Full runs. Lite runs are watch-only."}
+            : `Steering is available on ${steeredTiers} scans. ${watchOnlyTiers} scans are watch-only.`}
         </p>
         <button type="submit" className="btn" disabled>
           Send

@@ -60,7 +60,7 @@ Apex alias to CloudFront, CAA record, SES DKIM CNAMEs, `bounce.` MAIL FROM, `_dm
 
 ## 6a. Added by Phase 3 (one manual step)
 
-The auth pepper and JWT signing key are SSM SecureStrings (`/swarm/auth/pepper`, `/swarm/auth/jwt-key`, AWS-managed key, no cost) that CloudFormation cannot create. Run `swarm init-secrets` once before (or right after) the first `swarm deploy` of `SwarmApi`; it never overwrites. **Losing or replacing the pepper orphans every stored identity** (users, claims, suppressions are keyed by its HMAC), so treat it like data, not config: there is no copy in git. For a full rebuild you would restore it from a backup you keep out of band (`aws ssm get-parameter --with-decryption`), otherwise every user re-registers and free-report claims reset.
+The auth pepper and JWT signing key are SSM SecureStrings (`/swarm/auth/pepper`, `/swarm/auth/jwt-key`, AWS-managed key, no cost) that CloudFormation cannot create. Run `swarm init-secrets` once before (or right after) the first `swarm deploy` of `SwarmApi`; it never overwrites. **Losing or replacing the pepper orphans every stored identity** (users, saved scans, suppressions are keyed by its HMAC), so treat it like data, not config: there is no copy in git. For a full rebuild you would restore it from a backup you keep out of band (`aws ssm get-parameter --with-decryption`), otherwise every user re-registers and loses their credits and saved scans.
 
 ## 7. Out-of-band items to keep safe
 

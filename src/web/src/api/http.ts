@@ -105,8 +105,11 @@ export function createHttpAuthApi(
       await call("POST", "/api/auth/logout", {}, { retry: false });
     },
     getAccount: async () => {
-      const me = await call<{ entitlements: { freeLiteReports: number } }>("GET", "/api/me");
-      return { freeLiteRemaining: me.entitlements.freeLiteReports, paidCredits: 0 };
+      const me = await call<{ entitlements: { credits: AccountInfo["credits"] } }>(
+        "GET",
+        "/api/me",
+      );
+      return { credits: me.entitlements.credits };
     },
     staffWhoami: () => call("GET", "/api/staff/whoami"),
   };

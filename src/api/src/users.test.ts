@@ -1,33 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { MemoryStore } from "./storage/memory.js";
-import { claimFreeReport, hasClaimedFreeReport, recordLogin } from "./users.js";
+import { recordLogin } from "./users.js";
+import { createJson } from "./storage/json.js";
 
 const HASH = "c".repeat(64);
 
-describe("free-claim primitive", () => {
-  it("is claimed once, then refused", async () => {
+describe("conditional create (the atomic primitive entitlements and run starts rely on)", () => {
+  it("is created once, then refused", async () => {
     const store = new MemoryStore();
-    expect(await hasClaimedFreeReport(store, HASH)).toBe(false);
-    expect(await claimFreeReport(store, HASH, 1)).toBe("claimed");
-    expect(await claimFreeReport(store, HASH, 2)).toBe("already-claimed");
-    expect(await hasClaimedFreeReport(store, HASH)).toBe(true);
+    expect(await createJson(store, "once.json", { n: 1 })).toBe(true);
+    expect(await createJson(store, "once.json", { n: 2 })).toBe(false);
+    expect(JSON.parse((await store.get("once.json"))!.body)).toEqual({ n: 1 });
   });
 
-  it("50 concurrent claims: exactly one succeeds", async () => {
+  it("50 concurrent creates: exactly one succeeds", async () => {
     const store = new MemoryStore();
     const results = await Promise.all(
-      Array.from({ length: 50 }, () => claimFreeReport(store, HASH, 1)),
+      Array.from({ length: 50 }, () => createJson(store, "race.json", { n: 1 })),
     );
-    expect(results.filter((r) => r === "claimed")).toHaveLength(1);
-    expect(results.filter((r) => r === "already-claimed")).toHaveLength(49);
-  });
-
-  it("the marker holds no personal data", async () => {
-    const store = new MemoryStore();
-    await claimFreeReport(store, HASH, 123);
-    expect(JSON.parse((await store.get(`claims/free/${HASH}.json`))!.body)).toEqual({
-      claimedAt: 123,
-    });
+    expect(results.filter(Boolean)).toHaveLength(1);
   });
 });
 

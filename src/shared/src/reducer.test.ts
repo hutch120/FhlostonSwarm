@@ -14,7 +14,7 @@ import {
 } from "./index.js";
 
 const fresh = () =>
-  createRunState({ runId: DEMO_RUN_ID, tier: "full", areas: AREAS, agents: AGENTS });
+  createRunState({ runId: DEMO_RUN_ID, tier: "siege", areas: AREAS, agents: AGENTS });
 const finalState = () => applyEvents(fresh(), replayEvents);
 
 describe("applyEvent over the scripted run", () => {

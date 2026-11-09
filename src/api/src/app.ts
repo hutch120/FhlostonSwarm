@@ -1,3 +1,4 @@
+import { TIER_IDS } from "@swarm/shared";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
@@ -22,7 +23,7 @@ import {
 } from "./sessions.js";
 import type { ObjectStore } from "./storage/store.js";
 import { safeEqual } from "./identity.js";
-import { hasClaimedFreeReport, isSuppressed, recordLogin } from "./users.js";
+import { isSuppressed, recordLogin } from "./users.js";
 
 export interface AppDeps {
   store: ObjectStore;
@@ -356,12 +357,10 @@ export function createApp(deps: AppDeps) {
   app.use("/me", requireAuth, requireCsrf);
   app.get("/me", async (c) => {
     const auth = c.get("auth");
-    const claimed = await hasClaimedFreeReport(store, auth.emailHash);
-    return c.json({
-      email: auth.email,
-      role: auth.role,
-      entitlements: { freeLiteReports: claimed ? 0 : 1 },
-    });
+    // There is no free tier: every run needs a paid or staff-granted credit. The credit ledger
+    // (users/{hash}/entitlements.json) arrives with intake in Phase 4, so nobody holds credits yet.
+    const credits = Object.fromEntries(TIER_IDS.map((tier) => [tier, 0]));
+    return c.json({ email: auth.email, role: auth.role, entitlements: { credits } });
   });
 
   // Staff routes re-check the role from the server-side session on every call.

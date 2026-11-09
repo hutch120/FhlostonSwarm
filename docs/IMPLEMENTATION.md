@@ -17,15 +17,24 @@ How we build the product described in [PLAN.md](./PLAN.md), in small phases that
 | 1 | Infrastructure foundation (DNS, hosting, data bucket, SES) | M0 | ☐ |
 | 2 | UI shell on a simulated feed | M1 | ☐ *(built and verified 2026-11-08; awaiting your visual sign-off)* |
 | 3 | Auth (email OTP, sessions, staff role) | M2 | ☐ *(built, deployed and verified 2026-11-08; awaiting one real-mailbox sign-in, see Phase 3 Notes)* |
-| 4 | Intake, entitlements & data deletion | M3 | ☐ |
+| 4 | Intake, saved scans, credits & data deletion | M3 | ☐ |
 | 5 | Walking skeleton: one agent end to end | M4 | ☐ |
-| 6 | Lite swarm (explorer, teaser report, free-tier controls) | M5a | ☐ |
-| 7 | Full swarm (discovery, all agents, verifier, full report) | M5b | ☐ |
+| 6 | Shallow scans: Scout and Sweep (explorer, caps, abuse controls) | M5a | ☐ |
+| 7 | Deep scans: Probe and Siege (discovery, all agents, verifier, full report) | M5b | ☐ |
 | 8 | Steering | M6 | ☐ |
 | 9 | Staff dashboard & cost analysis | M7 | ☐ |
 | 10 | Hardening & private beta | M8 | ☐ |
 | 11 | Payments | M9 | ☐ |
-| 12 | Scheduled runs | M10 | ☐ |
+| 12 | Scheduled runs & notifications | M10 | ☐ |
+
+### Rework: no free tier, scan depths, saved scans (2026-11-10)
+
+The product model changed after Phases 2 and 3 were built. Decisions are in [PLAN.md](./PLAN.md#16-decisions-log); the code that existed was reworked in the same change and the completed-phase notes below carry a *Reworked* marker where they no longer describe the code.
+
+- **No free tier.** The Lite tier, teaser reports and the free-claim markers (`claims/free/…`, `claims/free-target/…`) are gone. Every run consumes a paid (or staff-granted) credit, which closes the gap where free email accounts could spam the system with Lite requests.
+- **Four scan depths, each a group of agents:** `scout` (shallow), `sweep`, `probe`, `siege` (deep) in `src/shared/config/tiers.json` (public scope: depth, description, logins, time, steering, agent list) and `limits.json` (server-only caps; spend caps rise with depth). `tiersConfigSchema` enforces that each tier includes every agent of the shallower one. Areas are derived from the agents (`tierAreas`).
+- **Saved scans:** target + depth + schedule (`once | daily | weekly | monthly | yearly`) + a per-scan notification email (`src/shared/src/scans.ts`). Every run starts from a saved scan, so "Run again" never needs reconfiguring. The Schedules screen became **Scans**; the intake form now chooses depth, cadence and notification address.
+- **Delivery order:** the scan model, saved scans and re-run arrive with intake (Phase 4); scheduling, diffing and notification emails are Phase 12.
 
 ### Cross-cutting rules (apply to every phase)
 
@@ -34,14 +43,14 @@ How we build the product described in [PLAN.md](./PLAN.md), in small phases that
 - **Test data and resources are always clearly identifiable** (for manual review and cleanup, since there is only one account):
   - **S3 keys:** all automated test data lives under `_test/<runId>/…`, where `runId` is `YYYYMMDD-HHmmss-<rand>`.
   - **Records:** any test record that has to exist outside that prefix (e.g. a manual E2E on the deployed site) carries `"test": true` plus `"testRunId"` in its JSON, so it can be found and removed.
-  - **Identities:** unit/integration tests use synthetic emails/hashes with an injected fake mailer (no SES). Manual/deployed E2E uses dedicated test mailboxes we control (one on the staff domain, one non-staff) with a `swarm-test-` local-part (e.g. `swarm-test-e2e@…`) — not plus-tags, because email normalisation strips them. Records and claim markers created for these identities carry `"test": true` so cleanup can remove them (keeping the mailboxes reusable). Test targets, runs, and Stripe objects use a `swarm-test-` name prefix and Stripe metadata `test=true`; Stripe test-mode keys are used for all of it.
+  - **Identities:** unit/integration tests use synthetic emails/hashes with an injected fake mailer (no SES). Manual/deployed E2E uses dedicated test mailboxes we control (one on the staff domain, one non-staff) with a `swarm-test-` local-part (e.g. `swarm-test-e2e@…`) — not plus-tags, because email normalisation strips them. Records created for these identities carry `"test": true` so cleanup can remove them (keeping the mailboxes reusable). Test targets, runs, and Stripe objects use a `swarm-test-` name prefix and Stripe metadata `test=true`; Stripe test-mode keys are used for all of it.
   - **AWS resources:** any resource created only for testing is named `swarm-test-*` and tagged `swarm:test=true` (plus `swarm:test-run=<runId>`); it is deleted when the test finishes. Permanent infra is tagged `swarm:test=false` or left untagged for this purpose, never `swarm-test-*`.
   - **Cleanup:** tests clean up after themselves; `swarm test-cleanup` (added in Phase 1 with the other ops helpers) lists, and with `--delete` removes, anything matching the above (`_test/` prefix, `test: true` records, `swarm-test-*` resources, `swarm:test=true` tags) and never touches anything else. Test data must never be mixed into real customer records without these markers.
 - **Shared-environment drills:** because tests run in the live account, anything global (lowering caps, kill-switch, alarm tests, load/abuse drills) is done briefly, before external users exist or in an announced window, with the original config restored and verified afterwards. Caps and counters exercised by tests use test-prefixed state, so real users are never blocked by a test.
 - **Code layout:** `src/web`, `src/api`, `src/agents`, `src/infra`, `src/shared`, `src/synthetic-target` as npm workspaces (see [PLAN.md §3](./PLAN.md#3-repository-layout)). `utils/` + `swarm.ts` stay the ops CLI.
 - **Quality gates on every change:** `npm run typecheck` passes (root, covers all workspaces) and `npm test` passes. These are introduced in Phase 0 and may only get stricter.
 - **Zero idle cost:** nothing introduced may violate the rules in [PLAN.md §14 "Idle cost"](./PLAN.md#idle-cost-at-rest) (no NAT, interface endpoints, provisioned capacity, always-on compute). Each infra phase re-checks this.
-- **Config, not code:** tier limits, prices, model ids and caps live in config files validated by zod, never hard-coded.
+- **Config, not code:** scan-depth (tier) definitions, limits, prices, model ids and caps live in config files validated by zod, never hard-coded.
 - **No secrets in git.** Test credentials in fixtures are for the synthetic target only, and are named/marked as test data per the rule above.
 
 ### External lead-time items (start immediately, in parallel)
@@ -51,7 +60,7 @@ These have waiting time, so kick them off before the phases that need them:
 | Item | Needed by | Action | Verification |
 |------|-----------|--------|--------------|
 | ✅ Bedrock account verification (done 2026-11-03; `converse` on Haiku 4.5 returned text) | Phase 5/6 | Wait (<2 h typical) or contact `aws-verification@amazon.com` if it persists | `aws bedrock-runtime converse --model-id au.anthropic.claude-haiku-4-5-20251001-v1:0 … --profile swarm` returns text, not `AccessDeniedException` |
-| SES production access | Phase 3 (real users) | Request after the SES identity exists (Phase 1) | `aws sesv2 get-account --profile swarm` shows `ProductionAccessEnabled: true` *(requested 2026-11-08; status `PENDING`, then **`DENIED`** by 2026-11-08 evening, see Phase 3 Notes)* |
+| SES production access | Phase 3 (real users) | Request after the SES identity exists (Phase 1) | `aws sesv2 get-account --profile swarm` shows `ProductionAccessEnabled: true` *(requested 2026-11-08; `aws sesv2 get-account` reports `PENDING`, then `DENIED` (case `179408991600653`) by 2026-11-08 evening, but per the owner on 2026-11-10 the support case has no reply and is still in review, so treat as unresolved; see Phase 3 Notes)* |
 | ✅ Domain + DNS check for `fhlostonswarm.com` (done 2026-11-08: `ACTIVE`, auto-renew on, name servers match the Route 53 zone) | Phase 1 start | Re-verify before the edge stack deploys | `aws route53domains get-domain-detail --domain-name fhlostonswarm.com --region us-east-1 --profile swarm` succeeds; `nslookup -type=NS fhlostonswarm.com` returns the hosted zone's 4 name servers |
 | ToS + privacy text | Phase 4 | Draft the intake acknowledgement, deletion, retained-hash and anonymised-cost wording | Text reviewed by you, stored in `src/web/content/` |
 
@@ -123,7 +132,7 @@ These have waiting time, so kick them off before the phases that need them:
 - **Outstanding to close the phase:**
   1. Re-check idle cost after a day (Cost Explorer / tagging API) and then tick the phase.
   2. Send a test mail from `login@fhlostonswarm.com` to a real mailbox and check the DKIM/SPF/DMARC headers (the SES mailbox-simulator send was accepted, but headers can't be read from it).
-  3. Confirm SES production access once AWS approves (`aws sesv2 get-account --profile swarm`). *(Update: the request was denied; see Phase 3 Notes.)*
+  3. Confirm SES production access once AWS approves (`aws sesv2 get-account --profile swarm`). *(Update: still not granted; the API shows `DENIED` but the support case is in review with no reply. See Phase 3 Notes.)*
 - **CloudFront certificate:** requested 2026-11-08 in `us-east-1` (approved by the account owner): `arn:aws:acm:us-east-1:885922397779:certificate/74522cad-8ad3-4b2d-a2c3-dd9b67f218d1`, DNS validated through a CNAME `_2685cd7e54a5807f7e0d471d23da1148.fhlostonswarm.com` added to the zone by CLI (not CDK; keep it, ACM needs it for auto-renewal), status `ISSUED` after about 1 minute. The ARN is in `cloudfrontCertificateArn`; the temporary `AwsSolutions-CFR4` acknowledgement is gone and the apex A/AAAA aliases and TLS 1.2 policy are deployed.
 - **Stacks** (all `ap-southeast-2`, account `885922397779`): `SwarmData`, `SwarmDns`, `SwarmEdge`, `SwarmSes`, `SwarmOps`. Tags `swarm:test=false` and `swarm:project=fhloston-swarm` are applied app-wide.
 - **Resources:** data bucket `swarm-data-885922397779`; CloudFront distribution `d24tcj0iqbcf6a.cloudfront.net` (comment "Fhloston Swarm SPA"); SES identity `fhlostonswarm.com`, configuration set `swarm-default`, SNS topic `swarm-ses-feedback` (bounce, complaint, reject; Phase 3 adds the suppression-writing Lambda subscriber); budget `swarm-monthly-idle`.
@@ -151,7 +160,7 @@ These have waiting time, so kick them off before the phases that need them:
 3. ✅ `src/web` (Vite + React + TS): routing, theme file (Swarm placeholder identity: dark, neon accents, glow), layout, API client stubs, TanStack Query + store. *(Done 2026-11-08: React 19, React Router 8, TanStack Query, Zustand; `theme.ts` is the single source for colours; `api/client.ts` is a stub `ApiClient` backed by `api/mock.ts`.)*
 4. ✅ **Live swarm view:** canvas visualisation (agents swarming a target core, pulses on probes, colour per area), side panels (areas, findings with severity + verified badge, event log, checks counter, coverage meter), agent detail drawer with a (disabled) steering box, `prefers-reduced-motion` / low-power mode. *(Done 2026-11-08: Canvas 2D in `src/web/src/swarm/`, panels in `src/web/src/panels/`, motion modes Full / Low power / Reduced.)*
 5. ✅ **Replay player:** a dev/demo mode that feeds the scripted event list through the same reducer with play/pause/speed; also usable as the public demo later. *(Done 2026-11-08: `/demo` (and any `/runs/:id`) with play, pause, restart, skip to end, 1x–16x speed and a scrubber; `?speed=N` and `?autoplay=0` URL options.)*
-6. ✅ Static screens with mock data: Login, Dashboard, Intake form (4 login slots with descriptions, URL fields, tier info, staging-credentials notice, acknowledgement), Report viewer placeholder, Account/Delete, Schedules (disabled), Staff (gated placeholder). *(Done 2026-11-08.)*
+6. ✅ Static screens with mock data: Login, Dashboard, Intake form (4 login slots with descriptions, URL fields, tier info, staging-credentials notice, acknowledgement), Report viewer placeholder, Account/Delete, Schedules (disabled), Staff (gated placeholder). *(Done 2026-11-08. Reworked 2026-11-10: the intake form now picks a scan depth, schedule and notification email; Schedules became **Scans**, a list of saved scans with Run again, Pause/Resume and Delete; the Dashboard rows have Run again; see the rework note above.)*
 
 **Verification**
 - ✅ Unit tests for the reducer: replaying the full scripted event list yields the expected final state (counts, findings sorted by severity, `complete` set); out-of-order/duplicate `seq` events are ignored idempotently. *(Verified 2026-11-08: `src/shared/src/reducer.test.ts` (13 tests): 41 checks, 11 findings sorted worst first, 7 verified, 3 gaps, all agents done, `complete` summary equals the live summary; duplicates, older seq and other-run events leave the state untouched.)*
@@ -170,15 +179,15 @@ These have waiting time, so kick them off before the phases that need them:
 
 **Notes (2026-11-08)**
 - **To close the phase:** run `npm run dev -w src/web` (or open `/demo`), review the look at desktop and mobile widths, and accept it or note changes. Everything else is done.
-- **Run it:** `npm run dev -w src/web` serves on <http://localhost:5173> (`/demo` is the replay; `/dashboard`, `/new`, `/login`, `/account`, `/schedules`, `/staff` and `/runs/run_demo0001/report` are the mock screens). `npm run build -w src/web` writes `src/web/dist`. `npm run test:e2e -w src/web` runs Playwright (it starts the dev server itself; one-off `npx playwright install chromium`).
+- **Run it:** `npm run dev -w src/web` serves on <http://localhost:5173> (`/demo` is the replay; `/dashboard`, `/new`, `/login`, `/account`, `/scans` (`/schedules` redirects to it), `/staff` and `/runs/run_demo0001/report` are the mock screens). `npm run build -w src/web` writes `src/web/dist`. `npm run test:e2e -w src/web` runs Playwright (it starts the dev server itself; one-off `npx playwright install chromium`).
 - **Event contract** (`src/shared/src/events.ts`): `RunEvent` is a zod discriminated union on `type`. `agent` is an open lowercase id so Phase 5+ can add `explorer`/`verifier` without a contract change; `complete` has `agent: null`, `steer` and `gap` may be agent-less. `finish` carries the outcome (`clear | info | finding | gap`), a `requests` count and, for findings, the whole `Finding`. It deliberately carries **no dollar cost**: the customer stream never exposes spend (see the revenue notes below), so the per-step cost telemetry for staff must travel on a separate channel added in Phase 5/9. A `finish` with outcome `gap` marks the step; the separate `gap` event records the scope limitation for the report. `verify` is raised by the agent that did the cross-check. Findings start `unverified` and become `open` when verified. `Summary.findings.bySeverity` must list every severity.
 - **Reducer** (`reducer.ts`): `applyEvent` ignores any event at or below `lastSeq` and any event for another run. That is idempotent for replays and reconnects, but a late out-of-order event is dropped, so the real transport (Phase 5) must deliver an ordered stream (reload from S3, then resume). Gap steps count as steps done but not as completed checks. Findings stay sorted (severity, then id). State is created with `createRunState({ runId, tier, areas, agents })`; `summarise(state)` is what the backend's `complete` summary must equal, and `selectAreas(state)` gives per-area progress.
 - **Fixtures:** `AGENTS`/`AREAS` (5 areas, 12 agents as in PLAN §1), `replayEvents` (123 events, 55 s, 41 checks, 974 requests, 11 findings: 1 critical, 2 high, 4 medium, 3 low, 1 info; 7 verified), demo target `portal.swarm-demo.test`, run id `run_demo0001`. The findings are made up for a made-up target. The marketing bundle wasn't available to me, so the roster/steps/outcomes follow the description in PLAN §1, not a literal port; adjust `fixtures/roster.ts` and `fixtures/script.ts` if you want it closer to the original.
-- **Tier config (split public vs server-only):** `src/shared/config/tiers.json` (validated by `tiersConfigSchema`, exported from `@swarm/shared`) holds only what a customer may see: name, description, paid, logins, wall-clock minutes, teaser count, steering, areas. The cost controls from PLAN §11 (model id, page/step/request/token/spend caps, request rate, concurrency) are in `src/shared/config/limits.json`, validated by `tierLimitsSchema` and exported only from `@swarm/shared/server` (`tierLimits`, `limitsFor`), so they never reach the browser bundle. Model ids are the initial ones from PLAN §7. Prices stay TBD and are not in either file.
+- **Tier config (split public vs server-only):** `src/shared/config/tiers.json` (validated by `tiersConfigSchema`, exported from `@swarm/shared`) holds only what a customer may see. *(Reworked 2026-11-10: it now defines four scan depths, `scout`, `sweep`, `probe` and `siege`, each with `depth`, name, description, `logins` (0 to 4), wall-clock minutes, `steering` and the `agents` it runs; there is no `paid`, `teaserFindings` or `areas` (areas come from `tierAreas`). The schema checks every agent id exists and that each tier contains the shallower tier's agents with at least as many logins. Helpers: `TIERS` (shallow to deep), `tierAreas(tier)`, `TIER_IDS`.)* The cost controls from PLAN §11 (model id, page/step/request/token/spend caps, request rate, concurrency) are in `src/shared/config/limits.json`, validated by `tierLimitsSchema` and exported only from `@swarm/shared/server` (`tierLimits`, `limitsFor`), so they never reach the browser bundle; the config schema also requires spend caps not to fall as depth rises. Model ids are the initial ones from PLAN §7. Prices stay TBD and are not in either file.
 - **Revenue rework (2026-11-08, from [revenue.md](./revenue.md) section 2):** customers no longer see spend or caps anywhere. The "Spend budget" and "Request budget" meters are replaced by a **Coverage** meter (`selectCoverage`: mean agent progress, 0 to 100%); `Summary` gained `coverage` and lost `spendUsd`; the dashboard's Cost column became Coverage; the report header shows coverage instead of cost; the intake tier cards no longer quote a request or spend cap; the replay fixtures carry no dollar figures. `src/shared/src/limits.test.ts` is the contract test: no cost-like key (`spend`, `usd`, `cost`, `token`, `model`, `budget`...) may appear on any replay event, the summary, the run state or the public tier config, and nothing limit-related may be exported from the package root. Verified on the production build: `spendCapUsd`, `spendUsd`, `tokenCap`, `modelId` and model names do not appear in the JS bundle. Still to do in later phases: a staff-only cost channel and `cost.json` (Phase 5/9), and the "coverage limit reached for this tier" wording when a cap stops a run (Phase 6/7).
 - **Web structure:** `src/web/src/{api,state,replay,swarm,panels,pages,components}`. One Zustand run store (`state/run.ts`) is the only thing the feed writes to (`apply(event)`); the replay is a `ReplayPlayer` (virtual clock, driven by `tick(dtMs)`, so tests are deterministic) behind `useReplay`. When the real event stream arrives it should call the same `apply`; the UI does not change. The canvas reads the store directly (not via React state) so the animation loop never re-renders React.
 - **Motion:** default follows `prefers-reduced-motion`; a selector offers Full motion, Low power (15 fps, no glow, only major effects) and Reduced motion (a still frame, redrawn only when state changes). Every canvas fact is also available as text in the panels, and agents are selectable from buttons, so the canvas is not the only way in.
-- **Mock/stub behaviour:** sign-in accepts any 6-digit code (staff = an `@fhlostonswarm.com` email, the real rule being server-side in Phase 3); intake validates (URL, one complete login on Lite, acknowledgement) and then opens the demo replay; nothing is sent, stored or persisted (credentials never leave the form). Lite uses one login (default `user1`, switchable); the other slots show "Available in Full". The Dashboard rows, credits and the report page are fixed sample data derived from the replay. Steering is present but disabled.
+- **Mock/stub behaviour:** sign-in accepts any 6-digit code (staff = an `@fhlostonswarm.com` email, the real rule being server-side in Phase 3); intake validates (URL, the logins the chosen depth needs, notification email, acknowledgement) and then opens the demo replay; nothing is sent, stored or persisted (credentials never leave the form). *(Reworked 2026-11-10: previously Lite used one login, default `user1`, and the others showed "Available in Full".)* Scout needs no logins, Sweep one, Probe up to two and Siege up to four; the form refuses more logins than the depth uses. The Dashboard rows, credits, Scans list and the report page are fixed sample data derived from the replay (three scans on one application: a daily Scout, a weekly Probe and a monthly Siege, plus a one-off). Steering is present but disabled.
 - **CSP and hosting (for Phase 3):** the site works under the strict edge CSP unchanged (no inline scripts or styles, system fonts, no external origins; React `style` props and CSS variables go through the CSSOM, which `style-src 'self'` allows). The Phase 1 placeholder is still what is deployed at <https://fhlostonswarm.com>: I did not repoint `BucketDeployment` at `src/web/dist`, since this phase has no AWS changes and the visual direction isn't accepted yet. To publish it, point the source in `edge-stack.ts` at the built `src/web/dist` (build first), and add the API/realtime origins to `connect-src` when those exist.
 - **Tooling changes:** root `vitest.config.ts` now has two projects (`node` for `*.test.ts` outside `src/web`, and `web` under jsdom with a setup file that stubs the canvas); `tsconfig.base.json` gained the DOM libs and `jsx: react-jsx`, and root `tsconfig.json` includes `src/**/*.tsx`, so `npm run typecheck` still covers everything; ESLint adds browser globals and `eslint-plugin-react-hooks` for `src/web`; `.gitignore`/`.prettierignore` cover Playwright output. `docs/prompts.md` still fails `npm run format:check`; that predates this phase and was left alone.
 - **Gotchas:** `@testing-library/user-event` must be imported as `{ userEvent }` under NodeNext. `react-router` v8 exports the DOM components from `react-router` itself. jsdom has no canvas, so component tests see a canvas with no context (the component then does nothing); drawing is covered by the layout/hit-test unit tests and the Playwright run. Bundle is 452 kB because zod, React Router and TanStack Query are all in the one chunk; split by route later if it matters.
@@ -187,7 +196,7 @@ These have waiting time, so kick them off before the phases that need them:
 
 ## Phase 3 — Auth (M2)
 
-**Goal:** a user can sign in with an emailed code; sessions work; staff role is derived; the free-claim primitive is proven atomic.
+**Goal:** a user can sign in with an emailed code; sessions work; staff role is derived; the conditional-create primitive is proven atomic. *(Reworked 2026-11-10: it was proven with the free-claim; the free tier is gone, so the same test now exercises a plain conditional create, the primitive credits and run starts rely on.)*
 
 **Depends on:** Phase 1 (bucket, SES, hosting) and Phase 2 (login screen).
 
@@ -198,12 +207,12 @@ These have waiting time, so kick them off before the phases that need them:
 4. ✅ **OTP:** `POST /api/auth/request` (uniform response, per-email/IP counters, SES send), `POST /api/auth/verify` (hashed code, 10 min expiry, 5 attempts, single use). Magic link variant. *(Done 2026-11-08: `otp.ts`, `ratelimit.ts`, `mailer.ts`; the mail carries the code and a link to `/auth/verify?token=…`, which the SPA confirms with a click.)*
 5. ✅ **Sessions:** `jose` JWT in `HttpOnly; Secure; SameSite=Lax` cookie, rotating revocable refresh tokens in S3, logout (server-side revoke), CSRF protection on mutating routes, API Gateway throttling, optional Turnstile. *(Done 2026-11-08: `sessions.ts`; Turnstile is implemented server-side (`turnstile.ts`) but off (`turnstileSecretParameter: null`); the web widget is not wired.)*
 6. ✅ `role: staff` when the verified email domain is exactly `fhlostonswarm.com` (and the local-part is not a reserved shared/role address); `requireStaff` middleware. *(Done 2026-11-08: `deriveRole`; `/api/staff/*` re-checks the server-side session on every call.)*
-7. ✅ Free-claim primitive: `claims/free/{emailHash}.json` created with `If-None-Match: *`. *(Done 2026-11-08: `claimFreeReport` in `users.ts`; nothing calls it yet, Phase 4 does. `/api/me` reports `freeLiteReports` from the marker.)*
-8. ✅ Wire the real Login screen and session handling in `src/web`; account page shows "1 free lite report". *(Done 2026-11-08: real login (code or magic link), session bootstrap from the cookies, protected routes, sign out, account page, staff page confirmed by the server; deployed with `swarm deploy`.)*
+7. ✅ Conditional-create primitive: `createJson` with `If-None-Match: *`. *(Done 2026-11-08 as the free-claim, `claimFreeReport`. Reworked 2026-11-10: the free tier was removed, so `claimFreeReport`, `hasClaimedFreeReport` and the `claims/` key builders are deleted, and `/api/me` now returns `entitlements.credits` (zero per depth until the Phase 4 ledger exists). The atomicity tests remain on `createJson`.)*
+8. ✅ Wire the real Login screen and session handling in `src/web`; account page shows the user's credits per scan depth. *(Done 2026-11-08: real login (code or magic link), session bootstrap from the cookies, protected routes, sign out, account page, staff page confirmed by the server; deployed with `swarm deploy`. Reworked 2026-11-10: it showed "1 free lite report"; it now shows credits per depth, and the Login text no longer promises a free report. **The deployed site still has the old text and the old `/api/me` shape until the next `swarm deploy`.**)*
 
 **Verification**
 - ✅ Unit tests: normalisation (plus-tags, Gmail dots, case), hashing determinism, OTP expiry, attempt limits, single use, JWT validation/expiry. *(Verified 2026-11-08: `identity.test.ts`, `otp.test.ts`, `sessions.test.ts`, `app.test.ts`, `users.test.ts`, `feedback.test.ts`, `storage.test.ts`; `npm test` = 20 files / 235 tests passing, 6 integration tests skipped by default.)*
-- ✅ Integration tests against S3 (`_test/` prefix): 50 concurrent `claim` calls → exactly one succeeds; concurrent OTP verify attempts never exceed the attempt limit; refresh-token rotation invalidates the old token. *(Verified 2026-11-08: `npm run test:integration` against `swarm-data-885922397779`, 6 tests passing in 4.2 s: 50 concurrent claims → 1 `claimed` + 49 `already-claimed`; 12 concurrent wrong codes → at most 5 attempts counted; 8 concurrent correct codes → 1 wins; rotation kills the old token; full sign-in/logout flow. `_test/` left empty.)*
+- ✅ Integration tests against S3 (`_test/` prefix): 50 concurrent conditional creates of one key → exactly one succeeds; concurrent OTP verify attempts never exceed the attempt limit; refresh-token rotation invalidates the old token. *(Verified 2026-11-08: `npm run test:integration` against `swarm-data-885922397779`, 6 tests passing in 4.2 s: 50 concurrent claims → 1 `claimed` + 49 `already-claimed` (reworked 2026-11-10: now 1 winning `createJson` + 49 refused); 12 concurrent wrong codes → at most 5 attempts counted; 8 concurrent correct codes → 1 wins; rotation kills the old token; full sign-in/logout flow. `_test/` left empty.)*
 - ✅ Manual end-to-end on the deployed site: request a code, receive the email, sign in, reload (session persists), sign out (cookie cleared **and** refresh token revoked — replaying it fails). *(Everything but "receive the email" done 2026-11-08 on <https://fhlostonswarm.com> with a `swarm-test-` identity: a real browser (Playwright) signed in through the login screen, the session survived a reload, sign out cleared the cookies and replaying the old refresh token and access cookie both returned 401. Evidence: 25/25 API checks and 15/15 browser checks. The code was recovered from the stored challenge because there was no readable mailbox and SES is in the sandbox. Real delivery then confirmed manually by the owner on 2026-11-10: login works end to end.)*
 - ✅ Negative tests: unknown email gets an identical response/timing envelope; wrong code ×5 locks; expired code rejected; `@gmail.com` account cannot reach `/api/staff/*` (403); a `fhlostonswarm.com` personal mailbox can; `support@fhlostonswarm.com` (shared address) cannot. *(Verified 2026-11-08 on the deployed site: sent and disposable-blocked requests return the same status and body, 844/871/862 ms (padded to 800 ms minimum); 5 wrong codes → 401 ×5 then the right code → 401; code with `expiresAt` moved into the past → 401; gmail → 403; `swarm-test-…@fhlostonswarm.com` → 200; `support@` signs in as `customer` and gets 403. Also covered by unit tests.)*
 - ✅ Security checks: cookie flags verified in browser dev tools; CSRF test without token fails; headers (CSP/HSTS) present on API responses. *(Verified 2026-11-08: Playwright `context.cookies()` shows `__Host-swarm_at` HttpOnly/Secure/SameSite=Lax/Path=/ and `__Secure-swarm_rt` HttpOnly/Secure/SameSite=Strict/Path=/api/auth, and `document.cookie` is empty; logout without the token or from another Origin → 403 and the session survives; `curl -i https://fhlostonswarm.com/api/health` shows HSTS, CSP, `X-Content-Type-Options`, `X-Frame-Options`, `Cache-Control: no-store`.)*
@@ -211,13 +220,13 @@ These have waiting time, so kick them off before the phases that need them:
 - ✅ *(Extra)* Playwright e2e against the local API: `npm run test:e2e -w src/web` = 18 tests passing (sign in by code and by link, reload, sign out, wrong code, staff vs customer, support@, CSRF, protected routes, plus the Phase 2 replay tests).
 - ✅ *(Extra)* `npm run typecheck`, `npm run lint` clean; `swarm synth` passes cdk-nag; `swarm deploy` succeeded for all 6 stacks.
 
-**Exit criteria:** ✅ all tests pass; ☐ manual E2E recorded *(all but real email delivery, see above, so the phase is not ticked)*; ✅ SES production access granted **or** sandbox limited to verified testers, noted *(sandbox, see Notes: AWS has **denied** the production request)*.
+**Exit criteria:** ✅ all tests pass; ✅ manual E2E recorded *(real email delivery confirmed by the owner 2026-11-10)*; ✅ SES production access granted **or** sandbox limited to verified testers, noted *(sandbox, see Notes: production access is not granted yet; the support case is still in review)*.
 
 **Not in this phase:** intake, runs, entitlements beyond the claim primitive, account deletion.
 
 **Notes (2026-11-08)**
-- **To close the phase:** (1) sign in once at <https://fhlostonswarm.com/login> with your own `@fhlostonswarm.com` mailbox (not `support@`) and check the mail arrives, the code works and `/staff` opens; (2) sort out SES production access (below).
-- **SES production access was DENIED** (`aws sesv2 get-account`: `ProductionAccessEnabled: false`, `Details.ReviewDetails.Status: DENIED`; Phase 1 recorded it as `PENDING`). In the sandbox, mail only reaches verified identities. The domain identity is verified, so any `@fhlostonswarm.com` address works, but **no external customer can receive a code yet**, and the API logs `mail_failed` (`MessageRejected`) for them while still answering `{ok:true}`. A reply draft is in [ses-production-access-reply.md](./ses-production-access-reply.md). Phase 4+ can proceed with staff mailboxes, but a real private beta needs this resolved.
+- **To close the phase:** ✅ (1) real sign-in by email confirmed by the owner 2026-11-10 (mail arrives, SPF/DKIM/DMARC pass, code works; opening `/staff` with a staff mailbox was not separately reported); ☐ (2) sort out SES production access (below). Not a Phase 3 blocker, but needed before any external customer can sign in.
+- **SES production access is not granted yet.** `aws sesv2 get-account` reports `ProductionAccessEnabled: false` and `Details.ReviewDetails.Status: DENIED` (case `179408991600653`; Phase 1 recorded it as `PENDING`), but the owner confirmed on 2026-11-10 that the support case has had no reply and shows as in review, so the API status may be stale or not final. Check the case before acting on the draft reply. In the sandbox, mail only reaches verified identities. The domain identity is verified, so any `@fhlostonswarm.com` address works, but **no external customer can receive a code yet**, and the API logs `mail_failed` (`MessageRejected`) for them while still answering `{ok:true}`. A reply draft is in [ses-production-access-reply.md](./ses-production-access-reply.md). Phase 4+ can proceed with staff mailboxes, but a real private beta needs this resolved.
 - **Resources:** stack `SwarmApi` (`ap-southeast-2`): HTTP API `swarm-api` (`https://24xb1tgwc3.execute-api.ap-southeast-2.amazonaws.com`, reached only via CloudFront in practice; stage `$default`, 20 req/s, burst 40), Lambdas `ApiFunction` and `FeedbackFunction` (Node 24, arm64, 512 MB, 15 s, esbuild ESM bundles ≈ 0.5 MB, 30-day log groups, plus a 30-day access-log group), SNS subscription from `swarm-ses-feedback` to `FeedbackFunction`. SSM SecureStrings `/swarm/auth/pepper` and `/swarm/auth/jwt-key` (AWS-managed key). `SwarmEdge` gained a CloudFront Function `SpaRouting`, an `/api/*` behaviour and an origin-request policy. The data bucket gained 1-day (`auth/otp/`) and 2-day (`auth/ratelimit/`) expiry rules. Everything is request-priced; the infra test still forbids NAT, VPC, KMS CMKs, Secrets Manager, DynamoDB and WAF.
 - **Deviation: SPA fallback.** The edge stack's distribution-wide 403/404 → `/index.html` error pages would have turned API 403/404 responses into the SPA, so they were replaced by a CloudFront Function that rewrites extensionless paths to `/index.html`. Unknown `/api/*` paths now return a real JSON 404 (verified live). The BucketDeployment construct id is still `Placeholder` (renaming it would delete and recreate the deployment); it now publishes `src/web/dist` when it exists, and `swarm synth|diff|deploy` build the web app first.
 - **Gotcha (found only on the deployed site):** CloudFront does not forward unlisted headers, so `X-CSRF-Token` was stripped and every logout got `bad_csrf`, while local tests passed. The origin-request policy now allow-lists `Origin`, `CloudFront-Viewer-Address` and `X-CSRF-Token`. Any new custom request header the API needs must be added there (`edge-stack.ts`), and `infra/app.test.ts` asserts the list.
@@ -226,31 +235,35 @@ These have waiting time, so kick them off before the phases that need them:
 - **Uniformity and limits:** `/auth/request` returns `{ok:true}` for sent, disposable-blocked, suppressed and per-email-limited addresses, padded to `minRequestMs` (800 ms); only the per-IP limit (20/hour) and malformed input differ (429/400). Verify is limited to 60/hour/IP. The client IP comes from `CloudFront-Viewer-Address`; because the execute-api URL is also reachable directly, a caller could spoof it and dodge the per-IP counter (per-email limits and API Gateway throttling still apply). Closing that (an origin secret header or a custom API domain) belongs in Phase 10.
 - **Test data:** records for `swarm-test-*` mailboxes and the SES simulator carry `"test": true` (profile, session, OTP challenge, suppression, and the claim marker when the caller passes the marker), so `swarm test-cleanup` found and removed all 34 test records after the manual run; rate-limit counters aren't marked (expire in 2 days, I deleted them by hand). The bucket was empty afterwards. The manual scripts are not in the repo.
 - **Other behaviours:** a rate-limit key too contended to update fails closed. A suppressed address (bounce/complaint) silently gets no mail. Disposable-domain list is a short starter list in config. The `+tag`/Gmail-dot collapsing affects the hash only; mail goes to the address as typed. `src/api/src/dev.ts` is a local API (in-memory, collected mailbox, relaxed limits) used by Playwright; never deployed.
-- **Needed later:** Phase 4 should call `claimFreeReport(store, emailHash, now, testMarker)` and add run/entitlement routes under the same `requireAuth`/`requireCsrf` middleware pattern; the pepper is a root secret (see PREREQUISITES section 6a: back it up). Phase 9 can reuse `/api/staff/*` and `requireStaff`. The `users/{hash}/` prefix already holds `profile.json` and `sessions/`, so account deletion is one prefix delete.
+- **Needed later:** Phase 4 adds target, scan, run and entitlement routes under the same `requireAuth`/`requireCsrf` middleware pattern; the pepper is a root secret (see PREREQUISITES section 6a: back it up). Phase 9 can reuse `/api/staff/*` and `requireStaff`. The `users/{hash}/` prefix already holds `profile.json` and `sessions/`, so account deletion is one prefix delete.
 
 ---
 
-## Phase 4 — Intake, entitlements & data deletion (M3)
+## Phase 4 — Intake, saved scans, credits & data deletion (M3)
 
-**Goal:** a signed-in user can create a run request (not executed yet) with all inputs stored correctly, and can delete runs/account completely.
+**Goal:** a signed-in user with a credit can create a **saved scan** (target, depth, schedule, notification email) and start a run from it (not executed yet), can run any saved scan again without reconfiguring, and can delete runs, scans and the account completely. There is no free path: no credit, no run.
 
-**Depends on:** Phase 3.
+**Depends on:** Phase 3. The shared contract (`src/shared/src/scans.ts`), the four depths and the mock screens already exist (see the rework note at the top).
 
 **Tasks**
-1. `POST /api/runs` validates and stores `input.json` (app URL, optional marketing URL, 4 login slots + descriptions, scope notes, tier, ToS acknowledgement with timestamp/IP) and `summary.json` (`status: queued`), checking entitlement (free Lite claim, 1 per email) and the **free-target claim** (`claims/free-target/{domainHash}.json`, 30-day cool-off). Hostname parsing (registrable domain), blocklist for forbidden targets (private IPs, metadata, our own domains).
-2. Entitlements ledger (`users/{emailHash}/entitlements.json`, compare-and-swap).
-3. Tier config loader (zod-validated `tiers.json` scope plus server-only `limits.json` via `@swarm/shared/server`, with the initial Lite/Full values from [PLAN.md §11](./PLAN.md#11-entitlements-lite-tier--payments)); Lite only accepts one login.
-4. `GET /api/runs`, `GET /api/runs/:id`, `DELETE /api/runs/:id`, `DELETE /api/account` (fresh-OTP re-confirmation; cancels in-flight runs once they exist; prefix delete under `users/{emailHash}/`; keeps hash-only claim marker + anonymised cost records).
-5. Real Intake and Dashboard screens, ToS/privacy text (from the lead-time item), staging-credentials notice, delete confirmations.
+1. **Targets:** `POST/GET/PUT/DELETE /api/targets` store `users/{emailHash}/targets/{targetId}.json` (app URL, optional marketing URL, 4 login slots + descriptions, scope notes, ToS acknowledgement with timestamp/IP). Hostname parsing (registrable domain), blocklist for forbidden targets (private IPs, metadata, our own domains). Saved passwords are never returned to the browser; an update only replaces a password when a new one is sent.
+2. **Scans:** `POST/GET/PUT/DELETE /api/scans` store `users/{emailHash}/scans/{scanId}.json` (`targetId`, `name`, `tier`, `schedule: { frequency, timezone }`, `notify: { email, confirmed, on }`, `status`), validated with `scanSettingsSchema`. The login count must fit the depth (Scout 0, Sweep 1, Probe 2, Siege 4). Recurring frequencies are stored but do not fire until Phase 12. `PATCH …/status` pauses or resumes.
+3. **Runs:** `POST /api/scans/:id/run` (and the intake's create-and-run) snapshots the target and scan into `runs/{runId}/input.json` (with `scanId`, `trigger: manual`) and `summary.json` (`status: queued`) after spending one credit of the scan's depth. `GET /api/runs`, `GET /api/runs/:id`, `DELETE /api/runs/:id`.
+4. **Credit ledger:** `users/{emailHash}/entitlements.json` (compare-and-swap) with credits per depth and a source (`comp` for now, `purchase` from Phase 11). A run's credit is consumed with a conditional create of a per-run marker plus an `If-Match` ledger update, so a retry or concurrent start cannot spend it twice. Staff accounts may start a run without a credit (flagged). A staff-only way to grant a `comp` credit (a `swarm grant-credit` CLI helper, replaced by the staff UI in Phase 9) is the only route to a run before payments exist; every grant is audit-logged.
+5. **Notification address:** the account email is confirmed already. Any other address is stored `confirmed: false`, gets a one-time confirmation link (`auth/notify-confirm/{tokenHash}.json`, single use, expiring, rate-limited per scan and per account), and receives no report notice until confirmed; changing the address resets it ([PLAN.md §13](./PLAN.md#13-saved-scans-schedules--notifications)).
+6. **Deletion:** `DELETE /api/scans/:id`, `DELETE /api/targets/:id` (lists and removes dependent scans), `DELETE /api/account` (fresh-OTP re-confirmation; cancels in-flight runs and any schedules once they exist; prefix delete under `users/{emailHash}/`; keeps only the anonymised cost records).
+7. Wire the real Intake, Scans, Dashboard and Account screens to these routes (replacing the mock API for runs and scans); the intake gains "use a saved target" and the Scans screen gains Edit; ToS/privacy text (from the lead-time item), staging-credentials notice, delete confirmations. A user with no credit sees how to get one instead of a failing submit.
 
 **Verification**
-- Unit tests: input validation (bad URLs, SSRF-ish hosts, >1 login on Lite, missing acknowledgement), tier config validation (invalid config fails to load).
-- Integration tests (`_test/` prefix in S3): a second Lite run for the same email → rejected; a different email for the same target domain within 30 days → rejected; after the cool-off date is simulated → accepted.
-- Deletion tests: create a user with several runs → `DELETE /api/account` leaves **no** objects under `users/{emailHash}/` and `auth/otp/{emailHash}.json`, but `claims/free/{emailHash}.json` remains and contains no email; re-registering the same email cannot claim another free run.
-- Deleting a single run removes only that run's prefix; another user's data is untouched (cross-tenant test: user B requesting user A's run id gets 404).
-- Playwright E2E: sign in → fill the intake → submit → see the run `queued` on the dashboard → delete it → gone.
+- Unit tests: input validation (bad URLs, SSRF-ish hosts, more logins than the depth allows, missing acknowledgement, a missing or malformed notification email), scan settings validation, tier/limits config validation (invalid config fails to load).
+- Credit tests against S3 (`_test/` prefix): no credit → run refused (402-style error, nothing written); one credit and 50 concurrent starts → exactly one run is created and the ledger ends at zero; a run on a Siege scan needs a Siege credit, not a Scout one.
+- **No free path:** a brand-new account has zero credits for every depth and cannot create a run; no `claims/` objects are ever written.
+- Re-run: run a saved scan twice → two runs with distinct ids, the same snapshot fields, two credits spent, and no re-entry of logins; edit the target password once → the next run of every scan on that target uses it; the API never returns a saved password.
+- Notification: an unconfirmed address is not mailed; following the confirmation link once confirms it, a second use fails; changing the address resets confirmation; the account email needs none.
+- Deletion tests: create a user with several targets, scans and runs → `DELETE /api/account` leaves **no** objects under `users/{emailHash}/` and `auth/otp/{emailHash}.json`; deleting one scan removes only that scan (its runs remain); deleting a single run removes only that run's prefix; another user's data is untouched (cross-tenant test: user B requesting user A's run or scan id gets 404).
+- Playwright E2E: sign in with a granted credit → fill the intake (Sweep, weekly, a notification address) → submit → see the run `queued` on the dashboard and the scan on the Scans screen → Run again → a second run appears → delete the scan and the runs → gone.
 
-**Exit criteria:** all tests green; deletion behaviour demonstrated by object listings; ToS/privacy text shown and acknowledged in the flow.
+**Exit criteria:** all tests green; deletion behaviour demonstrated by object listings; a scan can be re-run without reconfiguring; ToS/privacy text shown and acknowledged in the flow.
 
 ---
 
@@ -281,43 +294,43 @@ These have waiting time, so kick them off before the phases that need them:
 
 ---
 
-## Phase 6 — Lite swarm (M5a)
+## Phase 6 — Shallow scans: Scout and Sweep (M5a)
 
-**Goal:** the free tier delivers its promised demo: login + limited read-only exploration with a cheap model, an understanding of the app, and a teaser report — within hard caps and with abuse controls enforced.
+**Goal:** the two shallow depths work end to end within hard caps: **Scout** (`dns`, `surface`, `tls`, `cors`; unauthenticated, no logins) and **Sweep** (adds `bundle`, `zap` and `authn`, one login), using the cheap model, with a report that includes an understanding of the application. These are the frequent-run depths, so their per-run cost and caps matter most.
 
 **Depends on:** Phase 5 and working Bedrock invocation.
 
 **Tasks**
-1. Bedrock client over the Converse API with `au.` inference profiles from config (Haiku-class for Lite), usage metering into `cost.json`, retry/backoff and throttling handling.
+1. Bedrock client over the Converse API with `au.` inference profiles from config (Haiku-class for Scout and Sweep), usage metering into `cost.json`, retry/backoff and throttling handling.
 2. Agent loop: tool-calling with schema-validated inputs/outputs, prompt-injection hardening (untrusted-content delimiters, no model-chosen hosts), per-agent step/token budgets, spend cap enforcement (stop when the cap is hit).
-3. Passive agents (`dns`, `surface`, `tls`, `cors`, `bundle`) and the **explorer agent** (Playwright + Chromium in the image): log in with the single provided login, navigate GET-only within the page/step caps, and produce an `app-profile.json` (purpose, areas/features, roles, key flows).
-4. Lite config enforcement: 6-minute wall-clock, 25 pages, 40 LLM steps, 150 requests at ≤2 req/s, ~400k/20k token cap, ≈US$0.50 spend cap; proxy blocks any non-GET other than the login submission.
-5. **Teaser report:** "What we understood about your application" section in full, severity counts, top 2 findings in detail; locked findings serve title/severity only. Gating enforced server-side (separate `findings.teaser.json`; live events carry the reduced payload).
-6. Free-tier controls: daily Lite cap (50 runs/≈US$25), separate low concurrency (3), disposable-email blocking wired in, queued/declined messaging.
+3. The Scout and Sweep agents above, plus a light **explorer** (discovery) step run at every depth (Playwright + Chromium in the image): crawl unauthenticated, and for Sweep sign in with the provided login and navigate GET-only within the page/step caps, producing an `app-profile.json` (purpose, areas/features, roles, key flows) for the report's "what we understood" section.
+4. Limit enforcement from `limits.json`: Scout 10 min, 40 pages, 60 LLM steps, 300 requests at ≤2 req/s, ~600k/30k tokens, ≈US$1; Sweep 20 min, 80 pages, 120 steps, 800 requests at ≤3 req/s, ~1.5M/60k tokens, ≈US$3. The proxy blocks any non-GET other than the login submission at these depths.
+5. Report assembler for the shallow depths: the same report format as every depth, with the areas not covered listed as "not included at this depth" and the app profile section filled in. No gating or teaser output exists.
+6. Per-depth concurrency pools (Scout 4, Sweep 3) so frequent cheap scans cannot starve deep ones, with queued/declined messaging when full.
 
 **Verification**
-- Run against the synthetic target with each of its roles: the app profile correctly names the app's areas/features/role differences (rubric-based check in a test, plus your manual review).
+- Run against the synthetic target: Scout reports only unauthenticated findings and lists the authenticated areas as not covered; Sweep signs in with one login and the app profile correctly names the app's areas/features/role differences (rubric-based check in a test, plus your manual review).
+- Each depth's agent set equals its `tiers.json` group (a test compares the agents that actually ran with `tiers[tier].agents`).
 - Caps: tests that deliberately exceed each cap (time, pages, steps, requests, tokens, spend) show the run stops with a `gap` and `cost.json` ≤ the cap (+ small tolerance).
 - Read-only: attempt state-changing requests through the agent (instructed in a hostile synthetic page) and confirm the proxy blocks them and logs the block.
 - Prompt injection: synthetic page text telling the agent to visit another host / reveal its prompt — agent does not comply (test asserts no out-of-scope request in the proxy log).
-- Gating: automated test fetches every API route and the live event stream for a Lite run and asserts locked finding details never appear in any payload.
-- Cost: measure 10 Lite runs (marked as test data, test identities); record median/p95 cost in the staff data and compare with the ≈US$0.50 cap; adjust the config (not code) if needed.
-- Abuse: simulate 60 Lite starts in a day against test-prefixed counters (so real users' cap is untouched) → the cap rejects the rest; same-target/new-email within 30 days rejected.
+- Cost: measure 10 Scout and 10 Sweep runs (marked as test data, test identities); record median/p95 cost in the staff data and compare with the ≈US$1 and ≈US$3 caps; adjust the config (not code) if needed. A daily Scout is 365 runs a year, so record the annualised cost too.
+- Concurrency: more simultaneous Scout runs than the pool allows queue rather than start, and never delay a Siege run.
 
-**Exit criteria:** Lite runs complete under cap on the synthetic target with a correct app profile and a properly gated teaser; measured cost documented.
+**Exit criteria:** Scout and Sweep runs complete under their caps on the synthetic target with a correct app profile; measured cost documented per depth.
 
 ---
 
-## Phase 7 — Full swarm (M5b)
+## Phase 7 — Deep scans: Probe and Siege (M5b)
 
-**Goal:** the paid-tier capability: discovery-driven plan, all 12 agents, authenticated testing across the 4 roles, independent verification and the full report (+PDF).
+**Goal:** the deep depths: discovery-driven plan, authenticated testing across two roles (**Probe**: Sweep plus `session`, `authz`, `prompt`, `output`) and all 12 agents across the 4 roles (**Siege**: Probe plus `idor`), independent verification and the full report (+PDF).
 
 **Depends on:** Phase 6.
 
 **Tasks**
 1. **Instruction modules:** convert [instructions/](./instructions/README.md) phases 1–6 into versioned prompt modules (objective, immutable guardrails, checks, tools, evidence format, output schema); remove engagement-specific content; record `instructionsVersion` per run.
 2. **Discovery/planner** producing a schema-validated `engagement.json` (agents to run, checks enabled/skipped with "not applicable" reasons, per-role test matrix from login descriptions, hints, budget) with enforced constraints (cannot remove guardrails or widen scope).
-3. Remaining agents: `zap`, `authn`, `session`, `authz`, `prompt`, `output`, `idor` (+ tooling in the image: ZAP baseline, testssl, nuclei subset); Sonnet-class model config; role-aware authenticated testing (admin/user1/user2/other).
+3. Remaining agents: `session`, `authz`, `prompt`, `output` (Probe) and `idor` (Siege) (+ tooling in the image: ZAP baseline, testssl, nuclei subset); Sonnet-class model config; role-aware authenticated testing (admin/user1/user2/other, two roles at Probe and four at Siege).
 4. **Verifier** stage: independent re-test of each candidate finding with evidence; unverifiable → "unconfirmed".
 5. **Full report:** `findings.json` → HTML matching [example-report.html](./example-report.html) sections, computed counts, gaps/scope limitations, redaction pass (passwords, tokens, cookies), PDF export (headless Chromium), JSON export.
 6. Model benchmark: run the synthetic target with Sonnet 4.6 vs newer Sonnet generations; pick defaults from quality-vs-cost.
@@ -327,16 +340,16 @@ These have waiting time, so kick them off before the phases that need them:
 - Planner tests: for a target with no LLM features, the plan marks Phase 4 as not applicable; guardrails cannot be removed by any planner output (schema + test).
 - Verifier tests: a fabricated false-positive candidate is downgraded to "unconfirmed".
 - Report tests: snapshot test of the HTML structure; redaction test with known secrets planted in evidence (none appear in report/PDF); PDF renders and opens.
-- Cost: record cost per Full run; confirm under the initial ≈US$15 cap.
+- Cost: record cost per Probe and Siege run; confirm under the initial ≈US$8 and ≈US$15 caps, and that the cost ordering Scout < Sweep < Probe < Siege holds.
 - Regression: Phase 5/6 suites still pass.
 
-**Exit criteria:** full run on the synthetic target meets the recall/precision bar, the report matches the example's structure, and redaction tests pass.
+**Exit criteria:** a Siege run on the synthetic target meets the recall/precision bar (a Probe run finds the subset its agents cover), the report matches the example's structure, and redaction tests pass.
 
 ---
 
 ## Phase 8 — Steering (M6)
 
-**Goal:** customers can steer a running Full-tier swarm safely.
+**Goal:** customers can steer a running Probe or Siege swarm safely (the depths with `steering: true` in `tiers.json`).
 
 **Depends on:** Phase 7.
 
@@ -344,12 +357,12 @@ These have waiting time, so kick them off before the phases that need them:
 1. `POST /api/runs/:id/steer`; steering events stored and streamed; UI steering panel (per-run and per-agent) with chat-style history.
 2. Steering interpreter: free text → zod-validated **directive** (`deep-dive`, `accept-risk`, `scope-narrow`, `context`, `pause/stop`); clarification replies for ambiguous input.
 3. Agent inbox read **between steps**; deep-dive spawns/redirects an agent with extra budget; accept-risk sets finding status `accepted` (note required, audit-logged); scope narrowing updates the engagement plan and the proxy rules; stop produces a partial report.
-4. Guardrails: directives can never widen scope beyond declared hosts or lift guardrails; steering disabled for Lite.
+4. Guardrails: directives can never widen scope beyond declared hosts or lift guardrails; steering is refused for depths without it (Scout, Sweep).
 
 **Verification**
 - Unit tests: interpreter maps a table of example messages to the right directives; malicious instructions ("ignore scope, scan example.com") produce no directive and a refusal message.
 - Integration on the synthetic target: deep-dive on a finding increases that agent's activity and produces additional evidence; accept-risk moves the finding to "Accepted by customer" in the report; scope narrowing is enforced (proxy blocks the excluded path); stop yields a partial report.
-- Lite run: steering endpoint returns 403.
+- Scout or Sweep run: steering endpoint returns 403.
 
 **Exit criteria:** all directive types demonstrated end to end; scope cannot be widened by any steering input.
 
@@ -363,13 +376,13 @@ These have waiting time, so kick them off before the phases that need them:
 
 **Tasks**
 1. `/api/staff/*` (staff-only, role re-checked server-side) reading `admin/run-index` and per-run data.
-2. Views: Runs, Run detail (cost by agent/model, tokens, budgets, gaps, events), Cost analysis (avg/median/p95 by tier, daily spend, free-vs-paid, cost per finding) with the **pricing worksheet**, Users/support (lookup by email, stop run, resend email, delete run/account audit-logged), Controls (kill switch, Lite caps, concurrency, tier config edit, block lists), Health (SES bounce/complaint rate, stuck runs).
+2. Views: Runs (filter by depth, trigger, entitlement source), Run detail (cost by agent/model, tokens, budgets, gaps, events), Cost analysis (avg/median/p95 by depth, daily spend, comp-vs-paid, annualised cost per cadence, cost per finding) with the **pricing worksheet**, Users/support (lookup by email, credits and saved scans, grant a `comp` credit with a reason, pause a scan, stop run, resend email, delete run/account audit-logged), Controls (kill switch, per-depth concurrency, global daily spend alarm, per-account scheduled-scan limits, tier config edit, block lists), Health (SES bounce/complaint rate, stuck runs).
 3. Price table editor (`pricing.json`, versioned) and cost recomputation.
 
 **Verification**
 - Authorisation tests: non-staff sessions get 403 on every `/api/staff/*` route (route-enumeration test); staff UI route hidden for non-staff.
 - Data tests: seed runs (marked `test: true`) with known token counts → computed costs match hand calculations; deleting a user's account keeps only the anonymised cost record.
-- Controls: flipping the kill switch stops new runs and halts running ones; changing the Lite daily cap takes effect without redeploy; edits are audit-logged.
+- Controls: flipping the kill switch stops new runs and halts running ones; changing a per-depth concurrency cap or the scheduled-scan limit takes effect without redeploy; a `comp` grant adds exactly one credit and is audit-logged; edits are audit-logged.
 - Manual review of the pricing worksheet against the cost data collected in Phases 6–7.
 
 **Exit criteria:** staff dashboard accurate against known data; controls verified effective; price table ready for pricing decisions.
@@ -383,17 +396,17 @@ These have waiting time, so kick them off before the phases that need them:
 **Depends on:** Phases 1–9.
 
 **Tasks**
-1. **Self-scan:** run Swarm (Full) against the deployed Swarm itself; fix findings.
+1. **Self-scan:** run Swarm (Siege) against the deployed Swarm itself; fix findings.
 2. Security review of IAM (least privilege per Lambda/task), S3 bucket policy, cookie/CSRF/headers, rate limits; dependency audit (`npm audit`); CloudTrail management events on.
-3. Abuse drills: 100 temp-email signups, repeated target scans, oversized inputs, hostile target pages (prompt injection, redirects, huge responses, slow-loris) against the agents.
+3. Abuse drills: 100 temp-email signups (each must end with zero credits and no runnable scan), repeated target scans, oversized inputs, notification-address abuse (a scan pointed at someone else's mailbox sends nothing until confirmed), hostile target pages (prompt injection, redirects, huge responses, slow-loris) against the agents.
 4. Operational: alarms (SES bounce/complaint, stuck runs, long Fargate tasks, spend), AWS Budgets, runbook (kill switch, deleting a user, restoring from a failed deploy), final deploy of the full stack.
 5. Decide whether to enable target verification ([PLAN.md §6](./PLAN.md#6-scope-enforcement--abuse-prevention) item 7) and whether to add WAF, based on beta signals.
-6. Invite 3–5 friendly testers; collect feedback and real Lite/Full cost data.
+6. Invite 3–5 friendly testers, each given `comp` credits by staff (there is no free tier); collect feedback and real per-depth cost data.
 
 **Verification**
 - Self-scan report reviewed; all High/Critical findings fixed and re-tested.
-- Abuse drills: Lite daily cap, per-email/domain claims, throttling and the proxy hold (no cost overrun beyond configured caps; no out-of-scope requests).
-- Production smoke test script (test identity; login, Lite run on the synthetic target, delete account, then `swarm test-cleanup` shows nothing left) passes.
+- Abuse drills: no-credit signups cannot run anything, throttling and the proxy hold (no cost overrun beyond configured caps; no out-of-scope requests).
+- Production smoke test script (test identity with a granted credit; login, Scout run on the synthetic target, run it again from the saved scan, delete account, then `swarm test-cleanup` shows nothing left) passes.
 - **Idle-cost audit after 7 days of no runs:** Cost Explorer daily cost ≈ the US$1–5/month estimate; no unexpected line items.
 - Alarm tests: each alarm triggered once deliberately and received.
 
@@ -403,14 +416,14 @@ These have waiting time, so kick them off before the phases that need them:
 
 ## Phase 11 — Payments (M9)
 
-**Goal:** customers can buy Full reports.
+**Goal:** customers can buy credits for each scan depth (Scout, Sweep, Probe, Siege) and nothing runs without one.
 
 **Depends on:** Phase 10 and real cost data (Phase 9).
 
 **Tasks**
-1. Set prices from measured cost × margin (decide with the pricing worksheet).
-2. Stripe Checkout (one-off per Full report) with AU GST via Stripe Tax; webhook Lambda (signature-verified, idempotent) → credit in `entitlements.json`; success/cancel pages; invoice portal link.
-3. Entitlement consumption on run start; Lite "upgrade to Full" flow that unlocks the locked findings of an existing Lite run **or** starts a Full run (decide; default: starts a Full run).
+1. Set a price per depth from measured cost × margin (decide with the pricing worksheet); prices must rise with depth, and the cheapest depth is checked against its annual cost at a daily cadence ([revenue.md](./revenue.md#4-product-ladder-packaging-ideas)).
+2. Stripe Checkout (one-off credit purchases per depth) with AU GST via Stripe Tax; webhook Lambda (signature-verified, idempotent) → credit in `entitlements.json` with source `purchase`; success/cancel pages; invoice portal link.
+3. The credit consumption built in Phase 4 now draws on purchased credits; the Dashboard, Account and intake show the shortfall and a "Buy credits" path. A "Run again at a deeper depth" action on a saved scan saves a new scan on the same target.
 4. Refund/failed-run policy (auto-credit if a run fails for platform reasons).
 5. Stripe keys in SSM SecureString (standard tier); test and live modes separated by key name (e.g. `/swarm/stripe/test/*` vs `/swarm/stripe/live/*`).
 
@@ -419,27 +432,31 @@ These have waiting time, so kick them off before the phases that need them:
 - Webhook signature tests (invalid signature rejected).
 - GST/invoice correctness checked on a test invoice.
 - Failed platform run auto-credits exactly once.
+- A Scout credit cannot start a Siege run.
 
-**Exit criteria:** test-mode purchase → Full run works end to end; live-mode checklist reviewed before enabling.
+**Exit criteria:** test-mode purchase → run at the purchased depth works end to end; live-mode checklist reviewed before enabling.
 
 ---
 
-## Phase 12 — Scheduled runs (M10)
+## Phase 12 — Scheduled runs & notifications (M10)
 
-**Goal:** paid recurring scans with change-only notifications.
+**Goal:** saved scans repeat on their schedule (daily, weekly, monthly, yearly), each at its own depth, and the right address is told, with billing per run.
 
-**Depends on:** Phase 11.
+**Depends on:** Phase 11 (and the scan model from Phase 4).
 
 **Tasks**
-1. Schedule model on the target (`cron`, `notifyOn`, channels); EventBridge Scheduler → state machine with `trigger: scheduled`; credentials reuse and manage/remove UI.
-2. Finding fingerprints and the diff engine (new/fixed/regressed/accepted).
-3. SES notifications for **new, non-accepted** findings; webhook/Slack optional.
-4. Metered billing per scheduled run; enable the disabled "Schedules" tab.
+1. **Scheduler:** one EventBridge Scheduler entry per active recurring scan (created, updated, paused and deleted with the scan; timezone-aware) → state machine with `trigger: scheduled`. Overlap is skipped; a firing with no credit or a failed payment is skipped and the owner is told once per lapse. Enforce the per-account active-scan limit and minimum spacing.
+2. Finding fingerprints and the diff engine (new/fixed/regressed/accepted), compared run to run within a scan.
+3. **Notifications:** SES email to the scan's own notification address per its `notify.on` (after every run, only on new non-accepted findings, or never); severity counts and a sign-in link only; confirmed addresses only; one-click unsubscribe; bounces feed the suppression list. Webhook/Slack optional.
+4. Per-run billing for scheduled runs (credits or metered subscription); the Scans screen shows next run, last run and skipped runs.
 
 **Verification**
 - Diff engine unit tests with fabricated run pairs (new, fixed, regressed, accepted, unchanged).
-- Scheduled run on the synthetic target fires on time (short cron in test mode), produces a report, and notifies **only** when a finding is new; no email when nothing changed.
-- Billing: each scheduled run consumes/charges exactly once; paused/cancelled schedules stop running.
+- A scan set to each frequency computes the right next run (unit tests with an injected clock, including month ends, leap day and time zones).
+- Scheduled run on the synthetic target fires on time (short cadence in test mode), produces a report, and notifies **only** when a finding is new under `notify.on = new`; no email when nothing changed; `always` mails every run; `never` mails nothing.
+- Three scans on one target at Scout daily, Sweep weekly and Siege monthly fire independently, each consuming a credit of its own depth, and a Scout lapse does not stop the others.
+- Notification address: an unconfirmed address receives only the confirmation mail; a different address per scan is honoured; unsubscribe takes effect immediately.
+- Billing: each scheduled run consumes/charges exactly once, including when a firing is retried; paused/cancelled schedules stop running; a skipped run (no credit) charges nothing.
 - Idle cost: schedules add no always-on resources (only EventBridge Scheduler entries).
 
 **Exit criteria:** a week of scheduled runs behaves correctly; billing verified in Stripe test mode.
