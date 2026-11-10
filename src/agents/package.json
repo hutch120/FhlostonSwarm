@@ -3,7 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs"
+  },
   "dependencies": {
     "@swarm/shared": "*"
+  },
+  "devDependencies": {
+    "@swarm/synthetic-target": "*"
   }
 }

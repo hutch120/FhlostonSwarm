@@ -28,6 +28,8 @@ export interface ObjectStore {
   delete(key: string): Promise<void>;
   /** Every key under the prefix. */
   list(prefix: string): Promise<string[]>;
+  /** The immediate "folders" under the prefix (each ends with `/`), without listing what is inside. */
+  folders(prefix: string): Promise<string[]>;
 }
 
 /** Scopes a store to a key prefix, e.g. `_test/<runId>/` so tests never touch real data. */
@@ -48,6 +50,10 @@ export class PrefixedStore implements ObjectStore {
   async list(prefix: string) {
     const keys = await this.inner.list(this.prefix + prefix);
     return keys.map((k) => k.slice(this.prefix.length));
+  }
+  async folders(prefix: string) {
+    const folders = await this.inner.folders(this.prefix + prefix);
+    return folders.map((k) => k.slice(this.prefix.length));
   }
 }
 
@@ -113,5 +119,23 @@ export class S3ObjectStore implements ObjectStore {
       token = res.NextContinuationToken;
     } while (token);
     return keys;
+  }
+
+  async folders(prefix: string): Promise<string[]> {
+    const folders: string[] = [];
+    let token: string | undefined;
+    do {
+      const res = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: prefix,
+          Delimiter: "/",
+          ContinuationToken: token,
+        }),
+      );
+      for (const item of res.CommonPrefixes ?? []) if (item.Prefix) folders.push(item.Prefix);
+      token = res.NextContinuationToken;
+    } while (token);
+    return folders;
   }
 }

@@ -214,3 +214,29 @@ export const runEventSchema = z.discriminatedUnion("type", [
 export type RunEvent = z.infer<typeof runEventSchema>;
 export type RunEventType = RunEvent["type"];
 export type EventOf<T extends RunEventType> = Extract<RunEvent, { type: T }>;
+
+/**
+ * What an agent task emits. It has no `seq`: the events API is the single sequencer for a run, so
+ * several agents can write at once. `complete` (and steering) come from the platform, never from an
+ * agent task.
+ */
+export const agentEventSchema = z.discriminatedUnion("type", [
+  dispatchEventSchema.omit({ seq: true }),
+  startEventSchema.omit({ seq: true }),
+  finishEventSchema.omit({ seq: true }),
+  verifyEventSchema.omit({ seq: true }),
+  agentDoneEventSchema.omit({ seq: true }),
+  gapEventSchema.omit({ seq: true }),
+]);
+export type AgentEvent = z.infer<typeof agentEventSchema>;
+
+/** A batch of agent events. `batchId` makes a retried POST idempotent. */
+export const eventBatchSchema = z.object({
+  batchId: z.string().regex(/^[0-9a-z-]{8,64}$/, "expected a lowercase id"),
+  events: z.array(agentEventSchema).min(1).max(100),
+});
+export type EventBatch = z.infer<typeof eventBatchSchema>;
+
+/** Gives an agent event its place in the run's stream. */
+export const stampEvent = (event: AgentEvent, seq: number): RunEvent =>
+  runEventSchema.parse({ ...event, seq });

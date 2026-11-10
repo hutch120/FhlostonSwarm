@@ -50,15 +50,15 @@ const WEB_DIST_DIR = fileURLToPath(new URL("../../../web/dist", import.meta.url)
 // The real SPA when it has been built (`swarm deploy` builds it first); otherwise the placeholder.
 const siteAssetDir = () => (existsSync(WEB_DIST_DIR) ? WEB_DIST_DIR : PLACEHOLDER_DIR);
 
-// Phase 2+ widens connect-src (API / realtime endpoints) as those arrive. The API is same-origin
-// (/api/*), so 'self' already covers it.
+// The API is same-origin (/api/*), so 'self' covers it. The live run channel is AppSync Events, which
+// the browser reaches over a WebSocket in the one region we run in.
 export const CONTENT_SECURITY_POLICY = [
   "default-src 'none'",
   "script-src 'self'",
   "style-src 'self'",
   "img-src 'self' data:",
   "font-src 'self'",
-  "connect-src 'self'",
+  "connect-src 'self' wss://*.appsync-realtime-api.ap-southeast-2.amazonaws.com",
   "base-uri 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",

@@ -1,6 +1,8 @@
 import { createApp, type AppDeps } from "./app.js";
 import { authConfig, type AuthConfig } from "./config.js";
+import { FakeLauncher } from "./launcher.js";
 import { FakeMailer, type Mailer } from "./mailer.js";
+import { MemoryPublisher } from "./publisher.js";
 import type { Secrets } from "./sessions.js";
 import { MemoryStore } from "./storage/memory.js";
 import type { ObjectStore } from "./storage/store.js";
@@ -17,6 +19,7 @@ export const failingMailer: Mailer = {
   sendDeletionCode: down,
   sendAccountDeleted: down,
   sendNotifyConfirmation: down,
+  sendReportReady: down,
 };
 
 export const testSecrets: Secrets = {
@@ -111,6 +114,8 @@ export interface Harness {
   app: ReturnType<typeof createApp>;
   store: ObjectStore;
   mailer: FakeMailer;
+  launcher: FakeLauncher;
+  publisher: MemoryPublisher;
   clock: ReturnType<typeof createClock>;
   browser: (ip?: string) => TestBrowser;
   /** Request a code for `email` and return it from the fake mailbox. */
@@ -121,6 +126,8 @@ export interface Harness {
 export function createHarness(overrides: Partial<AppDeps> = {}): Harness {
   const store = overrides.store ?? new MemoryStore();
   const mailer = new FakeMailer();
+  const launcher = new FakeLauncher();
+  const publisher = new MemoryPublisher();
   const clock = createClock();
   const app = createApp({
     store,
@@ -130,6 +137,10 @@ export function createHarness(overrides: Partial<AppDeps> = {}): Harness {
     siteOrigin: SITE,
     cookieSecure: true,
     now: clock.now,
+    launcher,
+    publisher,
+    presign: async (key, { filename }) => `https://data.test/${key}?download=${filename}`,
+    stream: { realtimeDomain: "rt.test", httpDomain: "http.test" },
     ...overrides,
   });
   const codeFor = async (browser: TestBrowser, email: string) => {
@@ -143,6 +154,8 @@ export function createHarness(overrides: Partial<AppDeps> = {}): Harness {
     app,
     store,
     mailer,
+    launcher,
+    publisher,
     clock,
     browser: (ip) => new TestBrowser(app, ip),
     codeFor,

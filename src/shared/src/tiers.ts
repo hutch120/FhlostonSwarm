@@ -5,10 +5,12 @@ import {
   agentIdSchema,
   areaIdSchema,
   tierIdSchema,
+  type AgentSpec,
   type AreaId,
+  type AreaSpec,
   type TierId,
 } from "./events.js";
-import { AGENTS } from "./fixtures/roster.js";
+import { AGENTS, AREAS } from "./fixtures/roster.js";
 
 /**
  * What a tier offers the customer: scan depth, the agents it runs and its entitlements. This is the
@@ -69,4 +71,12 @@ export function tierAreas(tier: TierId): AreaId[] {
   const wanted = new Set(tiers[tier].agents);
   const areas = new Set(AGENTS.filter((a) => wanted.has(a.id)).map((a) => a.area));
   return areaIdSchema.options.filter((id) => areas.has(id));
+}
+
+/** The agents and areas a run of this tier plans to cover, in roster order. */
+export function tierRoster(tier: TierId): { areas: AreaSpec[]; agents: AgentSpec[] } {
+  const wanted = new Set(tiers[tier].agents);
+  const agents = AGENTS.filter((a) => wanted.has(a.id));
+  const areaIds = new Set(agents.map((a) => a.area));
+  return { areas: AREAS.filter((a) => areaIds.has(a.id)), agents };
 }

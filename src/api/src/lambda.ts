@@ -2,7 +2,10 @@ import { handle } from "hono/aws-lambda";
 import { createApp } from "./app.js";
 import { authConfig } from "./config.js";
 import { loadEnv } from "./env.js";
+import { AwsLauncher } from "./launcher.js";
 import { SesMailer } from "./mailer.js";
+import { s3Presigner } from "./presign.js";
+import { AppSyncPublisher } from "./publisher.js";
 import { ssmSecrets } from "./secrets.js";
 import { S3ObjectStore } from "./storage/store.js";
 import { turnstileVerifier } from "./turnstile.js";
@@ -25,5 +28,9 @@ export const handler = handle(
     verifyHuman: env.TURNSTILE_SECRET_PARAMETER
       ? turnstileVerifier(env.TURNSTILE_SECRET_PARAMETER)
       : undefined,
+    launcher: new AwsLauncher({ stateMachineArn: env.STATE_MACHINE_ARN, cluster: env.ECS_CLUSTER }),
+    publisher: new AppSyncPublisher({ httpDomain: env.EVENTS_HTTP_DOMAIN, region: env.AWS_REGION }),
+    presign: s3Presigner(env.DATA_BUCKET),
+    stream: { realtimeDomain: env.EVENTS_REALTIME_DOMAIN, httpDomain: env.EVENTS_HTTP_DOMAIN },
   }),
 );

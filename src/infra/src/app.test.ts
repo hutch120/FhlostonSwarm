@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { afterAll, describe, expect, it } from "vitest";
+import { lambdaEnvSchemas } from "../../api/src/env.js";
 import { buildApp } from "./app.js";
 import { loadConfig, parseConfig, type SwarmConfig } from "./config.js";
 
@@ -52,6 +53,7 @@ describe("infrastructure app", () => {
       "SwarmDns",
       "SwarmEdge",
       "SwarmOps",
+      "SwarmRuns",
       "SwarmSes",
     ]);
     for (const stack of assembly.stacks) {
@@ -107,7 +109,9 @@ describe("infrastructure app", () => {
         SecurityHeadersConfig: {
           StrictTransportSecurity: Match.objectLike({ Override: true, IncludeSubdomains: true }),
           ContentSecurityPolicy: Match.objectLike({
-            ContentSecurityPolicy: Match.stringLikeRegexp("frame-ancestors 'none'"),
+            ContentSecurityPolicy: Match.stringLikeRegexp(
+              "connect-src 'self' wss://\\*\\.appsync-realtime-api\\.ap-southeast-2\\.amazonaws\\.com.*frame-ancestors 'none'",
+            ),
           }),
         },
       },
@@ -201,7 +205,7 @@ describe("infrastructure app", () => {
         }),
       },
     });
-    t.resourceCountIs("AWS::Lambda::Function", 2);
+    t.resourceCountIs("AWS::Lambda::Function", 7);
     t.hasResourceProperties("AWS::ApiGatewayV2::Stage", {
       StageName: "$default",
       DefaultRouteSettings: { ThrottlingRateLimit: 20, ThrottlingBurstLimit: 40 },
@@ -218,10 +222,71 @@ describe("infrastructure app", () => {
     expect(actions).toContain("s3:PutObject");
     expect(actions).toContain("ssm:GetParameters");
     expect(actions.filter((a) => a === "*" || a.endsWith(":*"))).toEqual([]);
-    // No access to run data or anything outside the auth prefixes.
+    // Nothing outside the data prefixes, and no test data.
     const resources = JSON.stringify(statements.map((s) => s.Resource));
-    expect(resources).not.toContain("/runs/");
     expect(resources).not.toContain("_test");
+  });
+
+  it("API: the agent routes need IAM, the live channel is read-only for browsers", () => {
+    const t = template("SwarmApi");
+    const routes = Object.values(t.findResources("AWS::ApiGatewayV2::Route")).map(
+      (r) => r.Properties as { RouteKey: string; AuthorizationType?: string },
+    );
+    expect(routes.find((r) => r.RouteKey === "ANY /api/internal/{proxy+}")?.AuthorizationType).toBe(
+      "AWS_IAM",
+    );
+    expect(routes.find((r) => r.RouteKey === "ANY /api/{proxy+}")?.AuthorizationType).toBe("NONE");
+
+    t.hasResourceProperties("AWS::AppSync::Api", {
+      Name: "swarm-events",
+      EventConfig: Match.objectLike({
+        AuthProviders: Match.arrayWith([
+          Match.objectLike({ AuthType: "AWS_LAMBDA" }),
+          Match.objectLike({ AuthType: "AWS_IAM" }),
+        ]),
+        ConnectionAuthModes: [{ AuthType: "AWS_LAMBDA" }],
+        DefaultPublishAuthModes: [{ AuthType: "AWS_IAM" }],
+        DefaultSubscribeAuthModes: [{ AuthType: "AWS_LAMBDA" }],
+      }),
+    });
+    t.hasResourceProperties("AWS::AppSync::ChannelNamespace", { Name: "runs" });
+  });
+
+  it("API: the reaper runs on a short schedule and the run functions exist", () => {
+    const t = template("SwarmApi");
+    t.hasResourceProperties("AWS::Events::Rule", { ScheduleExpression: "rate(5 minutes)" });
+    for (const handler of ["prepare", "finalize", "reaper"]) {
+      t.hasResourceProperties("AWS::Lambda::Function", { Handler: `index.${handler}` });
+    }
+  });
+
+  it("API: every function is deployed with every variable it reads at start-up", () => {
+    const t = template("SwarmApi");
+    const functions = Object.values(t.findResources("AWS::Lambda::Function")).map((f) => ({
+      description: String(f.Properties.Description ?? ""),
+      handler: String(f.Properties.Handler),
+      variables: Object.keys(
+        (f.Properties.Environment?.Variables ?? {}) as Record<string, unknown>,
+      ),
+    }));
+    const required = (schema: { shape: Record<string, { isOptional(): boolean }> }) =>
+      Object.entries(schema.shape)
+        // AWS_REGION is set by Lambda itself.
+        .filter(([key, field]) => key !== "AWS_REGION" && !field.isOptional())
+        .map(([key]) => key);
+    const expectations: [string, string[]][] = [
+      ["Swarm API (Hono)", required(lambdaEnvSchemas.api)],
+      ["Agent task API", required(lambdaEnvSchemas.internal)],
+      ["Authorizes browsers", required(lambdaEnvSchemas.streamAuth)],
+      ["Run step 1", required(lambdaEnvSchemas.orchestrator)],
+      ["Run last step", required(lambdaEnvSchemas.orchestrator)],
+      ["Stops tasks and executions", required(lambdaEnvSchemas.orchestrator)],
+    ];
+    for (const [description, keys] of expectations) {
+      const fn = functions.find((f) => f.description.startsWith(description));
+      expect(fn, description).toBeDefined();
+      expect(fn!.variables, description).toEqual(expect.arrayContaining(keys));
+    }
   });
 
   it("edge routes /api/* to the API uncached, and SPA fallback does not rewrite API errors", () => {
@@ -281,7 +346,7 @@ describe("infrastructure app", () => {
     const forbidden = [
       "AWS::EC2::NatGateway",
       "AWS::EC2::VPCEndpoint",
-      "AWS::EC2::VPC",
+      "AWS::EC2::EIP",
       "AWS::KMS::Key",
       "AWS::SecretsManager::Secret",
       "AWS::WAFv2::WebACL",
@@ -293,6 +358,109 @@ describe("infrastructure app", () => {
       const types = new Set(Object.values(resources).map((r) => r.Type));
       for (const type of forbidden)
         expect(types.has(type), `${stack.stackName}: ${type}`).toBe(false);
+      // A network is free; it may only exist in the stack that runs tasks.
+      if (stack.stackName !== "SwarmRuns") expect(types.has("AWS::EC2::VPC")).toBe(false);
     }
+  });
+
+  describe("runs", () => {
+    const t = template("SwarmRuns");
+    // CloudFormation properties are free-form JSON; the assertions below narrow what they use.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    type Properties = Record<string, any>;
+    const resources = (type: string) =>
+      Object.entries(t.findResources(type)).map(([id, r]) => ({
+        id,
+        Properties: r.Properties as Properties,
+      }));
+
+    it("has a cluster with no services, and a network of public subnets only", () => {
+      t.hasResourceProperties("AWS::ECS::Cluster", { ClusterName: "swarm-runs" });
+      t.resourceCountIs("AWS::EC2::VPC", 1);
+      t.resourceCountIs("AWS::EC2::InternetGateway", 1);
+      const subnets = resources("AWS::EC2::Subnet");
+      expect(subnets.length).toBe(2);
+      expect(subnets.every((s) => s.Properties.MapPublicIpOnLaunch === true)).toBe(true);
+    });
+
+    it("agent task: the agent and a scope-proxy sidecar, read-only, on a small Fargate size", () => {
+      const [task] = resources("AWS::ECS::TaskDefinition").filter(
+        (r) => r.Properties.Family === "swarm-agent",
+      );
+      expect(task!.Properties).toMatchObject({ Cpu: "512", Memory: "1024", NetworkMode: "awsvpc" });
+      const containers = task!.Properties.ContainerDefinitions as {
+        Name: string;
+        Essential?: boolean;
+        ReadonlyRootFilesystem: boolean;
+        Command: string[];
+      }[];
+      expect(containers.map((c) => c.Name).sort()).toEqual(["agent", "proxy"]);
+      expect(containers.every((c) => c.ReadonlyRootFilesystem)).toBe(true);
+      expect(containers.find((c) => c.Name === "agent")?.Essential).toBe(true);
+      expect(containers.find((c) => c.Name === "proxy")?.Essential).toBe(false);
+      expect(containers.find((c) => c.Name === "proxy")?.Command).toEqual(["node", "proxy.mjs"]);
+    });
+
+    it("agent tasks can only call the internal API: no S3, no other AWS service", () => {
+      const roleIds = resources("AWS::IAM::Role")
+        .filter((r) => r.id.startsWith("AgentTaskRole"))
+        .map((r) => r.id);
+      expect(roleIds).toHaveLength(1);
+      const policies = resources("AWS::IAM::Policy").filter((p) =>
+        JSON.stringify(p.Properties.Roles).includes(roleIds[0]!),
+      );
+      const actions = policies.flatMap((p) =>
+        (p.Properties.PolicyDocument.Statement as { Action: string | string[] }[]).flatMap((s) =>
+          Array.isArray(s.Action) ? s.Action : [s.Action],
+        ),
+      );
+      expect(actions).toEqual(["execute-api:Invoke"]);
+    });
+
+    it("agent tasks accept no inbound traffic", () => {
+      const groups = resources("AWS::EC2::SecurityGroup");
+      const agent = groups.find((g) => g.id.startsWith("AgentSecurityGroup"))!;
+      expect(agent.Properties.SecurityGroupIngress).toBeUndefined();
+    });
+
+    it("state machine: prepare, run the task and wait, finalize; any failure still finalizes", () => {
+      const [machine] = resources("AWS::StepFunctions::StateMachine");
+      expect(machine!.Properties.StateMachineName).toBe("swarm-run");
+      const definition = JSON.stringify(machine!.Properties.DefinitionString);
+      expect(definition).toContain("ecs:runTask.sync");
+      expect(definition).toContain("AssignPublicIp");
+      expect(definition).toContain("TimeoutSecondsPath");
+      expect(definition).toContain("States.ALL");
+      expect(definition).toContain("Finalize");
+      t.hasResourceProperties("AWS::StepFunctions::StateMachine", {
+        LoggingConfiguration: Match.objectLike({ Level: "ERROR", IncludeExecutionData: false }),
+      });
+    });
+
+    it("synthetic target: a swarm-test-* task and security group, tagged as test data, one port open", () => {
+      const [task] = resources("AWS::ECS::TaskDefinition").filter(
+        (r) => r.Properties.Family === "swarm-test-synthetic-target",
+      );
+      expect(task).toBeDefined();
+      expect(task!.Properties.Tags).toEqual(
+        expect.arrayContaining([{ Key: "swarm:test", Value: "true" }]),
+      );
+      const group = resources("AWS::EC2::SecurityGroup").find(
+        (g) => g.Properties.GroupName === "swarm-test-synthetic-target",
+      )!;
+      expect(group.Properties.SecurityGroupIngress).toEqual([
+        expect.objectContaining({ FromPort: 8080, ToPort: 8080, CidrIp: "0.0.0.0/0" }),
+      ]);
+      expect(group.Properties.Tags).toEqual(
+        expect.arrayContaining([{ Key: "swarm:test", Value: "true" }]),
+      );
+    });
+
+    it("permanent infrastructure is not marked as test data", () => {
+      const cluster = resources("AWS::ECS::Cluster")[0]!;
+      expect(cluster.Properties.Tags).toEqual(
+        expect.arrayContaining([{ Key: "swarm:test", Value: "false" }]),
+      );
+    });
   });
 });

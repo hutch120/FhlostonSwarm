@@ -1,4 +1,4 @@
-import { AGENTS, AREAS } from "@swarm/shared";
+import { AGENTS, AREAS, type AgentSpec, type AreaSpec } from "@swarm/shared";
 import { useEffect, useMemo, useRef } from "react";
 import { useRunStore } from "../state/run.js";
 import { useUiStore } from "../state/ui.js";
@@ -10,6 +10,9 @@ interface Props {
   target: string;
   selected: string | null;
   onSelect: (agentId: string | null) => void;
+  /** The agents and areas to lay out; defaults to the full roster. Pass a stable reference. */
+  agents?: readonly AgentSpec[];
+  areas?: readonly AreaSpec[];
 }
 
 const FRAME_MS: Record<"full" | "low-power", number> = { full: 1000 / 60, "low-power": 1000 / 15 };
@@ -19,10 +22,10 @@ const FRAME_MS: Record<"full" | "low-power", number> = { full: 1000 / 60, "low-p
  * Events are read straight from the run store (not via React state) so a 60 fps loop never
  * triggers re-renders. Reduced motion draws a still frame whenever the run state changes.
  */
-export function SwarmCanvas({ target, selected, onSelect }: Props) {
+export function SwarmCanvas({ target, selected, onSelect, agents = AGENTS, areas = AREAS }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const motion = useUiStore((s) => s.motion);
-  const slots = useMemo(() => layoutSlots(AGENTS, AREAS), []);
+  const slots = useMemo(() => layoutSlots(agents, areas), [agents, areas]);
   const selectedRef = useRef(selected);
   const sceneRef = useRef<Scene | null>(null);
 

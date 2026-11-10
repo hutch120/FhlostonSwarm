@@ -19,6 +19,16 @@ export interface NotifyConfirmEmail {
   expiresHours: number;
 }
 
+export interface ReportReadyEmail {
+  to: string;
+  target: string;
+  tierName: string;
+  status: "complete" | "stopped";
+  findings: number;
+  highOrAbove: number;
+  link: string;
+}
+
 export interface Mailer {
   sendLoginCode(email: LoginEmail): Promise<void>;
   /** The fresh one-time code that confirms an account deletion. */
@@ -27,12 +37,29 @@ export interface Mailer {
   sendAccountDeleted(email: { to: string }): Promise<void>;
   /** Asks the owner of a notification address to confirm it before any report notice is sent. */
   sendNotifyConfirmation(email: NotifyConfirmEmail): Promise<void>;
+  /** Tells a scan's confirmed notification address that a report is ready. */
+  sendReportReady(email: ReportReadyEmail): Promise<void>;
 }
 
 interface Rendered {
   subject: string;
   text: string;
   html: string;
+}
+
+export function renderReportReadyEmail(email: ReportReadyEmail): Rendered {
+  const { target, tierName, findings, highOrAbove, link } = email;
+  const counts = `${findings} ${findings === 1 ? "finding" : "findings"}${highOrAbove > 0 ? `, ${highOrAbove} high or above` : ""}`;
+  const subject = `Your Swarm report for ${target} is ready (${counts})`;
+  const text = [
+    `Your ${tierName} scan of ${target} has finished with ${counts}.`,
+    "",
+    `Sign in to read the report: ${link}`,
+    "",
+    "This is an automated, AI-assisted assessment and is not a substitute for a manual penetration test.",
+  ].join("\n");
+  const html = `<p>Your <strong>${tierName}</strong> scan of <strong>${target}</strong> has finished with ${counts}.</p><p><a href="${link}">Sign in to read the report</a>.</p><p style="color:#666">This is an automated, AI-assisted assessment and is not a substitute for a manual penetration test.</p>`;
+  return { subject, text, html };
 }
 
 export function renderLoginEmail({ code, link, expiresMinutes }: LoginEmail): Rendered {
@@ -125,6 +152,9 @@ export class SesMailer implements Mailer {
   sendNotifyConfirmation(email: NotifyConfirmEmail) {
     return this.send(email.to, renderNotifyConfirmEmail(email));
   }
+  sendReportReady(email: ReportReadyEmail) {
+    return this.send(email.to, renderReportReadyEmail(email));
+  }
 }
 
 /** Collects mail in memory instead of sending it (unit tests and the local dev server). */
@@ -133,6 +163,11 @@ export class FakeMailer implements Mailer {
   readonly deletionCodes: DeletionCodeEmail[] = [];
   readonly deleted: string[] = [];
   readonly confirmations: NotifyConfirmEmail[] = [];
+  readonly reports: ReportReadyEmail[] = [];
+
+  async sendReportReady(email: ReportReadyEmail): Promise<void> {
+    this.reports.push(email);
+  }
 
   async sendLoginCode(email: LoginEmail): Promise<void> {
     this.sent.push(email);

@@ -10,7 +10,9 @@ import { deriveRole, emailHash, ipHash, isDisposable, parseEmail } from "./ident
 import type { Mailer } from "./mailer.js";
 import { issueChallenge, verifyChallenge } from "./otp.js";
 import { hit } from "./ratelimit.js";
-import { dataRoutes } from "./routes.js";
+import type { RunLauncher } from "./launcher.js";
+import type { EventPublisher } from "./publisher.js";
+import { dataRoutes, type DataDeps, type StreamEndpoints } from "./routes.js";
 import {
   authenticate,
   createSession,
@@ -43,6 +45,14 @@ export interface AppDeps {
   sleep?: (ms: number) => Promise<void>;
   /** Optional bot check (Turnstile). Absent = no check. */
   verifyHuman?: (token: string | undefined, ip: string) => Promise<boolean>;
+  /** Starts and stops the executions that run the agents. */
+  launcher: RunLauncher;
+  /** Pushes run events to the live channel. Absent = clients fall back to polling. */
+  publisher?: EventPublisher;
+  /** A time-limited download URL for an object in the data bucket (the report). */
+  presign: DataDeps["presign"];
+  /** Where browsers connect for live events. Absent = no live channel. */
+  stream?: StreamEndpoints;
 }
 
 const requestBody = z.object({
@@ -357,6 +367,10 @@ export function createApp(deps: AppDeps) {
       siteOrigin: allowedOrigin,
       now,
       clearSessionCookies,
+      launcher: deps.launcher,
+      publisher: deps.publisher,
+      presign: deps.presign,
+      stream: deps.stream,
     }),
   );
 

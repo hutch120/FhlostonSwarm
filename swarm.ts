@@ -6,6 +6,11 @@ import { login } from "./utils/login.js";
 import { requireSwarmAccount } from "./utils/aws.js";
 import { initSecrets } from "./utils/secrets.js";
 import { testCleanup } from "./utils/test-cleanup.js";
+import {
+  startSyntheticTarget,
+  stopSyntheticTarget,
+  syntheticTargetStatus,
+} from "./utils/synthetic-target.js";
 
 const program = new Command();
 
@@ -86,7 +91,7 @@ program
 program
   .command("test-cleanup")
   .description(
-    "List (and with --delete, remove) test data: _test/ objects, records with test:true, swarm-test-* resources",
+    "List (and with --delete, remove) test data: _test/ objects, records with test:true, swarm-test-* resources and running tasks",
   )
   .option("--delete", "Actually delete what is listed (default is a dry run)")
   .action(async (opts: { delete?: boolean }) => {
@@ -98,5 +103,30 @@ program
       process.exitCode = 1;
     }
   });
+
+const syntheticTarget = program
+  .command("synthetic-target")
+  .description(
+    "The deliberately vulnerable test app: started on demand as a Fargate task, stopped after each use",
+  );
+
+for (const [name, description, run] of [
+  ["start", "Start it and print its URL (waits until it answers)", startSyntheticTarget],
+  ["stop", "Stop every running synthetic target task", stopSyntheticTarget],
+  ["status", "Show whether it is running, and where", syntheticTargetStatus],
+] as const) {
+  syntheticTarget
+    .command(name)
+    .description(description)
+    .action(async () => {
+      try {
+        await requireSwarmAccount();
+        await run();
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : err);
+        process.exitCode = 1;
+      }
+    });
+}
 
 await program.parseAsync();

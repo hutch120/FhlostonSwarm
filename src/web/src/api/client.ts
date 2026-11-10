@@ -1,6 +1,6 @@
-import { DEMO_RUN_ID } from "@swarm/shared";
+import { DEMO_RUN_ID, replayEvents } from "@swarm/shared";
 import type { Role } from "../state/session.js";
-import { createHttpApi, type ApiClient } from "./http.js";
+import { ApiError, createHttpApi, type ApiClient } from "./http.js";
 import { MOCK_ACCOUNT, MOCK_RUNS, MOCK_SCANS, MOCK_TARGETS, type AccountInfo } from "./mock.js";
 
 export type { AccountInfo } from "./mock.js";
@@ -46,6 +46,35 @@ export function createMockApi(): ApiClient {
     deleteRun: async (runId) => {
       runs = runs.filter((r) => r.summary.runId !== runId);
     },
+    startRun: async (runId) => {
+      runs = runs.map((r) =>
+        r.summary.runId === runId && r.summary.status === "queued"
+          ? { ...r, summary: { ...r.summary, status: "running" as const } }
+          : r,
+      );
+    },
+    stopRun: async (runId) => {
+      runs = runs.map((r) =>
+        r.summary.runId === runId && r.summary.status === "running"
+          ? { ...r, summary: { ...r.summary, status: "stopped" as const } }
+          : r,
+      );
+    },
+    // The mock has no event log of its own; only the demo run has events.
+    getRunEvents: async (runId, after) => {
+      const events = runId === DEMO_RUN_ID ? replayEvents.filter((e) => e.seq > after) : [];
+      return { events, lastSeq: events.at(-1)?.seq ?? after, more: false };
+    },
+    getStreamToken: async () => {
+      throw new ApiError(404, "streaming_unavailable");
+    },
+    getReport: async () => {
+      throw new ApiError(404, "report_not_ready");
+    },
+    getReportLink: async () => ({
+      url: "https://data.test/report.html",
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+    }),
 
     listTargets: async () => targets,
     deleteTarget: async (targetId) => {

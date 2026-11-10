@@ -1,4 +1,13 @@
-import type { RunListItem, ScanStatus, ScanSummary, TargetView } from "@swarm/shared";
+import type {
+  ReportLink,
+  RunEventsPage,
+  RunListItem,
+  RunReport,
+  ScanStatus,
+  ScanSummary,
+  StreamToken,
+  TargetView,
+} from "@swarm/shared";
 import { toScanInput, toTargetInput, type IntakeValues } from "../intake.js";
 import { useSession, type SessionUser } from "../state/session.js";
 import type { AccountInfo } from "./mock.js";
@@ -43,6 +52,17 @@ export interface ApiClient {
   listRuns(): Promise<RunListItem[]>;
   getRun(runId: string): Promise<RunListItem>;
   deleteRun(runId: string): Promise<void>;
+  /** Begins executing a queued run (a no-op error if it already started). */
+  startRun(runId: string): Promise<void>;
+  /** Stops a running run; the report covers what ran. */
+  stopRun(runId: string): Promise<void>;
+  /** Events after `after`, in order, for catch-up and polling. */
+  getRunEvents(runId: string, after: number): Promise<RunEventsPage>;
+  /** A short-lived credential for the live channel; fails with `streaming_unavailable` when there is none. */
+  getStreamToken(runId: string): Promise<StreamToken>;
+  getReport(runId: string): Promise<RunReport>;
+  /** A time-limited download link for the report's HTML. */
+  getReportLink(runId: string): Promise<ReportLink>;
 
   listTargets(): Promise<TargetView[]>;
   /** Deletes the target and the scans that use it; returns the ids of those scans. */
@@ -54,7 +74,7 @@ export interface ApiClient {
    * set. A new target is removed again if the scan cannot be saved.
    */
   saveScan(values: IntakeValues, options: { scanId?: string; start: boolean }): Promise<SavedScan>;
-  /** Starts a new run from a saved scan, with no reconfiguration. */
+  /** Starts a new run from a saved scan, with no reconfiguration, and begins executing it. */
   runScan(scanId: string): Promise<{ runId: string }>;
   setScanStatus(scanId: string, status: ScanStatus): Promise<void>;
   deleteScan(scanId: string): Promise<void>;
@@ -82,6 +102,11 @@ const MESSAGES: Record<string, string> = {
   invalid_or_expired_link: "That link has expired or was already used.",
   verification_failed: "We could not verify that you are human. Try again.",
   no_credit: "You have no credit for that scan depth.",
+  already_started: "That run has already started.",
+  not_running: "That run is not running.",
+  start_failed: "The run could not be started. Try again in a moment.",
+  report_not_ready: "The report is not ready yet.",
+  streaming_unavailable: "Live updates are not available.",
   quota_exceeded: "You have reached the limit for saved items. Delete some you no longer need.",
   password_required: "Enter a password for each new login.",
   login_in_use: "A scan uses a login you removed. Edit or delete that scan first.",
@@ -181,6 +206,16 @@ export function createHttpApi(fetchFn: FetchLike = (input, init) => fetch(input,
     deleteRun: async (runId) => {
       await call("DELETE", `/api/runs/${id(runId)}`);
     },
+    startRun: async (runId) => {
+      await call("POST", `/api/runs/${id(runId)}/start`);
+    },
+    stopRun: async (runId) => {
+      await call("POST", `/api/runs/${id(runId)}/stop`);
+    },
+    getRunEvents: (runId, after) => call("GET", `/api/runs/${id(runId)}/events?after=${after}`),
+    getStreamToken: (runId) => call("POST", `/api/runs/${id(runId)}/stream-token`),
+    getReport: (runId) => call("GET", `/api/runs/${id(runId)}/report`),
+    getReportLink: (runId) => call("GET", `/api/runs/${id(runId)}/report/link`),
 
     listTargets: () => call("GET", "/api/targets"),
     deleteTarget: (targetId) => call("DELETE", `/api/targets/${id(targetId)}`),
@@ -205,7 +240,12 @@ export function createHttpApi(fetchFn: FetchLike = (input, init) => fetch(input,
       const { runId } = await api.runScan(scan.id);
       return { scanId: scan.id, runId };
     },
-    runScan: (scanId) => call("POST", `/api/scans/${id(scanId)}/run`),
+    runScan: async (scanId) => {
+      const { runId } = await call<{ runId: string }>("POST", `/api/scans/${id(scanId)}/run`);
+      // A run that could not be started stays queued; its page offers to start it.
+      await call("POST", `/api/runs/${id(runId)}/start`).catch(() => undefined);
+      return { runId };
+    },
     setScanStatus: async (scanId, status) => {
       await call("PATCH", `/api/scans/${id(scanId)}/status`, { status });
     },

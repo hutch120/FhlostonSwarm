@@ -1,6 +1,7 @@
 import {
   TERMS_VERSION,
   runIdSchema,
+  runReportSchema,
   scanIdSchema,
   scanInputSchema,
   scanStatusSchema,
@@ -11,9 +12,12 @@ import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { deleteAccountData } from "./account.js";
 import type { AuthConfig } from "./config.js";
+import { startExecution, stopRun, stopRunningRuns, type ControlDeps } from "./control.js";
+import { readEvents } from "./events.js";
 import { clientIp, readJson, reject, type Vars } from "./http.js";
 import { newId } from "./ids.js";
 import { ipHash, testMarkerFor } from "./identity.js";
+import type { RunLauncher } from "./launcher.js";
 import { issueChallenge, verifyChallenge } from "./otp.js";
 import {
   confirmNotification,
@@ -22,6 +26,7 @@ import {
   settleNotification,
   type NotifyDeps,
 } from "./notify.js";
+import { channelFor, type EventPublisher } from "./publisher.js";
 import { hit } from "./ratelimit.js";
 import {
   deleteRun,
@@ -40,8 +45,9 @@ import {
   type LastRun,
   type StoredScan,
 } from "./scans.js";
-import { putJson, updateJson } from "./storage/json.js";
+import { getJson, putJson, updateJson } from "./storage/json.js";
 import { keys } from "./storage/keys.js";
+import { mintStreamToken } from "./stream.js";
 import {
   getTarget,
   listTargets,
@@ -51,9 +57,25 @@ import {
   type StoredTarget,
 } from "./targets.js";
 
+/** Where the browser connects for live events (AppSync Events). Absent when there is no live channel (local dev). */
+export interface StreamEndpoints {
+  /** `<apiId>.appsync-realtime-api.<region>.amazonaws.com` */
+  realtimeDomain: string;
+  /** `<apiId>.appsync-api.<region>.amazonaws.com` */
+  httpDomain: string;
+}
+
 export interface DataDeps extends NotifyDeps {
   config: AuthConfig;
   clearSessionCookies: (c: Context) => void;
+  launcher: RunLauncher;
+  publisher?: EventPublisher;
+  /** A time-limited download URL for an object in the data bucket. */
+  presign: (
+    key: string,
+    options: { filename: string; contentType: string; expiresSeconds: number },
+  ) => Promise<string>;
+  stream?: StreamEndpoints;
 }
 
 const statusBody = z.object({ status: scanStatusSchema });
@@ -333,10 +355,86 @@ export function dataRoutes(deps: DataDeps) {
     return c.json(toListItem(run, scanIds));
   });
 
-  app.delete("/runs/:id", async (c) => {
+  const control: ControlDeps = {
+    store,
+    launcher: deps.launcher,
+    mailer,
+    publisher: deps.publisher,
+    now,
+    siteOrigin: deps.siteOrigin,
+  };
+
+  app.post("/runs/:id/start", async (c) => {
+    const { emailHash } = c.get("auth");
+    const run = await startExecution(control, emailHash, idParam(c, runIdSchema));
+    return c.json({ ok: true, status: run.status });
+  });
+
+  app.post("/runs/:id/stop", async (c) => {
+    const { emailHash, role } = c.get("auth");
+    const id = idParam(c, runIdSchema);
+    const run = (await getRunFile(store, emailHash, id)) ?? reject(404, "not_found");
+    if (run.status !== "running") reject(409, "not_running");
+    const stopped = await stopRun(control, { emailHash, runId: id }, role);
+    return c.json({ ok: true, status: stopped.status });
+  });
+
+  app.get("/runs/:id/events", async (c) => {
     const { emailHash } = c.get("auth");
     const id = idParam(c, runIdSchema);
     if (!(await getRunFile(store, emailHash, id))) reject(404, "not_found");
+    const after = z.coerce.number().int().nonnegative().catch(0).parse(c.req.query("after"));
+    return c.json(await readEvents(store, { emailHash, runId: id }, after));
+  });
+
+  app.post("/runs/:id/stream-token", async (c) => {
+    const { emailHash } = c.get("auth");
+    const id = idParam(c, runIdSchema);
+    if (!(await getRunFile(store, emailHash, id))) reject(404, "not_found");
+    if (!deps.stream) reject(404, "streaming_unavailable");
+    const { realtimeDomain, httpDomain } = deps.stream!;
+    const { token, expiresAt } = await mintStreamToken(
+      await deps.secrets(),
+      { runId: id, emailHash },
+      now(),
+    );
+    return c.json({
+      token,
+      realtimeUrl: `wss://${realtimeDomain}/event/realtime`,
+      host: httpDomain,
+      channel: channelFor(id),
+      expiresAt,
+    });
+  });
+
+  app.get("/runs/:id/report", async (c) => {
+    const { emailHash } = c.get("auth");
+    const id = idParam(c, runIdSchema);
+    const found = await getJson(store, keys.runReportData(emailHash, id), runReportSchema);
+    if (!found) reject(404, "report_not_ready");
+    return c.json(found!.value);
+  });
+
+  app.get("/runs/:id/report/link", async (c) => {
+    const { emailHash } = c.get("auth");
+    const id = idParam(c, runIdSchema);
+    const key = keys.runReportHtml(emailHash, id);
+    if (!(await store.get(key))) reject(404, "report_not_ready");
+    const expiresSeconds = 300;
+    const url = await deps.presign(key, {
+      filename: `swarm-report-${id}.html`,
+      contentType: "text/html; charset=utf-8",
+      expiresSeconds,
+    });
+    return c.json({ url, expiresAt: new Date(now() + expiresSeconds * 1000).toISOString() });
+  });
+
+  app.delete("/runs/:id", async (c) => {
+    const { emailHash, role } = c.get("auth");
+    const id = idParam(c, runIdSchema);
+    if (!(await getRunFile(store, emailHash, id))) reject(404, "not_found");
+    // A running run is stopped first, so no task keeps working on data that is being deleted.
+    await stopRun(control, { emailHash, runId: id }, role);
     await deleteRun(store, emailHash, id);
     return c.json({ ok: true });
   });
@@ -398,6 +496,7 @@ export function dataRoutes(deps: DataDeps) {
     const outcome = await verifyChallenge(store, pepper, emailHash, { code }, config, now());
     if (!outcome.ok) reject(400, "invalid_or_expired_code");
 
+    await stopRunningRuns(control, emailHash, "account-deletion");
     await deleteAccountData(store, emailHash);
     try {
       await mailer.sendAccountDeleted({ to: email });

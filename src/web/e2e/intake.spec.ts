@@ -34,14 +34,14 @@ test.describe("intake, saved scans, credits and deletion", () => {
     await fillIntake(page);
     await page.getByRole("button", { name: "Save and start scan" }).click();
 
-    // The run is queued: its credit is spent, nothing executes yet.
-    await expect(page.getByTestId("queued-note")).toContainText("credit is spent");
-    await expect(page.getByTestId("run-status")).toHaveText("queued");
+    // The run starts at once: its credit is spent and the live view opens.
+    await expect(page.getByRole("heading", { name: "Live swarm view" })).toBeVisible();
+    await expect(page.getByTestId("run-status")).toHaveText(/running|complete/);
 
     await page.goto("/dashboard");
     await expect(page.getByTestId("credits")).toContainText("1 Sweep");
     await expect(page.getByTestId("run-row")).toHaveCount(1);
-    await expect(page.getByTestId("run-row").first()).toContainText("queued");
+    await expect(page.getByTestId("run-row").first()).toContainText(/running|complete/);
     await expect(page.getByTestId("run-row").first()).toContainText("staging.example.com");
 
     // The scan is saved; run it again without re-entering anything.
@@ -51,7 +51,7 @@ test.describe("intake, saved scans, credits and deletion", () => {
     await expect(row).toContainText("Sweep");
     await expect(row).toContainText("Weekly");
     await row.getByRole("button", { name: /Run .* again/ }).click();
-    await expect(page.getByTestId("queued-note")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Live swarm view" })).toBeVisible();
 
     await page.goto("/dashboard");
     await expect(page.getByTestId("run-row")).toHaveCount(2);
@@ -134,7 +134,7 @@ test.describe("intake, saved scans, credits and deletion", () => {
     const notify = testEmail("example.org");
     await fillIntake(page, { notifyEmail: notify });
     await page.getByRole("button", { name: "Save and start scan" }).click();
-    await expect(page.getByTestId("queued-note")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Live swarm view" })).toBeVisible();
 
     await page.goto("/scans");
     await expect(page.getByTestId("scan-row")).toContainText("Unconfirmed");
@@ -167,7 +167,7 @@ test.describe("intake, saved scans, credits and deletion", () => {
     await grant(page, email, "sweep", 1);
     await fillIntake(page);
     await page.getByRole("button", { name: "Save and start scan" }).click();
-    await expect(page.getByTestId("queued-note")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Live swarm view" })).toBeVisible();
 
     await page.goto("/scans");
     await page.getByRole("link", { name: /^Edit / }).click();
@@ -192,7 +192,7 @@ test.describe("intake, saved scans, credits and deletion", () => {
     await grant(page, email, "sweep", 1);
     await fillIntake(page);
     await page.getByRole("button", { name: "Save and start scan" }).click();
-    await expect(page.getByTestId("queued-note")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Live swarm view" })).toBeVisible();
 
     await page.goto("/account");
     await page.getByLabel(/to confirm/).fill("DELETE");

@@ -1,0 +1,7 @@
+{
+  "agentTask": { "vcpu": 0.5, "memoryGb": 1 },
+  "taskTimeoutMarginSeconds": 300,
+  "reaper": { "intervalMinutes": 5, "graceMinutes": 10 },
+  "streamTokenMinutes": 15,
+  "proxyPort": 8899
+}

@@ -14,6 +14,8 @@ export interface TestItems {
   buckets: string[];
   /** `swarm-test-*` CloudFormation stacks. */
   stacks: string[];
+  /** Running `swarm-test-*` ECS tasks (the synthetic target); stopped with --delete. */
+  tasks: string[];
   /** Any other resource tagged `swarm:test=true` (listed only, never auto-deleted). */
   taggedArns: string[];
 }
@@ -31,6 +33,30 @@ export function isCoveredByName(arn: string): boolean {
   const bucket = /^arn:aws:s3:::([^/]+)$/.exec(arn)?.[1];
   const stack = /^arn:aws:cloudformation:[^:]*:\d+:stack\/([^/]+)\//.exec(arn)?.[1];
   return [bucket, stack].some((name) => name !== undefined && isTestResourceName(name));
+}
+
+/**
+ * ECS tasks are covered by the running-task finder; a stopped task cannot be deleted and ages out of
+ * ECS by itself, so a tagged task is never listed as something to remove by hand.
+ */
+export function isEcsTask(arn: string): boolean {
+  return /^arn:aws:ecs:[^:]*:\d+:task\/[^/]+\/[0-9a-f]+$/.test(arn);
+}
+
+/**
+ * The synthetic target's task definition and security group are permanent, tagged `swarm:test=true`
+ * on purpose (they are test infrastructure). Only a *running* task is something to clean up.
+ */
+export function isPermanentTestInfrastructure(
+  arn: string,
+  testGroupIds: readonly string[],
+): boolean {
+  const taskDefinition = /^arn:aws:ecs:[^:]*:\d+:task-definition\/([^:]+):\d+$/.exec(arn)?.[1];
+  const group = /^arn:aws:ec2:[^:]*:\d+:security-group\/(sg-[0-9a-f]+)$/.exec(arn)?.[1];
+  return (
+    (taskDefinition !== undefined && isTestResourceName(taskDefinition)) ||
+    (group !== undefined && testGroupIds.includes(group))
+  );
 }
 
 async function listKeys(query: string, prefix?: string): Promise<string[]> {
@@ -79,16 +105,62 @@ export async function findTestItems(): Promise<TestItems> {
     "--tag-filters",
     "Key=swarm:test,Values=true",
   ]);
+  const groups = await awsJson<{ SecurityGroups: { GroupId: string }[] }>([
+    "ec2",
+    "describe-security-groups",
+    "--filters",
+    `Name=group-name,Values=${TEST_NAME_PREFIX}*`,
+  ]);
+  const testGroupIds = groups.SecurityGroups.map((g) => g.GroupId);
+  const tasks = await runningTestTasks();
 
   return {
     prefixKeys,
     recordKeys,
     buckets: bucketNames ?? [],
     stacks: stackNames ?? [],
+    tasks,
     taggedArns: tagged.ResourceTagMappingList.map((r) => r.ResourceARN).filter(
-      (arn) => !isCoveredByName(arn),
+      (arn) =>
+        !isCoveredByName(arn) &&
+        !isEcsTask(arn) &&
+        !isPermanentTestInfrastructure(arn, testGroupIds),
     ),
   };
+}
+
+const RUN_CLUSTER = "swarm-runs";
+
+/** Running tasks of any `swarm-test-*` task definition family in the runs cluster. */
+async function runningTestTasks(): Promise<string[]> {
+  try {
+    const families = await awsJson<{ families: string[] }>([
+      "ecs",
+      "list-task-definition-families",
+      "--family-prefix",
+      TEST_NAME_PREFIX,
+      "--status",
+      "ACTIVE",
+    ]);
+    const arns: string[] = [];
+    for (const family of families.families) {
+      const found = await awsJson<{ taskArns: string[] }>([
+        "ecs",
+        "list-tasks",
+        "--cluster",
+        RUN_CLUSTER,
+        "--family",
+        family,
+        "--desired-status",
+        "RUNNING",
+      ]);
+      arns.push(...found.taskArns);
+    }
+    return arns;
+  } catch {
+    // No cluster yet (the runs stack is not deployed).
+    return [];
+  }
 }
 
 function check(r: { code: number; stderr: string }, what: string): void {
@@ -142,6 +214,25 @@ async function deleteItems(items: TestItems): Promise<void> {
       stack,
     );
   }
+  for (const task of items.tasks) {
+    check(
+      await aws([
+        "ecs",
+        "stop-task",
+        "--cluster",
+        RUN_CLUSTER,
+        "--task",
+        task,
+        "--reason",
+        "swarm test-cleanup",
+        "--region",
+        REGION,
+        "--profile",
+        "swarm",
+      ]),
+      task,
+    );
+  }
 }
 
 export async function testCleanup(opts: { delete?: boolean }): Promise<void> {
@@ -151,6 +242,7 @@ export async function testCleanup(opts: { delete?: boolean }): Promise<void> {
     [`Records marked "test": true in s3://${DATA_BUCKET}`, items.recordKeys],
     [`${TEST_NAME_PREFIX}* S3 buckets`, items.buckets],
     [`${TEST_NAME_PREFIX}* CloudFormation stacks`, items.stacks],
+    [`Running ${TEST_NAME_PREFIX}* ECS tasks (the synthetic target)`, items.tasks],
     ["Other resources tagged swarm:test=true (delete manually)", items.taggedArns],
   ];
   let total = 0;

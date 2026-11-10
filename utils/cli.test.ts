@@ -5,7 +5,14 @@ import { MemoryStore } from "../src/api/src/storage/memory.js";
 import { cdkArgs } from "./deploy.js";
 import { grantComp, type GrantDeps } from "./grant-credit.js";
 import { secretParameterNames } from "./secrets.js";
-import { isCoveredByName, isTestRecord, isTestResourceName } from "./test-cleanup.js";
+import { parseNetwork, runTaskArgs } from "./synthetic-target.js";
+import {
+  isCoveredByName,
+  isEcsTask,
+  isPermanentTestInfrastructure,
+  isTestRecord,
+  isTestResourceName,
+} from "./test-cleanup.js";
 
 describe("grantComp", () => {
   const deps = (): GrantDeps & { store: MemoryStore } => ({
@@ -118,5 +125,78 @@ describe("test-cleanup matchers", () => {
     expect(
       isCoveredByName("arn:aws:lambda:ap-southeast-2:885922397779:function:swarm-test-a"),
     ).toBe(false);
+  });
+
+  it("treats the synthetic target's task definition and security group as permanent test infrastructure", () => {
+    const groups = ["sg-0abc123"];
+    expect(
+      isPermanentTestInfrastructure(
+        "arn:aws:ecs:ap-southeast-2:885922397779:task-definition/swarm-test-synthetic-target:3",
+        groups,
+      ),
+    ).toBe(true);
+    expect(
+      isPermanentTestInfrastructure(
+        "arn:aws:ec2:ap-southeast-2:885922397779:security-group/sg-0abc123",
+        groups,
+      ),
+    ).toBe(true);
+    // Anything else tagged as test data still shows up for manual review.
+    expect(
+      isPermanentTestInfrastructure(
+        "arn:aws:ecs:ap-southeast-2:885922397779:task-definition/swarm-agent:3",
+        groups,
+      ),
+    ).toBe(false);
+    expect(
+      isPermanentTestInfrastructure(
+        "arn:aws:ec2:ap-southeast-2:885922397779:security-group/sg-0other",
+        groups,
+      ),
+    ).toBe(false);
+    expect(
+      isPermanentTestInfrastructure(
+        "arn:aws:ecs:ap-southeast-2:885922397779:task/swarm-runs/0123456789abcdef",
+        groups,
+      ),
+    ).toBe(false);
+  });
+
+  it("does not list tagged ECS tasks for manual removal (running ones are stopped, stopped ones age out)", () => {
+    expect(
+      isEcsTask("arn:aws:ecs:ap-southeast-2:885922397779:task/swarm-runs/0123456789abcdef"),
+    ).toBe(true);
+    expect(isEcsTask("arn:aws:ecs:ap-southeast-2:885922397779:cluster/swarm-runs")).toBe(false);
+  });
+});
+
+describe("synthetic target helpers", () => {
+  it("reads the network from the runs stack outputs", () => {
+    expect(
+      parseNetwork([
+        { OutputKey: "SyntheticTargetSubnets", OutputValue: "subnet-a,subnet-b" },
+        { OutputKey: "SyntheticTargetSecurityGroupId", OutputValue: "sg-1" },
+      ]),
+    ).toEqual({ subnets: ["subnet-a", "subnet-b"], securityGroup: "sg-1" });
+    expect(() => parseNetwork([])).toThrow(/Deploy it first/);
+  });
+
+  it("starts a public-IP Fargate task tagged as test data with the run id", () => {
+    const args = runTaskArgs(
+      { subnets: ["subnet-a"], securityGroup: "sg-1" },
+      "20261110-120000-ab12",
+    );
+    expect(args).toEqual(
+      expect.arrayContaining([
+        "--task-definition",
+        "swarm-test-synthetic-target",
+        "--launch-type",
+        "FARGATE",
+        "key=swarm:test,value=true",
+        "key=swarm:test-run,value=20261110-120000-ab12",
+      ]),
+    );
+    expect(args.join(" ")).toContain("assignPublicIp=ENABLED");
+    expect(args.join(" ")).toContain("securityGroups=[sg-1]");
   });
 });

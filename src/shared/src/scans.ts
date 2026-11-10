@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { runStatusSchema, summarySchema, tierIdSchema } from "./events.js";
+import { runEventSchema, runStatusSchema, summarySchema, tierIdSchema } from "./events.js";
 import { tiers } from "./tiers.js";
 
 /** Bump when the terms or privacy text changes; stored with each acknowledgement. */
@@ -160,7 +160,35 @@ export const runListItemSchema = z.object({
   /** Absent once the scan has been deleted, so there is nothing to run again. */
   scanId: scanIdSchema.optional(),
   trigger: runTriggerSchema,
+  /** Why the run ended other than normally (a stop, or a problem on our side). */
+  reason: z.string().optional(),
 });
 export type RunListItem = z.infer<typeof runListItemSchema>;
 
 export const isRecurring = (frequency: Frequency): boolean => frequency !== "once";
+
+/** One page of a run's event log, in seq order; ask for more with `after=<lastSeq>`. */
+export const runEventsPageSchema = z.object({
+  events: z.array(runEventSchema),
+  /** The highest seq the log holds right now (0 before the first event). */
+  lastSeq: z.number().int().nonnegative(),
+  /** More events exist beyond this page. */
+  more: z.boolean(),
+});
+export type RunEventsPage = z.infer<typeof runEventsPageSchema>;
+
+/** A short-lived credential for the live channel of one run (AppSync Events). */
+export const streamTokenSchema = z.object({
+  token: z.string().min(1),
+  /** `wss://…/event/realtime` */
+  realtimeUrl: z.string().min(1),
+  /** `<apiId>.appsync-api.<region>.amazonaws.com`, the value of the `host` auth header. */
+  host: z.string().min(1),
+  channel: z.string().min(1),
+  expiresAt: z.iso.datetime(),
+});
+export type StreamToken = z.infer<typeof streamTokenSchema>;
+
+/** A time-limited download link for the run's report. */
+export const reportLinkSchema = z.object({ url: z.string().min(1), expiresAt: z.iso.datetime() });
+export type ReportLink = z.infer<typeof reportLinkSchema>;

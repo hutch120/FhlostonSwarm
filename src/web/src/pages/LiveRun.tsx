@@ -1,5 +1,5 @@
-import { DEMO_TARGET, replayEvents, tiers } from "@swarm/shared";
-import { useState } from "react";
+import { DEMO_TARGET, replayEvents, tierRoster, tiers, type TierId } from "@swarm/shared";
+import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { AgentDrawer } from "../panels/AgentDrawer.js";
 import { AreasPanel } from "../panels/AreasPanel.js";
@@ -17,14 +17,45 @@ const parseSpeed = (raw: string | null): number => {
 };
 
 /**
- * The hero screen. Phase 2 feeds it from the scripted replay; the real event stream will drive the
- * same store, so nothing here changes when the backend arrives. `?speed=` and `?autoplay=0` tune
- * the replay (used by the smoke test).
+ * The swarm canvas, the panels and the event log for whatever run the store holds, whether it is
+ * the scripted replay or a real run's event stream: nothing here knows which.
+ */
+export function RunBoard({ target, tier }: { target: string; tier: TierId }) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const roster = useMemo(() => tierRoster(tier), [tier]);
+  const state = useRunStore((s) => s.state);
+
+  return (
+    <div className="live-grid">
+      <div className="stage">
+        <SwarmCanvas
+          target={target}
+          selected={selected}
+          onSelect={setSelected}
+          agents={roster.agents}
+          areas={roster.areas}
+        />
+        <AgentDrawer state={state} agentId={selected} onClose={() => setSelected(null)} />
+      </div>
+      <div className="side">
+        <Counters state={state} />
+        <AreasPanel state={state} selected={selected} onSelect={setSelected} />
+        <FindingsPanel state={state} />
+      </div>
+      <div className="log-row">
+        <EventLog state={state} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The scripted demo (`/demo`, and `run_demo0001`): replays a simulated run. `?speed=` and
+ * `?autoplay=0` tune the replay (used by the smoke test). Real runs are `RunView`.
  */
 export function LiveRun() {
   const { runId } = useParams();
   const [params] = useSearchParams();
-  const [selected, setSelected] = useState<string | null>(null);
 
   useReplay({
     autoplay: params.get("autoplay") !== "0",
@@ -69,20 +100,7 @@ export function LiveRun() {
         {announcement}
       </p>
 
-      <div className="live-grid">
-        <div className="stage">
-          <SwarmCanvas target={DEMO_TARGET} selected={selected} onSelect={setSelected} />
-          <AgentDrawer state={state} agentId={selected} onClose={() => setSelected(null)} />
-        </div>
-        <div className="side">
-          <Counters state={state} />
-          <AreasPanel state={state} selected={selected} onSelect={setSelected} />
-          <FindingsPanel state={state} />
-        </div>
-        <div className="log-row">
-          <EventLog state={state} />
-        </div>
-      </div>
+      <RunBoard target={DEMO_TARGET} tier={state.tier} />
     </>
   );
 }

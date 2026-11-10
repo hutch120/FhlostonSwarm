@@ -1,9 +1,23 @@
 import { fileURLToPath } from "node:url";
-import { Duration, Fn, RemovalPolicy, Stack, type StackProps, Validations } from "aws-cdk-lib";
+import {
+  ArnFormat,
+  Duration,
+  Fn,
+  RemovalPolicy,
+  Stack,
+  type CfnElement,
+  type StackProps,
+  Validations,
+} from "aws-cdk-lib";
+import { runtimeConfig } from "@swarm/shared/server";
+import { Rule, Schedule } from "aws-cdk-lib/aws-events";
+import { LambdaFunction } from "aws-cdk-lib/aws-events-targets";
 import { HttpApi, HttpMethod, HttpStage, CfnStage } from "aws-cdk-lib/aws-apigatewayv2";
+import { HttpIamAuthorizer } from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
+import { AppSyncAuthorizationType, EventApi, type ChannelNamespace } from "aws-cdk-lib/aws-appsync";
 import { PolicyStatement, ServicePrincipal } from "aws-cdk-lib/aws-iam";
-import { Architecture, Runtime } from "aws-cdk-lib/aws-lambda";
+import { Architecture, Runtime, type IFunction } from "aws-cdk-lib/aws-lambda";
 import {
   NodejsFunction,
   OutputFormat,
@@ -14,6 +28,7 @@ import type { ConfigurationSet } from "aws-cdk-lib/aws-ses";
 import { type ITopic, Subscription, SubscriptionProtocol } from "aws-cdk-lib/aws-sns";
 import type { Construct } from "constructs";
 import type { SwarmConfig } from "../config.js";
+import { AGENT_FAMILY, RUN_CLUSTER, RUN_STATE_MACHINE } from "../names.js";
 import { dataBucketName } from "./data-stack.js";
 
 export interface ApiStackProps extends StackProps {
@@ -25,14 +40,29 @@ export interface ApiStackProps extends StackProps {
 const API_SRC = fileURLToPath(new URL("../../../api/src/", import.meta.url));
 const REPO_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
 
-// Keys the API may touch. Nothing else in the data bucket is reachable from the web-facing Lambda.
+// Keys the web-facing API may touch. Nothing else in the data bucket is reachable from it.
 const API_PREFIXES = ["users", "auth", "suppression"] as const;
+// Closing a run also writes the anonymised cost index.
+const ADMIN_WRITE_PREFIXES = ["admin"] as const;
 
-/** The auth API: Hono on Lambda behind an HTTP API, plus the SES bounce/complaint handler. */
+/**
+ * The API: Hono on Lambda behind an HTTP API, the IAM-protected internal API the agent tasks call,
+ * the live channel (AppSync Events), the orchestration Lambdas (prepare, finalize, reaper) and the
+ * SES bounce/complaint handler. The state machine and the ECS cluster live in SwarmRuns, which
+ * depends on this stack; this stack refers to them by their fixed names.
+ */
 export class ApiStack extends Stack {
   readonly httpApi: HttpApi;
   /** Host name of the HTTP API, used as the CloudFront origin for /api/*. */
   readonly apiDomain: string;
+  /** `https://<id>.execute-api.<region>.amazonaws.com`: where agent tasks call the internal API. */
+  readonly internalApiBase: string;
+  readonly internalInvokeArn: string;
+  readonly prepareFunction: IFunction;
+  readonly finalizeFunction: IFunction;
+  readonly reaperFunction: IFunction;
+  readonly eventApi: EventApi;
+  readonly runsNamespace: ChannelNamespace;
 
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
@@ -41,25 +71,52 @@ export class ApiStack extends Stack {
     const bucketArn = `arn:${this.partition}:s3:::${bucketName}`;
     const { api } = config;
 
-    const environment: Record<string, string> = {
+    const stateMachineArn = this.formatArn({
+      service: "states",
+      resource: "stateMachine",
+      resourceName: RUN_STATE_MACHINE,
+      arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+    });
+    const executionArn = this.formatArn({
+      service: "states",
+      resource: "execution",
+      resourceName: `${RUN_STATE_MACHINE}:*`,
+      arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+    });
+
+    const secretEnvironment = {
       DATA_BUCKET: bucketName,
       SITE_ORIGIN: `https://${config.domainName}`,
       PEPPER_PARAMETER: api.pepperParameter,
       JWT_PARAMETER: api.jwtKeyParameter,
+    };
+
+    this.httpApi = new HttpApi(this, "HttpApi", {
+      apiName: "swarm-api",
+      description: "Swarm API, reached through CloudFront at /api/*",
+      createDefaultStage: false,
+    });
+    this.internalApiBase = `https://${this.httpApi.apiId}.execute-api.${this.region}.${this.urlSuffix}`;
+    this.internalInvokeArn = this.formatArn({
+      service: "execute-api",
+      resource: this.httpApi.apiId,
+      resourceName: "*/*/api/internal/*",
+    });
+    const mailEnvironment = {
       MAIL_FROM: api.mailFrom,
       MAIL_REPLY_TO: api.mailReplyTo,
       SES_CONFIGURATION_SET: configurationSet.configurationSetName,
-      ...(api.turnstileSecretParameter
-        ? { TURNSTILE_SECRET_PARAMETER: api.turnstileSecretParameter }
-        : {}),
     };
 
-    const common = (name: string): NodejsFunctionProps => ({
+    const common = (
+      name: string,
+      overrides: Partial<NodejsFunctionProps> = {},
+    ): NodejsFunctionProps => ({
       runtime: Runtime.NODEJS_24_X,
       architecture: Architecture.ARM_64,
       memorySize: 512,
       timeout: Duration.seconds(15),
-      environment,
+      environment: { ...secretEnvironment, ...mailEnvironment },
       projectRoot: REPO_ROOT,
       depsLockFilePath: `${REPO_ROOT}package-lock.json`,
       logGroup: new LogGroup(this, `${name}Logs`, {
@@ -76,6 +133,7 @@ export class ApiStack extends Stack {
         banner:
           "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
       },
+      ...overrides,
     });
 
     const secretArns = [api.pepperParameter, api.jwtKeyParameter, api.turnstileSecretParameter]
@@ -104,32 +162,210 @@ export class ApiStack extends Stack {
         conditions: { StringLike: { "s3:prefix": prefixes.map((p) => `${p}/*`) } },
       }),
     ];
+    const sendMail = new PolicyStatement({
+      actions: ["ses:SendEmail"],
+      // In the SES sandbox the recipient's identity is authorised too, hence identity/*.
+      resources: [
+        this.formatArn({ service: "ses", resource: "identity", resourceName: "*" }),
+        this.formatArn({
+          service: "ses",
+          resource: "configuration-set",
+          resourceName: configurationSet.configurationSetName,
+        }),
+      ],
+      conditions: { StringEquals: { "ses:FromAddress": api.mailFrom } },
+    });
+    const clusterArn = this.formatArn({
+      service: "ecs",
+      resource: "cluster",
+      resourceName: RUN_CLUSTER,
+    });
+    const taskArns = this.formatArn({
+      service: "ecs",
+      resource: "task",
+      resourceName: `${RUN_CLUSTER}/*`,
+    });
+
+    // Live channel -------------------------------------------------------------------------
+
+    const streamAuthFunction = new NodejsFunction(this, "StreamAuthFunction", {
+      ...common("StreamAuthFunction", { memorySize: 256, timeout: Duration.seconds(5) }),
+      entry: `${API_SRC}stream-auth-lambda.ts`,
+      handler: "handler",
+      description: "Authorizes browsers for one run's live channel (AppSync Events)",
+    });
+    for (const statement of readSecrets) streamAuthFunction.addToRolePolicy(statement);
+
+    this.eventApi = new EventApi(this, "EventApi", {
+      apiName: "swarm-events",
+      authorizationConfig: {
+        authProviders: [
+          {
+            authorizationType: AppSyncAuthorizationType.LAMBDA,
+            lambdaAuthorizerConfig: {
+              handler: streamAuthFunction,
+              resultsCacheTtl: Duration.minutes(1),
+            },
+          },
+          { authorizationType: AppSyncAuthorizationType.IAM },
+        ],
+        connectionAuthModeTypes: [AppSyncAuthorizationType.LAMBDA],
+        // Only the platform publishes (IAM); browsers subscribe with a per-run token.
+        defaultPublishAuthModeTypes: [AppSyncAuthorizationType.IAM],
+        defaultSubscribeAuthModeTypes: [AppSyncAuthorizationType.LAMBDA],
+      },
+    });
+    this.runsNamespace = this.eventApi.addChannelNamespace("runs");
+    const eventsEnvironment = {
+      EVENTS_HTTP_DOMAIN: this.eventApi.httpDns,
+      EVENTS_REALTIME_DOMAIN: this.eventApi.realtimeDns,
+    };
+
+    // The web-facing API -------------------------------------------------------------------
 
     const apiFunction = new NodejsFunction(this, "ApiFunction", {
-      ...common("ApiFunction"),
+      ...common("ApiFunction", {
+        // Stopping a run closes it (reads the whole event log, writes the report), so allow more time.
+        timeout: Duration.seconds(29),
+        environment: {
+          ...secretEnvironment,
+          ...mailEnvironment,
+          ...eventsEnvironment,
+          ...(api.turnstileSecretParameter
+            ? { TURNSTILE_SECRET_PARAMETER: api.turnstileSecretParameter }
+            : {}),
+          STATE_MACHINE_ARN: stateMachineArn,
+          ECS_CLUSTER: RUN_CLUSTER,
+        },
+      }),
       entry: `${API_SRC}lambda.ts`,
       handler: "handler",
-      description: "Swarm API (Hono): auth, sessions, targets, scans, runs, account",
+      description: "Swarm API (Hono): auth, sessions, targets, scans, runs, reports, account",
     });
     for (const statement of [
       ...readSecrets,
       ...bucketAccess(API_PREFIXES, ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]),
+      ...bucketAccess(ADMIN_WRITE_PREFIXES, ["s3:PutObject"]),
+      sendMail,
+      new PolicyStatement({ actions: ["states:StartExecution"], resources: [stateMachineArn] }),
+      new PolicyStatement({ actions: ["states:StopExecution"], resources: [executionArn] }),
       new PolicyStatement({
-        actions: ["ses:SendEmail"],
-        // In the SES sandbox the recipient's identity is authorised too, hence identity/*.
-        resources: [
-          this.formatArn({ service: "ses", resource: "identity", resourceName: "*" }),
-          this.formatArn({
-            service: "ses",
-            resource: "configuration-set",
-            resourceName: configurationSet.configurationSetName,
-          }),
-        ],
-        conditions: { StringEquals: { "ses:FromAddress": api.mailFrom } },
+        actions: ["ecs:ListTasks"],
+        resources: ["*"],
+        conditions: { ArnEquals: { "ecs:cluster": clusterArn } },
+      }),
+      new PolicyStatement({
+        actions: ["ecs:DescribeTasks", "ecs:StopTask"],
+        resources: [taskArns],
       }),
     ]) {
       apiFunction.addToRolePolicy(statement);
     }
+    this.eventApi.grantPublish(apiFunction);
+
+    // The agent tasks' API (IAM) ------------------------------------------------------------
+
+    const internalFunction = new NodejsFunction(this, "InternalFunction", {
+      ...common("InternalFunction", {
+        timeout: Duration.seconds(20),
+        environment: { ...secretEnvironment, ...eventsEnvironment },
+      }),
+      entry: `${API_SRC}internal-lambda.ts`,
+      handler: "handler",
+      description: "Agent task API: run input, event ingestion, evidence (IAM + run token)",
+    });
+    for (const statement of [
+      ...readSecrets,
+      ...bucketAccess(["users"], ["s3:GetObject", "s3:PutObject"]),
+    ]) {
+      internalFunction.addToRolePolicy(statement);
+    }
+    this.eventApi.grantPublish(internalFunction);
+
+    // Orchestration Lambdas, called by the state machine and the schedule -------------------
+
+    const orchestratorEnvironment = {
+      ...secretEnvironment,
+      ...mailEnvironment,
+      ...eventsEnvironment,
+      ECS_CLUSTER: RUN_CLUSTER,
+      AGENT_FAMILY,
+      STATE_MACHINE_ARN: stateMachineArn,
+      INTERNAL_API_BASE: this.internalApiBase,
+    };
+    const orchestrator = (
+      name: string,
+      handler: string,
+      overrides: Partial<NodejsFunctionProps>,
+      description: string,
+    ) =>
+      new NodejsFunction(this, name, {
+        ...common(name, overrides),
+        entry: `${API_SRC}orchestrator.ts`,
+        handler,
+        description,
+      });
+    const prepare = orchestrator(
+      "PrepareFunction",
+      "prepare",
+      { timeout: Duration.seconds(15), environment: orchestratorEnvironment },
+      "Run step 1: confirms the run and mints its run token",
+    );
+    const finalize = orchestrator(
+      "FinalizeFunction",
+      "finalize",
+      { memorySize: 1024, timeout: Duration.minutes(2), environment: orchestratorEnvironment },
+      "Run last step: report, cost, anonymised index, notice",
+    );
+    const reaper = orchestrator(
+      "ReaperFunction",
+      "reaper",
+      { memorySize: 1024, timeout: Duration.minutes(3), environment: orchestratorEnvironment },
+      "Stops tasks and executions that outlived their run, and closes their runs",
+    );
+    this.prepareFunction = prepare;
+    this.finalizeFunction = finalize;
+    this.reaperFunction = reaper;
+    for (const fn of [prepare, finalize, reaper]) {
+      for (const statement of [
+        ...readSecrets,
+        ...bucketAccess(["users"], ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]),
+      ]) {
+        fn.addToRolePolicy(statement);
+      }
+    }
+    for (const fn of [finalize, reaper]) {
+      for (const statement of [...bucketAccess(ADMIN_WRITE_PREFIXES, ["s3:PutObject"]), sendMail]) {
+        fn.addToRolePolicy(statement);
+      }
+      this.eventApi.grantPublish(fn);
+    }
+    for (const statement of [
+      new PolicyStatement({
+        actions: ["ecs:ListTasks"],
+        resources: ["*"],
+        conditions: { ArnEquals: { "ecs:cluster": clusterArn } },
+      }),
+      new PolicyStatement({
+        actions: ["ecs:DescribeTasks", "ecs:StopTask"],
+        resources: [taskArns],
+      }),
+      new PolicyStatement({ actions: ["states:ListExecutions"], resources: [stateMachineArn] }),
+      new PolicyStatement({
+        actions: ["states:DescribeExecution", "states:StopExecution"],
+        resources: [executionArn],
+      }),
+    ]) {
+      reaper.addToRolePolicy(statement);
+    }
+    // The safety net: a handful of invocations an hour, nothing running between them.
+    new Rule(this, "ReaperSchedule", {
+      description: "Stops agent tasks and executions that outlived their run",
+      schedule: Schedule.rate(Duration.minutes(runtimeConfig.reaper.intervalMinutes)),
+      targets: [new LambdaFunction(reaper)],
+    });
+
+    // Auth feedback ---------------------------------------------------------------------------
 
     const feedbackFunction = new NodejsFunction(this, "FeedbackFunction", {
       ...common("FeedbackFunction"),
@@ -154,15 +390,19 @@ export class ApiStack extends Stack {
       endpoint: feedbackFunction.functionArn,
     });
 
-    this.httpApi = new HttpApi(this, "HttpApi", {
-      apiName: "swarm-api",
-      description: "Swarm API, reached through CloudFront at /api/*",
-      createDefaultStage: false,
-    });
+    // HTTP API routes ------------------------------------------------------------------------
+
     this.httpApi.addRoutes({
       path: "/api/{proxy+}",
       methods: [HttpMethod.ANY],
       integration: new HttpLambdaIntegration("ApiIntegration", apiFunction),
+    });
+    // More specific than /api/{proxy+}: agent tasks sign these calls with their task role (IAM).
+    this.httpApi.addRoutes({
+      path: "/api/internal/{proxy+}",
+      methods: [HttpMethod.ANY],
+      integration: new HttpLambdaIntegration("InternalIntegration", internalFunction),
+      authorizer: new HttpIamAuthorizer(),
     });
     const accessLogs = new LogGroup(this, "AccessLogs", {
       retention: RetentionDays.ONE_MONTH,
@@ -190,18 +430,31 @@ export class ApiStack extends Stack {
 
     // Nothing here is a managed policy we can tighten further without losing function.
     const reason =
-      "Scoped to this stack's functions; wildcards are limited to the data prefixes and SES identities the API needs.";
-    for (const fn of [apiFunction, feedbackFunction]) {
+      "Scoped to this stack's functions; wildcards are limited to the data prefixes, SES identities, run tasks, executions and live-channel namespaces the functions need.";
+    const eventApiLogicalId = this.getLogicalId(this.eventApi.node.defaultChild as CfnElement);
+    const functions = [
+      apiFunction,
+      feedbackFunction,
+      internalFunction,
+      streamAuthFunction,
+      prepare,
+      finalize,
+      reaper,
+    ];
+    for (const fn of functions) {
       Validations.of(fn).acknowledge({
         id: "AwsSolutions-IAM4[Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole]",
         reason: "Standard Lambda logging role; the function logs to its own 30-day log group.",
       });
       for (const id of [
         "AwsSolutions-IAM5[Resource::*]",
-        ...API_PREFIXES.map(
+        ...[...API_PREFIXES, ...ADMIN_WRITE_PREFIXES].map(
           (p) => `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:s3:::${bucketName}/${p}/*]`,
         ),
         `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:ses:${this.region}:${this.account}:identity/*]`,
+        `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:ecs:${this.region}:${this.account}:task/${RUN_CLUSTER}/*]`,
+        `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:states:${this.region}:${this.account}:execution:${RUN_STATE_MACHINE}:*]`,
+        `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:appsync:${this.region}:${this.account}:apis/<${eventApiLogicalId}.ApiId>/channelNamespace/*]`,
       ]) {
         Validations.of(fn).acknowledge({ id, reason });
       }
@@ -209,7 +462,7 @@ export class ApiStack extends Stack {
     Validations.of(this.httpApi).acknowledge({
       id: "AwsSolutions-APIG4",
       reason:
-        "Authentication is done by the application (OTP + signed session cookies); /api/auth/* must be public.",
+        "Authentication is done by the application (OTP + signed session cookies); /api/auth/* must be public. /api/internal/* uses IAM.",
     });
     Validations.of(stage).acknowledge({
       id: "AwsSolutions-APIG1",

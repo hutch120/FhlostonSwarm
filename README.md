@@ -32,7 +32,7 @@ npm run format:check  # Prettier check (npm run format to fix)
 
 ## Web app
 
-`src/web` is the Vite + React + TypeScript SPA. Sign-in, sessions, the account page, intake, saved targets and scans, credits, runs (queued) and data deletion use the real API (`src/api`); the live swarm view still runs against a replayed, simulated event feed until agents run (Phase 5). The event contract, reducer, roster and tier limits live in `src/shared`; the terms of use and privacy notice shown in the intake flow are in `src/web/content/legal.ts`.
+`src/web` is the Vite + React + TypeScript SPA. Sign-in, sessions, the account page, intake, saved targets and scans, credits, runs (start, live view, stop, report) and data deletion use the real API (`src/api`). A real run's page follows its event stream: S3 catch-up, then the AppSync Events live channel, with polling as the fallback; `/demo` still replays a simulated run. The event contract, reducer, roster, report data and tier limits live in `src/shared`; the terms of use and privacy notice shown in the intake flow are in `src/web/content/legal.ts`.
 
 ```
 npm run dev -w src/api         # local API on :8787 (in-memory data, mail collected, no AWS)
@@ -45,7 +45,7 @@ npm run test:e2e -w src/web    # Playwright (starts the dev server and the local
 
 The replay accepts `?speed=<n>` (e.g. `/demo?speed=8`) and `?autoplay=0`. Colours and the look live in `src/web/src/theme.ts`; the customer-facing scan depths (Scout, Sweep, Probe, Siege: each a group of agents) live in `src/shared/config/tiers.json` and the server-only cost limits in `src/shared/config/limits.json`. Every run, one-off or scheduled, uses a paid credit of its depth. Saved scans (target, depth, schedule, notification email) are in `src/shared/src/scans.ts`; the **Scans** screen lets you run one again, edit it or delete it without reconfiguring.
 
-To sign in locally, run both servers, enter any address on `/login`, then read the code from the local mailbox: `http://localhost:8787/__dev/mail?to=<address>`. The dev server also exposes `/__dev/deletion-code?to=`, `/__dev/confirmation?to=` and `POST /__dev/grant` (`{ to, tier, count }`, adds credits) so every flow can be driven locally. These exist only in the local dev server, never deployed.
+To sign in locally, run both servers, enter any address on `/login`, then read the code from the local mailbox: `http://localhost:8787/__dev/mail?to=<address>`. The dev server also exposes `/__dev/deletion-code?to=`, `/__dev/confirmation?to=`, `POST /__dev/grant` (`{ to, tier, count }`, adds credits) and `POST /__dev/seed-target` (`{ to }`, saves a target pointing at the synthetic target the dev server starts on :8090) so every flow can be driven locally. A started run executes the real agent behind the real scope proxy inside the dev server (no AWS). These exist only in the local dev server, never deployed.
 
 ## API
 
@@ -53,7 +53,8 @@ To sign in locally, run both servers, enter any address on `/login`, then read t
 
 - Auth: `GET /api/health`, `POST /api/auth/request|verify|refresh|logout`, `GET /api/auth/session`, `GET /api/me` (account, role, credits per scan depth, and whether the account is unmetered staff), `GET /api/staff/whoami`.
 - Targets and scans (all need a session and the CSRF token): `GET|POST /api/targets`, `PUT|DELETE /api/targets/:id` (delete also removes the scans on it), `GET|POST /api/scans`, `GET|PUT|DELETE /api/scans/:id`, `PATCH /api/scans/:id/status`, `POST /api/scans/:id/notify/resend`. A saved password is never returned; an update keeps it unless a new one is sent.
-- Runs: `POST /api/scans/:id/run` (spends one credit of the scan's depth, snapshots the target and scan into `runs/{runId}/input.json`, writes a `queued` `summary.json`; 402 `no_credit` otherwise), `GET /api/runs`, `GET|DELETE /api/runs/:id`. Nothing executes until Phase 5.
+- Runs: `POST /api/scans/:id/run` (spends one credit of the scan's depth, snapshots the target and scan into `runs/{runId}/input.json`, writes a `queued` `summary.json`; 402 `no_credit` otherwise), `GET /api/runs`, `GET|DELETE /api/runs/:id` (deleting a running run stops it first), `POST /api/runs/:id/start|stop`, `GET /api/runs/:id/events?after=<seq>` (S3 catch-up), `POST /api/runs/:id/stream-token` (short-lived token for the live channel), `GET /api/runs/:id/report` and `GET /api/runs/:id/report/link` (a 5-minute presigned download of `report.html`).
+- Agent tasks: `/api/internal/*` (`GET input`, `POST events|evidence`) is IAM-signed by the task role and also needs the per-run token; it is not reachable from a browser session.
 - Notification addresses: `POST /api/notify/confirm` (public, single-use link token). An address other than the account email gets no mail until confirmed.
 - Account deletion: `POST /api/account/delete-code` emails a fresh code, then `DELETE /api/account` with `{ code }` removes everything under `users/{emailHash}/`.
 
@@ -67,15 +68,16 @@ To sign in locally, run both servers, enter any address on `/login`, then read t
 
 ## Infrastructure
 
-The AWS infrastructure is a single-environment CDK app in `src/infra` (stacks `SwarmData`, `SwarmDns`, `SwarmEdge`, `SwarmSes`, `SwarmApi`, `SwarmOps`), configured by `src/infra/config/swarm.json`. Use the CLI wrappers, which check you are signed in to the swarm account and use the `swarm` profile:
+The AWS infrastructure is a single-environment CDK app in `src/infra` (stacks `SwarmData`, `SwarmDns`, `SwarmEdge`, `SwarmSes`, `SwarmApi`, `SwarmRuns`, `SwarmOps`), configured by `src/infra/config/swarm.json`. A run is a Step Functions execution (`swarm-run`) that starts one Fargate task (the agent plus a scope-proxy sidecar, image from `src/agents`) in a public-subnet-only network; nothing runs between scans (no NAT, endpoints or services). Run-infrastructure knobs (task size, reaper interval) are in `src/shared/config/runtime.json`, and the staff-only price table in `src/shared/config/pricing.json`. Use the CLI wrappers, which check you are signed in to the swarm account and use the `swarm` profile:
 
 ```
 swarm init-secrets           # one-off: create the auth pepper + JWT key in SSM
 swarm synth                  # build the web app, synthesise + cdk-nag checks
 swarm diff                   # show pending changes
-swarm deploy                 # build the web app and deploy all stacks (e.g. --require-approval never)
-swarm test-cleanup           # list test data (_test/ objects, test:true records, swarm-test-* resources)
+swarm deploy                 # build the web app and agent images, deploy all stacks (e.g. --require-approval never; needs Docker running)
+swarm test-cleanup           # list test data (_test/ objects, test:true records, swarm-test-* resources, running test tasks)
 swarm test-cleanup --delete  # remove it
+swarm synthetic-target start|stop|status   # the deliberately vulnerable test app, on demand as a Fargate task
 swarm grant-credit <email> <depth> [count] --reason "<why>"   # comp credits for an account (audit-logged)
 ```
 

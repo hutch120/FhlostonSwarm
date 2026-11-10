@@ -32,4 +32,14 @@ export class MemoryStore implements ObjectStore {
   async list(prefix: string): Promise<string[]> {
     return [...this.objects.keys()].filter((k) => k.startsWith(prefix)).sort();
   }
+
+  async folders(prefix: string): Promise<string[]> {
+    const found = new Set<string>();
+    for (const key of this.objects.keys()) {
+      if (!key.startsWith(prefix)) continue;
+      const slash = key.indexOf("/", prefix.length);
+      if (slash >= 0) found.add(key.slice(0, slash + 1));
+    }
+    return [...found].sort();
+  }
 }

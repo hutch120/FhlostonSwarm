@@ -167,6 +167,7 @@ describe("saving a scan", () => {
       "POST /api/targets",
       "POST /api/scans",
       "POST /api/scans/scan_abcd1234/run",
+      "POST /api/runs/run_abcd1234/start",
     ]);
     const [targetBody, scanBody] = [JSON.parse(calls[0]!.body!), JSON.parse(calls[1]!.body!)];
     expect(targetBody.logins.user1.password).toBe("p");
@@ -207,6 +208,57 @@ describe("saving a scan", () => {
       }),
     ).rejects.toBeInstanceOf(ApiError);
     expect(existing.calls.map((c) => c.method)).toEqual(["PUT", "POST"]);
+  });
+});
+
+describe("run calls", () => {
+  it("starts a run after creating it, and leaves it queued when it cannot be started", async () => {
+    const { calls, fetchFn } = fakeFetch((call) =>
+      call.path.endsWith("/start")
+        ? reply(503, { error: "start_failed" })
+        : reply(201, { runId: "run_abcd1234" }),
+    );
+    expect(await createHttpApi(fetchFn).runScan("scan_abcd1234")).toEqual({
+      runId: "run_abcd1234",
+    });
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "POST /api/scans/scan_abcd1234/run",
+      "POST /api/runs/run_abcd1234/start",
+    ]);
+  });
+
+  it("starts and stops a run, and reads its events, stream token, report and download link", async () => {
+    const { calls, fetchFn } = fakeFetch(() => reply(200, { ok: true }));
+    const api = createHttpApi(fetchFn);
+    await api.startRun("run_abcd1234");
+    await api.stopRun("run_abcd1234");
+    await api.getRunEvents("run_abcd1234", 17);
+    await api.getStreamToken("run_abcd1234");
+    await api.getReport("run_abcd1234");
+    await api.getReportLink("run_abcd1234");
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "POST /api/runs/run_abcd1234/start",
+      "POST /api/runs/run_abcd1234/stop",
+      "GET /api/runs/run_abcd1234/events?after=17",
+      "POST /api/runs/run_abcd1234/stream-token",
+      "GET /api/runs/run_abcd1234/report",
+      "GET /api/runs/run_abcd1234/report/link",
+    ]);
+    // Only the mutations carry the CSRF token.
+    expect(calls.map((c) => c.headers["x-csrf-token"])).toEqual([
+      "csrf-1",
+      "csrf-1",
+      undefined,
+      "csrf-1",
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("explains the run errors in words", () => {
+    expect(messageFor(new ApiError(409, "already_started"), "x")).toMatch(/already started/);
+    expect(messageFor(new ApiError(409, "not_running"), "x")).toMatch(/not running/);
+    expect(messageFor(new ApiError(404, "report_not_ready"), "x")).toMatch(/not ready/);
   });
 });
 

@@ -12,6 +12,8 @@ export const tierLimitsSchema = z.object({
   /** null means no fixed cap (per-agent budgets apply instead). */
   pageCap: z.number().int().positive().nullable(),
   llmStepCap: z.number().int().positive().nullable(),
+  /** Checks (agent steps) a run may perform in total; the rest are reported as gaps. */
+  stepCap: z.number().int().positive(),
   requestCap: z.number().int().positive(),
   requestsPerSecond: z.number().positive(),
   tokenCap: z

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { getCredits, grantCredits } from "./credits.js";
+import { appendEvents, getSequencer, readEvents, type DraftEvent } from "./events.js";
 import { emailHash, parseEmail } from "./identity.js";
 import { issueChallenge, verifyChallenge } from "./otp.js";
 import { createSession, rotateSession } from "./sessions.js";
@@ -122,6 +123,56 @@ describe.skipIf(!enabled)("S3 integration (_test/ prefix)", () => {
     expect((await b.withCsrf("POST", "/api/auth/logout", {})).status).toBe(200);
     expect((await b.request("GET", "/api/me")).status).toBe(401);
   }, 60_000);
+
+  describe("run events", () => {
+    const owner = "d".repeat(64);
+    const scopeOf = (id: string) => ({ emailHash: owner, runId: id, tier: "sweep" as const });
+    const draft = (id: string, n: number): DraftEvent => ({
+      type: "dispatch",
+      agent: "tls",
+      runId: id,
+      ts: new Date().toISOString(),
+      payload: { task: `task ${n}` },
+    });
+
+    it("twenty concurrent batches get unique, gap-free seq numbers, and a retried batch is applied once", async () => {
+      const id = "run_int00000001";
+      const batches = Array.from({ length: 20 }, (_, i) => ({
+        batchId: `batch-int-${String(i).padStart(4, "0")}`,
+        events: [draft(id, i * 2), draft(id, i * 2 + 1)],
+      }));
+      const appended = await Promise.all(batches.map((b) => appendEvents(store, scopeOf(id), b)));
+      // A retry of one of them changes nothing.
+      const retry = await appendEvents(store, scopeOf(id), batches[7]!);
+      expect(retry.duplicate).toBe(true);
+
+      const page = await readEvents(store, { emailHash: owner, runId: id }, 0, 1000);
+      expect(page.events.map((e) => e.seq)).toEqual(Array.from({ length: 40 }, (_, i) => i + 1));
+      expect(page.lastSeq).toBe(40);
+      // Each batch's two events are next to each other in the log.
+      for (const result of appended) {
+        const [first, second] = result.events;
+        expect(second!.seq).toBe(first!.seq + 1);
+      }
+      expect((await getSequencer(store, scopeOf(id))).lastSeq).toBe(40);
+    }, 120_000);
+
+    it("lists a user's runs by folder, without reading the events inside them", async () => {
+      const a = "run_int00000002";
+      const b = "run_int00000003";
+      for (const id of [a, b]) {
+        await store.put(
+          keys.runSummary(owner, id),
+          JSON.stringify({ runId: id, status: "queued" }),
+        );
+        await appendEvents(store, scopeOf(id), { batchId: `batch-${id}`, events: [draft(id, 0)] });
+      }
+      const folders = await store.folders(keys.runsPrefix(owner));
+      expect(folders).toEqual(
+        expect.arrayContaining([keys.runPrefix(owner, a), keys.runPrefix(owner, b)]),
+      );
+    }, 60_000);
+  });
 
   describe("intake, credits and deletion", () => {
     const EMAIL = "swarm-test-intake-int@example.com";

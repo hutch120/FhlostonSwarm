@@ -1,5 +1,14 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
+import {
+  DEMO_RUN_ID,
+  applyEvents,
+  buildReport,
+  createRunState,
+  replayEvents,
+  summarise,
+  tierRoster,
+} from "@swarm/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App.js";
 import { ApiError, createMockApi, setApi, type ApiClient } from "./api/client.js";
@@ -429,6 +438,37 @@ describe("A queued run", () => {
     expect(screen.getByTestId("run-status")).toHaveTextContent("queued");
   });
 
+  it("starts when asked, and then follows the run", async () => {
+    let status: "queued" | "running" = "queued";
+    const start = vi.fn(async () => {
+      status = "running";
+    });
+    setApi({
+      ...createMockApi(),
+      getRun: async () => ({ ...queued, summary: { ...queued.summary, status } }),
+      startRun: start,
+    });
+    renderApp("/runs/run_queued001");
+    await userEvent.click(await screen.findByRole("button", { name: "Start run" }));
+    expect(start).toHaveBeenCalledWith("run_queued001");
+    expect(await screen.findByRole("heading", { name: "Live swarm view" })).toBeInTheDocument();
+    expect(screen.getByTestId("run-status")).toHaveTextContent("running");
+  });
+
+  it("says why a start failed and stays queued", async () => {
+    setApi({
+      ...createMockApi(),
+      getRun: async () => queued,
+      startRun: async () => {
+        throw new ApiError(503, "start_failed");
+      },
+    });
+    renderApp("/runs/run_queued001");
+    await userEvent.click(await screen.findByRole("button", { name: "Start run" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/could not be started/i);
+    expect(screen.getByTestId("run-status")).toHaveTextContent("queued");
+  });
+
   it("says when the run is gone", async () => {
     setApi({
       ...createMockApi(),
@@ -438,6 +478,137 @@ describe("A queued run", () => {
     });
     renderApp("/runs/run_gone00001");
     expect(await screen.findByRole("heading", { name: "Run not found" })).toBeInTheDocument();
+  });
+});
+
+describe("A real run", () => {
+  const RUN = "run_live00001";
+  /** The demo script's events, re-addressed to this run (its roster is the Siege one). */
+  const events = replayEvents.map((e) => ({ ...e, runId: RUN }));
+  const running = {
+    ...MOCK_RUNS[0]!,
+    target: "staging.example.com",
+    summary: { ...MOCK_RUNS[0]!.summary, runId: RUN, status: "running" as const },
+  };
+
+  /** An API whose log grows as the test releases events, as a run would. */
+  const apiWith = (released: { n: number }, over: Partial<ApiClient> = {}): ApiClient => ({
+    ...createMockApi(),
+    getRun: async () => running,
+    getRunEvents: async (_id, after) => {
+      const page = events.slice(0, released.n).filter((e) => e.seq > after);
+      return { events: page, lastSeq: page.at(-1)?.seq ?? after, more: false };
+    },
+    ...over,
+  });
+
+  it("follows the event stream with no live channel by polling, and offers Stop", async () => {
+    const released = { n: 6 };
+    const stop = vi.fn(async () => undefined);
+    setApi(apiWith(released, { stopRun: stop }));
+    renderApp(`/runs/${RUN}`);
+
+    expect(await screen.findAllByTestId("agent-chip")).toHaveLength(12);
+    await waitFor(() =>
+      expect(screen.getByTestId("transport")).toHaveTextContent(/every few seconds/i),
+    );
+    expect(screen.getByTestId("run-status")).toHaveTextContent("running");
+    expect(screen.queryByTestId("report-banner")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Stop run" }));
+    expect(stop).toHaveBeenCalledWith(RUN);
+  });
+
+  it("shows the report link once the complete event arrives, and no Stop button", async () => {
+    setApi(apiWith({ n: events.length }));
+    renderApp(`/runs/${RUN}`);
+    const banner = await screen.findByTestId("report-banner");
+    expect(banner).toHaveTextContent("Report assembled");
+    expect(within(banner).getByRole("link", { name: /open the report/i })).toHaveAttribute(
+      "href",
+      `/runs/${RUN}/report`,
+    );
+    expect(screen.getByTestId("run-status")).toHaveTextContent("complete");
+    expect(screen.queryByRole("button", { name: "Stop run" })).toBeNull();
+    expect(screen.queryByTestId("transport")).toBeNull();
+    expect(screen.getAllByTestId("finding")).toHaveLength(11);
+  });
+
+  it("explains a run that ended on our side", async () => {
+    const failed = {
+      ...running,
+      summary: { ...running.summary, status: "failed" as const },
+      reason: "The run ended because of a problem on our side. Your credit has been returned.",
+    };
+    setApi(apiWith({ n: 0 }, { getRun: async () => failed }));
+    renderApp(`/runs/${RUN}`);
+    const banner = await screen.findByTestId("report-banner");
+    expect(banner).toHaveTextContent(/credit has been returned/i);
+    expect(screen.getByTestId("run-status")).toHaveTextContent("failed");
+  });
+
+  it("lists a stopped run's report on the dashboard", async () => {
+    const stopped = { ...running, summary: { ...running.summary, status: "stopped" as const } };
+    setApi({ ...createMockApi(), listRuns: async () => [stopped] });
+    renderApp("/dashboard");
+    const row = await screen.findByTestId("run-row");
+    expect(within(row).getByRole("link", { name: "Report" })).toHaveAttribute(
+      "href",
+      `/runs/${RUN}/report`,
+    );
+  });
+});
+
+describe("A real report", () => {
+  const RUN = "run_live00001";
+  const base = (() => {
+    const { areas, agents } = tierRoster("siege");
+    const state = applyEvents(
+      createRunState({ runId: DEMO_RUN_ID, tier: "siege", areas, agents }),
+      replayEvents,
+    );
+    return buildReport({
+      state,
+      events: replayEvents,
+      summary: summarise(state),
+      target: "staging.example.com",
+      generatedAt: "2026-11-10T00:00:00.000Z",
+    });
+  })();
+  const report = { ...base, runId: RUN };
+
+  it("shows the findings, what could not be tested and the disclaimer", async () => {
+    setApi({ ...createMockApi(), getReport: async () => report });
+    renderApp(`/runs/${RUN}/report`);
+    expect(await screen.findByRole("heading", { name: "Report" })).toBeInTheDocument();
+    expect(screen.getAllByTestId("report-finding")).toHaveLength(report.findings.length);
+    expect(screen.getByTestId("report-gaps")).toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent(/automated, AI-assisted/);
+    expect(screen.getByRole("link", { name: "Back to the run" })).toHaveAttribute(
+      "href",
+      `/runs/${RUN}`,
+    );
+  });
+
+  it("downloads the HTML through a time-limited link", async () => {
+    const link = vi.fn(async () => ({
+      url: "https://data.test/report.html",
+      expiresAt: "2026-11-10T00:05:00.000Z",
+    }));
+    setApi({ ...createMockApi(), getReport: async () => report, getReportLink: link });
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+    renderApp(`/runs/${RUN}/report`);
+    await userEvent.click(await screen.findByRole("button", { name: "Download HTML" }));
+    expect(link).toHaveBeenCalledWith(RUN);
+    expect(click).toHaveBeenCalled();
+    click.mockRestore();
+  });
+
+  it("says when the report is not ready", async () => {
+    renderApp(`/runs/${RUN}/report`);
+    expect(await screen.findByText(/report is not ready yet/i)).toBeInTheDocument();
   });
 });
 

@@ -1,0 +1,9 @@
+{
+  "version": "2026-11-10",
+  "verified": false,
+  "currency": "USD",
+  "fargate": { "vcpuPerHour": 0.0506, "gbPerHour": 0.0056 },
+  "egressPerGb": 0.114,
+  "stepFunctionsPerTransition": 0.000025,
+  "bedrock": {}
+}

@@ -467,9 +467,14 @@ td.actions {
   color: var(--accent);
   border-color: rgba(34, 229, 255, 0.5);
 }
-.badge-status[data-status="paused"] {
+.badge-status[data-status="paused"],
+.badge-status[data-status="stopped"] {
   color: var(--warning);
   border-color: rgba(255, 180, 84, 0.5);
+}
+.badge-status[data-status="failed"] {
+  color: var(--sev-high);
+  border-color: rgba(255, 120, 90, 0.5);
 }
 .block {
   display: block;

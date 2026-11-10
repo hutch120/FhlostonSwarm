@@ -8,6 +8,9 @@ export type CdkAction = "deploy" | "diff" | "synth";
 
 const INFRA_DIR = fileURLToPath(new URL("../src/infra", import.meta.url));
 const WEB_DIR = fileURLToPath(new URL("../src/web", import.meta.url));
+const IMAGE_DIRS = ["../src/agents", "../src/synthetic-target"].map((d) =>
+  fileURLToPath(new URL(d, import.meta.url)),
+);
 
 export function cdkArgs(action: CdkAction, extra: string[]): string[] {
   const args: string[] = [action];
@@ -28,10 +31,23 @@ async function buildWeb(): Promise<void> {
   if (code !== 0) throw new Error(`Web build failed (exit ${code}).`);
 }
 
+/** Bundles the agent task and the synthetic target; their Docker images copy the result (dist/). */
+async function buildImages(): Promise<void> {
+  for (const dir of IMAGE_DIRS) {
+    const code = await new Promise<number>((resolve, reject) => {
+      const child = spawn(process.execPath, ["build.mjs"], { cwd: dir, stdio: "inherit" });
+      child.on("error", reject);
+      child.on("close", (c) => resolve(c ?? 1));
+    });
+    if (code !== 0) throw new Error(`Bundling ${dir} failed (exit ${code}).`);
+  }
+}
+
 /** Runs the CDK CLI for src/infra, after confirming the swarm account. */
 export async function cdk(action: CdkAction, extra: string[]): Promise<void> {
   await requireSwarmAccount();
   await buildWeb();
+  await buildImages();
   const cdkBin = createRequire(import.meta.url).resolve("aws-cdk/bin/cdk");
   const code = await new Promise<number>((resolve, reject) => {
     const child = spawn(process.execPath, [cdkBin, ...cdkArgs(action, extra)], {

@@ -51,6 +51,7 @@ describe("updateJson", () => {
     const racing = {
       get: store.get.bind(store),
       list: store.list.bind(store),
+      folders: store.folders.bind(store),
       delete: store.delete.bind(store),
       put: async () => {
         throw new PreconditionFailedError("k");
@@ -79,5 +80,15 @@ describe("PrefixedStore", () => {
     expect(await scoped.list("users/")).toEqual(["users/a.json"]);
     await scoped.delete("users/a.json");
     expect(await inner.list("")).toEqual([]);
+  });
+
+  it("lists the folders one level down without listing what is inside", async () => {
+    const inner = new MemoryStore();
+    const scoped = new PrefixedStore(inner, "_test/run-1/");
+    await scoped.put("runs/a/summary.json", "x");
+    await scoped.put("runs/a/events/1.json", "x");
+    await scoped.put("runs/b/summary.json", "x");
+    await scoped.put("runs.json", "x");
+    expect(await scoped.folders("runs/")).toEqual(["runs/a/", "runs/b/"]);
   });
 });

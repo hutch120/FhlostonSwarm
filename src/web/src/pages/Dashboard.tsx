@@ -22,7 +22,13 @@ export function CreditsLine({ credits }: { credits: Record<TierId, number> }) {
 export function Dashboard() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const runs = useQuery({ queryKey: ["runs"], queryFn: () => api.listRuns() });
+  const runs = useQuery({
+    queryKey: ["runs"],
+    queryFn: () => api.listRuns(),
+    // Follow a run that is going: its counts and status change while the page is open.
+    refetchInterval: (query) =>
+      query.state.data?.some((r) => r.summary.status === "running") ? 5000 : false,
+  });
   const account = useQuery({ queryKey: ["account"], queryFn: () => api.getAccount() });
   const [confirming, setConfirming] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -135,7 +141,9 @@ export function Dashboard() {
                     <td>{Math.round(s.coverage * 100)}%</td>
                     <td className="actions">
                       <Link to={`/runs/${s.runId}`}>Watch</Link>
-                      {s.status === "complete" && (
+                      {(s.status === "complete" ||
+                        s.status === "stopped" ||
+                        s.status === "failed") && (
                         <Link to={`/runs/${s.runId}/report`}>Report</Link>
                       )}
                       {scanId && (

@@ -2,5 +2,10 @@
   "hosted-zone:account=885922397779:domainName=fhlostonswarm.com:region=ap-southeast-2": {
     "Id": "/hostedzone/Z07856792QBFWJ8CRVSA5",
     "Name": "fhlostonswarm.com."
-  }
+  },
+  "availability-zones:account=885922397779:region=ap-southeast-2": [
+    "ap-southeast-2a",
+    "ap-southeast-2b",
+    "ap-southeast-2c"
+  ]
 }

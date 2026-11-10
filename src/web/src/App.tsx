@@ -12,17 +12,17 @@ import { Legal } from "./pages/Legal.js";
 import { LiveRun } from "./pages/LiveRun.js";
 import { Login } from "./pages/Login.js";
 import { NotifyConfirm } from "./pages/NotifyConfirm.js";
-import { QueuedRun } from "./pages/QueuedRun.js";
+import { RunView } from "./pages/RunView.js";
 import { Report } from "./pages/Report.js";
 import { Scans } from "./pages/Scans.js";
 import { Staff } from "./pages/Staff.js";
 import { VerifyLink } from "./pages/VerifyLink.js";
 import { useSession } from "./state/session.js";
 
-/** The scripted demo replays in the live view; a real run is queued until the agents exist. */
+/** The scripted demo replays in the live view; a real run follows its own event stream. */
 function RunPage() {
   const { runId = "" } = useParams();
-  return runId === DEMO_RUN_ID ? <LiveRun /> : <QueuedRun runId={runId} />;
+  return runId === DEMO_RUN_ID ? <LiveRun /> : <RunView runId={runId} />;
 }
 
 function NotFound() {

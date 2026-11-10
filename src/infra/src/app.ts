@@ -6,6 +6,7 @@ import { DataStack } from "./stacks/data-stack.js";
 import { DnsStack } from "./stacks/dns-stack.js";
 import { EdgeStack } from "./stacks/edge-stack.js";
 import { OpsStack } from "./stacks/ops-stack.js";
+import { RunsStack } from "./stacks/runs-stack.js";
 import { SesStack } from "./stacks/ses-stack.js";
 
 /** Builds the single-environment CDK app (no stages, no stage prefixes). */
@@ -20,6 +21,13 @@ export function buildApp(config: SwarmConfig, app = new App()): App {
     config,
     configurationSet: ses.configurationSet,
     feedbackTopic: ses.feedbackTopic,
+  });
+  new RunsStack(app, "SwarmRuns", {
+    env,
+    config,
+    internalInvokeArn: api.internalInvokeArn,
+    prepareFunction: api.prepareFunction,
+    finalizeFunction: api.finalizeFunction,
   });
   const edge = new EdgeStack(app, "SwarmEdge", {
     env,
