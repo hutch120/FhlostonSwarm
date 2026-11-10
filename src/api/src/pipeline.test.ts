@@ -1,12 +1,15 @@
 import type { AddressInfo } from "node:net";
 import type http from "node:http";
-import { runEventsPageSchema, runReportSchema, TERMS_VERSION } from "@swarm/shared";
+import { PlaywrightDriver, chromiumAvailable, createOfflineLlm } from "@swarm/agents";
+import { runEventsPageSchema, runReportSchema, TERMS_VERSION, tiers } from "@swarm/shared";
+import { limitsFor } from "@swarm/shared/server";
 import expected from "@swarm/synthetic-target/expected.json" with { type: "json" };
 import { createTarget, USERS } from "@swarm/synthetic-target";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getCredits, grantCredits } from "./credits.js";
 import { emailHash, parseEmail } from "./identity.js";
 import { LocalLauncher } from "./local-launcher.js";
+import { acquireSlot, releaseSlot } from "./pool.js";
 import { keys } from "./storage/keys.js";
 import { putJson } from "./storage/json.js";
 import { createHarness, testSecrets, type Harness, type TestBrowser } from "./testkit.js";
@@ -16,6 +19,10 @@ import { createHarness, testSecrets, type Harness, type TestBrowser } from "./te
  * (behind the real scope proxy) against the synthetic target, its events go through the internal API
  * into the log and the live channel, and the run is closed with a report. Only AWS is replaced.
  */
+// Every run launches Chromium for the explorer.
+vi.setConfig({ testTimeout: 60_000 });
+const browserAvailable = await chromiumAvailable();
+
 const OWNER = "swarm-test-pipeline@example.com";
 const owner = emailHash(testSecrets.pepper, parseEmail(OWNER)!);
 
@@ -45,6 +52,9 @@ async function setup(tier: "scout" | "sweep", appUrl = () => `http://127.0.0.1:$
     secrets: async () => testSecrets,
     publisher: h.publisher,
     allowPrivate: true,
+    llm: () => createOfflineLlm(),
+    driverFactory: (options) => PlaywrightDriver.launch(options),
+    pollMs: 20,
     now: h.clock.now,
     finalize: {
       store: h.store,
@@ -100,7 +110,7 @@ async function setup(tier: "scout" | "sweep", appUrl = () => `http://127.0.0.1:$
   return { h, browser, launcher, runId };
 }
 
-describe("a run, end to end", () => {
+describe.skipIf(!browserAvailable)("a run, end to end", () => {
   it("runs the agent against the synthetic target and closes with the expected findings", async () => {
     const { h, browser, launcher, runId } = await setup("sweep");
     expect((await browser.withCsrf("POST", `/api/runs/${runId}/start`)).status).toBe(200);
@@ -115,10 +125,12 @@ describe("a run, end to end", () => {
       };
     };
     expect(run.summary.status).toBe("complete");
-    expect(run.summary.findings.total).toBe(expected.findings.length);
-    // tls, zap and cors ran; dns, surface, bundle and authn are not available yet.
-    expect(run.summary.agents).toEqual({ total: 7, done: 3 });
-    expect(run.summary.coverage).toBeCloseTo(3 / 7, 2);
+    // Sweep signs in as the non-admin customer here, so the findings are the ones the whole group
+    // raises that do not depend on the administrator login.
+    const want = expected.findings.filter((f) => tiers.sweep.agents.includes(f.agent));
+    expect(run.summary.findings.total).toBe(want.length);
+    expect(run.summary.agents).toEqual({ total: 7, done: 7 });
+    expect(run.summary.coverage).toBeGreaterThan(0.8);
 
     const page = runEventsPageSchema.parse(
       await (await browser.request("GET", `/api/runs/${runId}/events`)).json(),
@@ -131,19 +143,37 @@ describe("a run, end to end", () => {
     const report = runReportSchema.parse(
       await (await browser.request("GET", `/api/runs/${runId}/report`)).json(),
     );
-    for (const want of expected.findings) {
+    for (const w of want) {
       const got = report.findings.find(
-        (f) => f.agent === want.agent && f.title.includes(want.titleIncludes),
+        (f) => f.agent === w.agent && f.title.includes(w.titleIncludes),
       );
-      expect(got, `${want.agent}: ${want.titleIncludes}`).toBeDefined();
-      expect(got!.severity).toBe(want.severity);
+      expect(got, `${w.agent}: ${w.titleIncludes}`).toBeDefined();
+      expect(got!.severity).toBe(w.severity);
     }
-    expect(report.gaps.map((g) => g.agent).sort()).toEqual(["authn", "bundle", "dns", "surface"]);
+    // The checks a read-only, outside-in scan cannot make are listed, not hidden.
+    expect(report.gaps.map((g) => g.agent).sort()).toEqual(["authn", "dns", "dns"]);
+    // The deeper agents are listed as not included at this depth, and the app profile is filled in.
+    expect(report.notIncluded.map((n) => n.agent).sort()).toEqual([
+      "authz",
+      "idor",
+      "output",
+      "prompt",
+      "session",
+    ]);
+    expect(report.profile?.coverage.signedIn).toBe(true);
+    expect(report.profile?.areas.length).toBeGreaterThan(4);
 
     // The agent's requests went through the proxy, which logged them as evidence.
     const log = JSON.parse((await h.store.get(keys.runEvidence(owner, runId, "proxy-log")))!.body);
     expect(log.entries.length).toBeGreaterThanOrEqual(8);
-    expect(log.entries.every((e: { decision: string }) => e.decision === "allowed")).toBe(true);
+    // The one write the proxy let through is the sign-in.
+    const writes = log.entries.filter((e: { method: string }) => e.method === "POST");
+    expect(writes.filter((w: { decision: string }) => w.decision === "allowed")).toHaveLength(1);
+
+    // The model's usage is in the cost record, and not in anything the customer sees.
+    const cost = JSON.parse((await h.store.get(keys.runCost(owner, runId)))!.body);
+    expect(cost.bedrock.calls).toBeGreaterThan(0);
+    expect(JSON.stringify(report)).not.toMatch(/bedrock|"usd"|inputTokens|modelId/i);
 
     expect((await getCredits(h.store, owner)).sweep).toBe(1);
     expect(h.mailer.reports).toHaveLength(1);
@@ -156,8 +186,81 @@ describe("a run, end to end", () => {
     const report = runReportSchema.parse(
       await (await browser.request("GET", `/api/runs/${runId}/report`)).json(),
     );
-    expect(new Set(report.findings.map((f) => f.agent))).toEqual(new Set(["tls", "cors"]));
+    expect(new Set(report.findings.map((f) => f.agent))).toEqual(
+      new Set(["surface", "tls", "cors"]),
+    );
     expect(report.summary.agents.total).toBe(4);
+    // Scout never signs in: the signed-in agents are "not included", and the profile is public only.
+    expect(report.notIncluded.map((n) => n.agent)).toContain("authn");
+    expect(report.profile?.coverage.signedIn).toBe(false);
+  });
+
+  it("queues a run when its depth's pool is full, tells the customer, and starts it when a slot frees", async () => {
+    const { h, browser, launcher, runId } = await setup("scout");
+    // Fill the Scout pool with other runs.
+    const limit = limitsFor("scout").concurrency;
+    for (let i = 0; i < limit; i++) {
+      await acquireSlot(h.store, {
+        tier: "scout",
+        runId: `busy_${i}`,
+        test: true,
+        now: h.clock.now(),
+      });
+    }
+    await browser.withCsrf("POST", `/api/runs/${runId}/start`);
+    await vi.waitFor(async () => {
+      const run = (await (await browser.request("GET", `/api/runs/${runId}`)).json()) as {
+        summary: { status: string };
+        reason?: string;
+      };
+      expect(run.summary.status).toBe("queued");
+      expect(run.reason).toMatch(/Waiting for a free Scout slot/);
+    });
+
+    // A slot frees: the waiting run starts by itself and completes.
+    await releaseSlot(h.store, { tier: "scout", runId: "busy_0", test: true });
+    await launcher.settled(runId);
+    const done = (await (await browser.request("GET", `/api/runs/${runId}`)).json()) as {
+      summary: { status: string };
+      reason?: string;
+    };
+    expect(done.summary.status).toBe("complete");
+    expect(done.reason).toBeUndefined();
+    // Its slot went back when it finished: the pool holds only the others.
+    const pool = JSON.parse((await h.store.get(keys.pool("scout", true)))!.body);
+    expect(Object.keys(pool.active).sort()).toEqual(["busy_1", "busy_2", "busy_3"]);
+  });
+
+  it("returns the credit when the customer cancels a run that is still waiting", async () => {
+    const { h, browser, launcher, runId } = await setup("scout");
+    const limit = limitsFor("scout").concurrency;
+    for (let i = 0; i < limit; i++) {
+      await acquireSlot(h.store, {
+        tier: "scout",
+        runId: `busy_${i}`,
+        test: true,
+        now: h.clock.now(),
+      });
+    }
+    await browser.withCsrf("POST", `/api/runs/${runId}/start`);
+    await vi.waitFor(async () => {
+      const run = (await (await browser.request("GET", `/api/runs/${runId}`)).json()) as {
+        reason?: string;
+      };
+      expect(run.reason).toMatch(/Waiting/);
+    });
+    expect((await getCredits(h.store, owner)).scout).toBe(1);
+
+    const stopped = await browser.withCsrf("POST", `/api/runs/${runId}/stop`);
+    expect(await stopped.json()).toEqual({ ok: true, status: "stopped" });
+    await launcher.settled(runId);
+    expect((await getCredits(h.store, owner)).scout).toBe(2);
+    const summary = JSON.parse((await h.store.get(keys.runSummary(owner, runId)))!.body);
+    expect(summary).toMatchObject({ status: "stopped" });
+    // It never held a slot, and the others are untouched.
+    const pool = JSON.parse((await h.store.get(keys.pool("scout", true)))!.body);
+    expect(Object.keys(pool.waiting)).toEqual([]);
+    expect(Object.keys(pool.active)).toHaveLength(limit);
   });
 
   it("closes as stopped when the customer stops it, and nothing is left running", async () => {

@@ -15,6 +15,16 @@ export const runtimeConfigSchema = z.object({
   }),
   streamTokenMinutes: z.number().positive(),
   proxyPort: z.number().int().min(1024).max(65535),
+  /** Per-depth concurrency pools: a run that finds its pool full waits, then is declined. */
+  pool: z.object({
+    pollSeconds: z.number().int().positive(),
+    queueTimeoutMinutes: z.number().positive(),
+  }),
+  llm: z.object({
+    maxOutputTokensPerCall: z.number().int().positive(),
+    maxRetries: z.number().int().nonnegative(),
+    retryBaseMs: z.number().int().positive(),
+  }),
 });
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
 export const runtimeConfig: RuntimeConfig = runtimeConfigSchema.parse(runtimeJson);
@@ -30,7 +40,7 @@ export const pricingSchema = z.object({
   fargate: z.object({ vcpuPerHour: z.number().nonnegative(), gbPerHour: z.number().nonnegative() }),
   egressPerGb: z.number().nonnegative(),
   stepFunctionsPerTransition: z.number().nonnegative(),
-  /** Per model id, in USD per million tokens. Empty until Bedrock is used (Phase 6). */
+  /** Per model id, in USD per million tokens. */
   bedrock: z.record(
     z.string(),
     z.object({ inputPerMTok: z.number().nonnegative(), outputPerMTok: z.number().nonnegative() }),
@@ -38,6 +48,29 @@ export const pricingSchema = z.object({
 });
 export type Pricing = z.infer<typeof pricingSchema>;
 export const pricing: Pricing = pricingSchema.parse(pricingJson);
+
+/** What a model call costs from the price table; an unpriced model is an error, not free. */
+export function bedrockUsd(
+  modelId: string,
+  tokens: { inputTokens: number; outputTokens: number },
+  table: Pricing = pricing,
+): number {
+  const price = table.bedrock[modelId];
+  if (!price) throw new Error(`no Bedrock price for ${modelId}`);
+  return (
+    (tokens.inputTokens * price.inputPerMTok + tokens.outputTokens * price.outputPerMTok) / 1e6
+  );
+}
+
+/** The model usage an agent task reports as evidence when it finishes; it feeds `cost.json`. */
+export const llmUsageSchema = z.object({
+  modelId: z.string().min(1),
+  calls: z.number().int().nonnegative(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  usd: z.number().nonnegative(),
+});
+export type LlmUsage = z.infer<typeof llmUsageSchema>;
 
 /** What one run consumed and what we estimate it cost. Staff only: never part of a customer response. */
 export const runCostSchema = z.object({
@@ -60,7 +93,7 @@ export const runCostSchema = z.object({
     bytesIn: z.number().int().nonnegative(),
     usd: z.number().nonnegative(),
   }),
-  /** Present but empty until the first LLM agent lands. */
+  /** Zero when the run used no model. */
   bedrock: z.object({
     calls: z.number().int().nonnegative(),
     inputTokens: z.number().int().nonnegative(),

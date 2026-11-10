@@ -121,10 +121,13 @@ export class FakeLauncher implements RunLauncher {
   readonly started: { owner: string; runId: string }[] = [];
   readonly stopped: { owner: string; runId: string }[] = [];
   failStart = false;
+  /** What the state machine's first step would do, when a test wants the run to move on. */
+  onStart?: (owner: string, runId: string) => Promise<void>;
 
   async start(owner: string, runId: string): Promise<void> {
     if (this.failStart) throw new Error("launcher down");
     this.started.push({ owner, runId });
+    await this.onStart?.(owner, runId);
   }
   async stop(owner: string, runId: string): Promise<void> {
     this.stopped.push({ owner, runId });

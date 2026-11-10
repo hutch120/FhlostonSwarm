@@ -18,6 +18,7 @@ h1{font-size:1.8rem;margin:0 0 .25rem}h2{margin:2rem 0 .75rem;font-size:1.25rem;
 .sev{display:flex;gap:.75rem;flex-wrap:wrap;list-style:none;padding:0}
 .sev li{background:#161d38;border-radius:8px;padding:.5rem .9rem;min-width:5rem;text-align:center}
 .sev b{display:block;font-size:1.4rem}
+h3{font-size:1rem;margin:1rem 0 .3rem}
 .finding{background:#121832;border:1px solid #2a3355;border-left-width:5px;border-radius:8px;padding:.9rem 1.1rem;margin:0 0 1rem}
 .finding[data-sev=critical]{border-left-color:#ef4444}.finding[data-sev=high]{border-left-color:#f97316}
 .finding[data-sev=medium]{border-left-color:#eab308}.finding[data-sev=low]{border-left-color:#38bdf8}
@@ -53,6 +54,16 @@ ${f.mapping ? `<p class="muted">${e(f.mapping)}</p>` : ""}
 
   const list = (items: string[]) => (items.length ? `<ul>${items.join("")}</ul>` : "");
 
+  const profile = report.profile;
+  const understood = profile
+    ? `<p>${e(profile.purpose)}</p>
+<p class="muted">Described from ${profile.coverage.pagesVisited} pages${profile.coverage.signedIn ? `, including the signed-in side (${profile.coverage.loginsUsed} ${profile.coverage.loginsUsed === 1 ? "login" : "logins"})` : ", signed out"}. This is the scan's reading of what it saw, not a statement from the application's owner.</p>
+${profile.areas.length ? `<h3>Areas and features</h3>${list(profile.areas.map((a) => `<li><strong>${e(a.name)}</strong>${a.path ? ` <code>${e(a.path)}</code>` : ""}${a.requiresLogin ? ' <span class="muted">(signed in)</span>' : ""}: ${e(a.description)}</li>`))}` : ""}
+${profile.roles.length ? `<h3>Roles</h3>${list(profile.roles.map((r) => `<li><strong>${e(r.name)}</strong>: ${e(r.description)}${r.access.length ? ` Reaches: ${r.access.map(e).join(", ")}.` : ""}</li>`))}` : ""}
+${profile.flows.length ? `<h3>Main flows</h3>${list(profile.flows.map((f) => `<li><strong>${e(f.name)}</strong>: ${e(f.description)}</li>`))}` : ""}
+${profile.technologies.length ? `<h3>Technologies seen</h3><p>${profile.technologies.map(e).join(", ")}</p>` : ""}`
+    : '<p class="muted">The scan could not build a description of the application.</p>';
+
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -85,17 +96,20 @@ ${
 <h2>3. Scope and methodology</h2>
 <p>Target <code>${e(report.target)}</code>, scan depth <strong>${e(tier.name)}</strong>: ${e(tier.description)} All requests went through a scope guard that only allows the declared hosts, refuses private and metadata addresses, and was read-only for this run.</p>
 
-<h2>4. Technical findings</h2>
+<h2>4. What we understood about the application</h2>
+${understood}
+
+<h2>5. Technical findings</h2>
 ${findings}
 
-<h2>5. Informational</h2>
+<h2>6. Informational</h2>
 ${
   report.notes.length === 0
     ? '<p class="muted">Nothing to add.</p>'
     : list(report.notes.map((n) => `<li><strong>${e(n.label)}.</strong> ${e(n.note)}</li>`))
 }
 
-<h2>6. Scope limitations and checks not run</h2>
+<h2>7. Scope limitations and checks not run</h2>
 ${
   report.gaps.length === 0 && report.notRun.length === 0
     ? '<p class="muted">None.</p>'
@@ -107,7 +121,16 @@ ${
       ])
 }
 
-<h2>7. Disclaimer</h2>
+<h2>8. Not included at this depth</h2>
+${
+  report.notIncluded.length === 0
+    ? '<p class="muted">This depth runs every agent.</p>'
+    : `<p class="muted">A deeper scan adds these checks.</p>${list(
+        report.notIncluded.map((n) => `<li><strong>${e(n.name)}</strong>: ${e(n.covers)}</li>`),
+      )}`
+}
+
+<h2>9. Disclaimer</h2>
 <p class="note">${e(report.disclaimer)}</p>
 </main>
 </body>

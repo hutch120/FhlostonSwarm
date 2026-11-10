@@ -13,7 +13,10 @@
     "build": "node build.mjs"
   },
   "dependencies": {
-    "@swarm/shared": "*"
+    "@aws-sdk/client-bedrock-runtime": "^3.1165.0",
+    "@swarm/shared": "*",
+    "playwright-core": "^1.65.0",
+    "tldts": "^7.4.19"
   },
   "devDependencies": {
     "@swarm/synthetic-target": "*"

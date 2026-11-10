@@ -1,6 +1,7 @@
 import { createApp, type AppDeps } from "./app.js";
 import { authConfig, type AuthConfig } from "./config.js";
 import { FakeLauncher } from "./launcher.js";
+import { acquireRun } from "./pool.js";
 import { FakeMailer, type Mailer } from "./mailer.js";
 import { MemoryPublisher } from "./publisher.js";
 import type { Secrets } from "./sessions.js";
@@ -127,6 +128,10 @@ export function createHarness(overrides: Partial<AppDeps> = {}): Harness {
   const store = overrides.store ?? new MemoryStore();
   const mailer = new FakeMailer();
   const launcher = new FakeLauncher();
+  // The real execution's first step takes a slot in the depth pool and starts the run.
+  launcher.onStart = async (owner, runId) => {
+    await acquireRun(store, { emailHash: owner, runId }, clock.now());
+  };
   const publisher = new MemoryPublisher();
   const clock = createClock();
   const app = createApp({

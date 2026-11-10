@@ -23,7 +23,13 @@ export interface InternalDeps {
 }
 
 const MAX_BODY_BYTES = 1024 * 1024;
-const EVIDENCE_NAMES = ["proxy-log", "proxy-stats"] as const;
+const EVIDENCE_NAMES = [
+  "proxy-log",
+  "proxy-stats",
+  "app-profile",
+  "usage",
+  "explorer-log",
+] as const;
 const evidenceBody = z.object({
   name: z.enum(EVIDENCE_NAMES),
   body: z.record(z.string(), z.unknown()),

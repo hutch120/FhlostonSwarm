@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
+import { runtimeConfig, tierLimits } from "@swarm/shared/server";
 import { afterAll, describe, expect, it } from "vitest";
 import { lambdaEnvSchemas } from "../../api/src/env.js";
 import { buildApp } from "./app.js";
@@ -383,25 +384,37 @@ describe("infrastructure app", () => {
       expect(subnets.every((s) => s.Properties.MapPublicIpOnLaunch === true)).toBe(true);
     });
 
-    it("agent task: the agent and a scope-proxy sidecar, read-only, on a small Fargate size", () => {
+    it("agent task: the agent and a scope-proxy sidecar, read-only, sized for the browser", () => {
       const [task] = resources("AWS::ECS::TaskDefinition").filter(
         (r) => r.Properties.Family === "swarm-agent",
       );
-      expect(task!.Properties).toMatchObject({ Cpu: "512", Memory: "1024", NetworkMode: "awsvpc" });
+      const { vcpu, memoryGb } = runtimeConfig.agentTask;
+      expect(task!.Properties).toMatchObject({
+        Cpu: String(vcpu * 1024),
+        Memory: String(memoryGb * 1024),
+        NetworkMode: "awsvpc",
+      });
       const containers = task!.Properties.ContainerDefinitions as {
         Name: string;
         Essential?: boolean;
         ReadonlyRootFilesystem: boolean;
         Command: string[];
+        LinuxParameters?: { Capabilities?: { Drop?: string[] } };
+        MountPoints?: { ContainerPath: string }[];
       }[];
       expect(containers.map((c) => c.Name).sort()).toEqual(["agent", "proxy"]);
-      expect(containers.every((c) => c.ReadonlyRootFilesystem)).toBe(true);
       expect(containers.find((c) => c.Name === "agent")?.Essential).toBe(true);
       expect(containers.find((c) => c.Name === "proxy")?.Essential).toBe(false);
+      expect(containers.find((c) => c.Name === "proxy")?.ReadonlyRootFilesystem).toBe(true);
       expect(containers.find((c) => c.Name === "proxy")?.Command).toEqual(["node", "proxy.mjs"]);
+      // The container that runs the browser has no Linux capabilities (and runs as the image's
+      // non-root user); it needs a writable /tmp for the browser profile, so its root is not read-only.
+      const agent = containers.find((c) => c.Name === "agent")!;
+      expect(agent.LinuxParameters?.Capabilities?.Drop).toEqual(["ALL"]);
+      expect(agent.ReadonlyRootFilesystem).toBe(false);
     });
 
-    it("agent tasks can only call the internal API: no S3, no other AWS service", () => {
+    it("agent tasks can call only the internal API and the configured Bedrock models: no S3, nothing else", () => {
       const roleIds = resources("AWS::IAM::Role")
         .filter((r) => r.id.startsWith("AgentTaskRole"))
         .map((r) => r.id);
@@ -409,12 +422,25 @@ describe("infrastructure app", () => {
       const policies = resources("AWS::IAM::Policy").filter((p) =>
         JSON.stringify(p.Properties.Roles).includes(roleIds[0]!),
       );
-      const actions = policies.flatMap((p) =>
-        (p.Properties.PolicyDocument.Statement as { Action: string | string[] }[]).flatMap((s) =>
-          Array.isArray(s.Action) ? s.Action : [s.Action],
-        ),
+      const statements = policies.flatMap(
+        (p) =>
+          p.Properties.PolicyDocument.Statement as {
+            Action: string | string[];
+            Resource: unknown;
+            Condition?: unknown;
+          }[],
       );
-      expect(actions).toEqual(["execute-api:Invoke"]);
+      const actions = statements.flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+      expect([...new Set(actions)].sort()).toEqual(["bedrock:InvokeModel", "execute-api:Invoke"]);
+      // Foundation models are reachable only through the inference profile.
+      const foundation = statements.find((s) =>
+        JSON.stringify(s.Resource).includes("foundation-model"),
+      );
+      expect(JSON.stringify(foundation?.Condition)).toContain("bedrock:InferenceProfileArn");
+      // Only the models the depths are configured with.
+      const models = new Set(Object.values(tierLimits).map((l) => l.modelId));
+      const mentioned = JSON.stringify(statements).match(/inference-profile\/[\w.:-]+/g) ?? [];
+      for (const m of mentioned) expect(models.has(m.replace("inference-profile/", ""))).toBe(true);
     });
 
     it("agent tasks accept no inbound traffic", () => {
@@ -423,7 +449,7 @@ describe("infrastructure app", () => {
       expect(agent.Properties.SecurityGroupIngress).toBeUndefined();
     });
 
-    it("state machine: prepare, run the task and wait, finalize; any failure still finalizes", () => {
+    it("state machine: wait for a pool slot, run the task and wait, finalize; any failure still finalizes", () => {
       const [machine] = resources("AWS::StepFunctions::StateMachine");
       expect(machine!.Properties.StateMachineName).toBe("swarm-run");
       const definition = JSON.stringify(machine!.Properties.DefinitionString);
@@ -432,6 +458,10 @@ describe("infrastructure app", () => {
       expect(definition).toContain("TimeoutSecondsPath");
       expect(definition).toContain("States.ALL");
       expect(definition).toContain("Finalize");
+      // A run whose depth pool is full loops through a wait; no state polls faster than the config says.
+      expect(definition).toContain("WaitForSlot");
+      expect(definition).toContain(`\\"Seconds\\":${runtimeConfig.pool.pollSeconds}`);
+      expect(definition).toContain("$.prepared.waiting");
       t.hasResourceProperties("AWS::StepFunctions::StateMachine", {
         LoggingConfiguration: Match.objectLike({ Level: "ERROR", IncludeExecutionData: false }),
       });

@@ -8,7 +8,10 @@ import {
   type RunEvent,
   type Summary,
 } from "./events.js";
+import { appProfileSchema, type AppProfile } from "./app-profile.js";
+import { AGENTS } from "./fixtures/roster.js";
 import type { RunState } from "./reducer.js";
+import { tiers } from "./tiers.js";
 
 export const REPORT_DISCLAIMER =
   "This is an automated, AI-assisted security assessment. It has had no human review, is not a certification, and is not a substitute for a full manual penetration test. It covers only the checks listed as performed, and only what was reachable when it ran.";
@@ -41,6 +44,12 @@ export const runReportSchema = z.object({
   ),
   /** Agents in this depth's group that did not finish, and why. */
   notRun: z.array(z.object({ agent: z.string(), name: z.string(), reason: z.string() })),
+  /** Agents that belong to a deeper scan depth, so this run did not cover what they test. */
+  notIncluded: z.array(
+    z.object({ agent: z.string(), name: z.string(), area: areaIdSchema, covers: z.string() }),
+  ),
+  /** What the explorer understood about the application; null when it could not be built. */
+  profile: appProfileSchema.nullable(),
   disclaimer: z.string(),
 });
 export type RunReport = z.infer<typeof runReportSchema>;
@@ -52,6 +61,7 @@ export interface ReportInput {
   summary: Summary;
   target: string;
   generatedAt: string;
+  profile?: AppProfile | null;
 }
 
 /** Builds the report data from a finished (or stopped) run's state and event log. */
@@ -97,6 +107,13 @@ export function buildReport(input: ReportInput): RunReport {
     notes,
     gaps: state.gaps.map((g) => ({ agent: g.agent, area: g.area, reason: g.reason })),
     notRun,
+    notIncluded: AGENTS.filter((a) => !tiers[state.tier].agents.includes(a.id)).map((a) => ({
+      agent: a.id,
+      name: a.name,
+      area: a.area,
+      covers: a.steps.map((s) => s.label).join("; "),
+    })),
+    profile: input.profile ?? null,
     disclaimer: REPORT_DISCLAIMER,
   };
 }

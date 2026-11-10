@@ -6,6 +6,9 @@ import type { ProxyLogEntry, ProxyStats } from "@swarm/shared/server";
 import { checkResolved, decide, normaliseHost, type Denial, type Scope } from "./policy.js";
 import { TokenBucket } from "./ratelimit.js";
 
+/** The header that carries the sign-in key (set by the agent's browser, stripped here). */
+export const LOGIN_HEADER = "x-swarm-login";
+
 export interface ProxyOptions {
   scope: Scope;
   requestsPerSecond: number;
@@ -13,6 +16,9 @@ export interface ProxyOptions {
   requestCap: number;
   /** Local development only: lets the proxy reach loopback and private addresses. */
   allowPrivate?: boolean;
+  /** Sign-in POSTs let through while read-only, when they carry `loginKey` in `x-swarm-login`. */
+  loginSubmissions?: number;
+  loginKey?: string;
   resolve?: (host: string) => Promise<string[]>;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -62,6 +68,7 @@ export function createProxy(options: ProxyOptions): ScopeProxy {
   let blocked = 0;
   let bytesOut = 0;
   let bytesIn = 0;
+  let loginUsed = 0;
 
   const record = (entry: Omit<ProxyLogEntry, "ts">) => {
     if (entries.length >= maxLog) {
@@ -80,13 +87,16 @@ export function createProxy(options: ProxyOptions): ScopeProxy {
   };
 
   /** Policy, cap, rate limit and DNS in one step; returns the pinned address or the reason. */
-  async function admit(target: {
-    method: string;
-    host: string;
-    port: number;
-    path: string;
-  }): Promise<{ ok: true; address: string } | { ok: false; reason: Denial }> {
-    const verdict = decide(target, options.scope);
+  async function admit(
+    target: {
+      method: string;
+      host: string;
+      port: number;
+      path: string;
+    },
+    scope: Scope = options.scope,
+  ): Promise<{ ok: true; address: string } | { ok: false; reason: Denial }> {
+    const verdict = decide(target, scope);
     if (!verdict.allow) return { ok: false, reason: verdict.reason };
     if (requests >= options.requestCap) return { ok: false, reason: "request_cap_reached" };
     requests += 1;
@@ -118,15 +128,27 @@ export function createProxy(options: ProxyOptions): ScopeProxy {
       res.writeHead(400, { "x-swarm-block": "bad_request" }).end();
       return;
     }
-    const admitted = await admit(target);
+    // A sign-in POST carries the run's key; nothing else may write. The key never goes upstream.
+    const signIn =
+      method === "POST" &&
+      options.loginKey !== undefined &&
+      req.headers[LOGIN_HEADER] === options.loginKey &&
+      loginUsed < (options.loginSubmissions ?? 0);
+    const admitted = await admit(
+      target,
+      signIn ? { ...options.scope, readOnly: false } : undefined,
+    );
     if (!admitted.ok) {
       refuse(target, admitted.reason);
       res.writeHead(403, { "x-swarm-block": admitted.reason }).end();
       return;
     }
+    if (signIn) loginUsed += 1;
 
     const headers = Object.fromEntries(
-      Object.entries(req.headers).filter(([name]) => !HOP_BY_HOP.has(name)),
+      Object.entries(req.headers).filter(
+        ([name]) => !HOP_BY_HOP.has(name) && name !== LOGIN_HEADER,
+      ),
     );
     const upstream = http.request(
       {
@@ -138,7 +160,12 @@ export function createProxy(options: ProxyOptions): ScopeProxy {
         timeout: IDLE_MS,
       },
       (response) => {
-        record({ ...target, decision: "allowed", status: response.statusCode });
+        record({
+          ...target,
+          decision: "allowed",
+          status: response.statusCode,
+          ...(signIn ? { reason: "login_submission" } : {}),
+        });
         const outgoing = Object.fromEntries(
           Object.entries(response.headers).filter(([name]) => !HOP_BY_HOP.has(name)),
         );

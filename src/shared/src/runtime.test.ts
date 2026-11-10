@@ -14,6 +14,7 @@ import {
 } from "./index.js";
 import {
   agentInputSchema,
+  bedrockUsd,
   estimateCost,
   isReservedAddress,
   limitsFor,
@@ -27,9 +28,12 @@ import {
 
 describe("run infrastructure config", () => {
   it("parses the shipped runtime and pricing config", () => {
-    expect(runtimeConfig.agentTask).toEqual({ vcpu: 0.5, memoryGb: 1 });
-    expect(pricing.version).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(pricing.bedrock).toEqual({});
+    expect(runtimeConfig.agentTask).toEqual({ vcpu: 1, memoryGb: 2 });
+    expect(pricing.version).toMatch(/^\d{4}-\d{2}-\d{2}/);
+    // Every model a depth uses has a price, or its runs could not be costed.
+    for (const tier of ["scout", "sweep", "probe", "siege"] as const) {
+      expect(pricing.bedrock[limitsFor(tier).modelId], tier).toBeDefined();
+    }
   });
 
   it("rejects invalid config", () => {
@@ -60,9 +64,10 @@ describe("cost estimate", () => {
   it("prices Fargate by size and time, egress by bytes out, and leaves Bedrock empty", () => {
     const cost = estimateCost(base);
     expect(runCostSchema.safeParse(cost).success).toBe(true);
-    // 0.5 vCPU and 1 GB for 300 s.
+    // The configured task size for 300 s.
+    const { vcpu, memoryGb } = runtimeConfig.agentTask;
     const expectedFargate =
-      (300 / 3600) * (0.5 * pricing.fargate.vcpuPerHour + pricing.fargate.gbPerHour);
+      (300 / 3600) * (vcpu * pricing.fargate.vcpuPerHour + memoryGb * pricing.fargate.gbPerHour);
     expect(cost.fargate.usd).toBeCloseTo(expectedFargate, 5);
     expect(cost.egress.usd).toBeCloseTo(pricing.egressPerGb, 5);
     expect(cost.bedrock).toEqual({ calls: 0, inputTokens: 0, outputTokens: 0, usd: 0 });
@@ -84,6 +89,29 @@ describe("cost estimate", () => {
     expect(estimateCost(base, cheap).fargate.usd).toBe(0);
     expect(estimateCost(base, cheap).pricingVersion).toBe("test");
   });
+
+  it("prices model use from the table and refuses an unpriced model", () => {
+    const model = limitsFor("scout").modelId;
+    const price = pricing.bedrock[model]!;
+    expect(bedrockUsd(model, { inputTokens: 1_000_000, outputTokens: 1_000_000 })).toBeCloseTo(
+      price.inputPerMTok + price.outputPerMTok,
+      6,
+    );
+    expect(() => bedrockUsd("au.unknown-model", { inputTokens: 1, outputTokens: 1 })).toThrow(
+      /no Bedrock price/,
+    );
+    const withModel = estimateCost({
+      ...base,
+      bedrock: { calls: 3, inputTokens: 1000, outputTokens: 100, usd: 0.0015 },
+    });
+    expect(withModel.bedrock).toEqual({
+      calls: 3,
+      inputTokens: 1000,
+      outputTokens: 100,
+      usd: 0.0015,
+    });
+    expect(withModel.totalUsd).toBeGreaterThan(estimateCost(base).totalUsd);
+  });
 });
 
 describe("agent input", () => {
@@ -92,9 +120,23 @@ describe("agent input", () => {
       runId: "run_abc12345",
       tier: "scout",
       target: { appUrl: "https://a.example.com", marketingUrl: "" },
-      scope: { hosts: ["a.example.com"], ports: [80, 443], readOnly: true },
+      scope: { hosts: ["a.example.com"], ports: [80, 443], readOnly: true, loginSubmissions: 0 },
       agents: ["tls"],
-      budgets: { wallClockSeconds: 600, maxSteps: 10, maxRequests: 50, requestsPerSecond: 2 },
+      budgets: {
+        wallClockSeconds: 600,
+        maxSteps: 10,
+        maxRequests: 50,
+        requestsPerSecond: 2,
+        maxPages: 10,
+        llm: {
+          modelId: "m",
+          maxCalls: 10,
+          phaseCalls: 5,
+          maxInputTokens: 1000,
+          maxOutputTokens: 100,
+          spendCapUsd: 1,
+        },
+      },
       logins: {},
       scopeNotes: "",
       userAgent: "Swarm/0.1",

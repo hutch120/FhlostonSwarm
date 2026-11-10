@@ -13,9 +13,19 @@ import { RunBoard } from "./LiveRun.js";
  */
 export function RunView({ runId }: { runId: string }) {
   const queryClient = useQueryClient();
-  const run = useQuery({ queryKey: ["run", runId], queryFn: () => api.getRun(runId) });
+  const run = useQuery({
+    queryKey: ["run", runId],
+    queryFn: () => api.getRun(runId),
+    // A run that is waiting for a slot starts by itself; look again until it does.
+    refetchInterval: (query) =>
+      query.state.data?.summary.status === "queued" && query.state.data.reason ? 4000 : false,
+  });
   const start = useMutation({
     mutationFn: () => api.startRun(runId),
+    onSettled: () => queryClient.invalidateQueries(),
+  });
+  const cancel = useMutation({
+    mutationFn: () => api.stopRun(runId),
     onSettled: () => queryClient.invalidateQueries(),
   });
 
@@ -51,24 +61,45 @@ export function RunView({ runId }: { runId: string }) {
           </span>
         </div>
         <section className="card">
-          <p data-testid="queued-note">
-            Your scan is saved and its credit is spent. Created {formatDateTime(summary.startedAt)}.
-            The agents start when you start the run.
-          </p>
-          {start.isError && (
+          {reason ? (
+            <>
+              <p data-testid="queued-wait">{reason}</p>
+              <p className="muted">
+                Created {formatDateTime(summary.startedAt)}. You can leave this page; the scan runs
+                and its report appears on the dashboard.
+              </p>
+            </>
+          ) : (
+            <p data-testid="queued-note">
+              Your scan is saved and its credit is spent. Created{" "}
+              {formatDateTime(summary.startedAt)}. The agents start when you start the run.
+            </p>
+          )}
+          {(start.isError || cancel.isError) && (
             <p className="error" role="alert">
-              {messageFor(start.error, "Could not start the run.")}
+              {messageFor(start.error ?? cancel.error, "Could not update the run.")}
             </p>
           )}
           <p className="actions-row">
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={start.isPending}
-              onClick={() => start.mutate()}
-            >
-              Start run
-            </button>
+            {reason ? (
+              <button
+                type="button"
+                className="btn"
+                disabled={cancel.isPending}
+                onClick={() => cancel.mutate()}
+              >
+                Cancel and return the credit
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={start.isPending}
+                onClick={() => start.mutate()}
+              >
+                Start run
+              </button>
+            )}
             <Link to="/dashboard">Back to the dashboard</Link>
           </p>
         </section>

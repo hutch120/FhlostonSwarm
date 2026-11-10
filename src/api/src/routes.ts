@@ -374,8 +374,8 @@ export function dataRoutes(deps: DataDeps) {
     const { emailHash, role } = c.get("auth");
     const id = idParam(c, runIdSchema);
     const run = (await getRunFile(store, emailHash, id)) ?? reject(404, "not_found");
-    if (run.status !== "running") reject(409, "not_running");
-    const stopped = await stopRun(control, { emailHash, runId: id }, role);
+    if (run.status !== "running" && run.status !== "queued") reject(409, "not_running");
+    const stopped = await stopRun(control, { emailHash, runId: id }, role, { cancelQueued: true });
     return c.json({ ok: true, status: stopped.status });
   });
 

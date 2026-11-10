@@ -53,6 +53,11 @@ export class Budget {
     this.requests += 1;
   }
 
+  /** Counts requests made outside `useRequest` (the browser's), without refusing them. */
+  addRequests(n: number): void {
+    this.requests += n;
+  }
+
   /** The run-level gap to report when the budget stopped the run, or null while it has room. */
   exhaustedKind(): BudgetExhausted["kind"] | null {
     if (this.now() >= this.limits.deadline) return "time";

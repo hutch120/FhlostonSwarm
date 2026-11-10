@@ -1,5 +1,6 @@
 import type { Severity } from "@swarm/shared";
 import type { AgentInput } from "@swarm/shared/server";
+import type { Explorer } from "./explorer/explorer.js";
 import type { HttpResult, ScopedHttp } from "./http.js";
 
 export interface FindingDraft {
@@ -15,7 +16,12 @@ export interface FindingDraft {
 
 export type StepResult =
   | { outcome: "clear" }
-  | { outcome: "info"; note: string }
+  | {
+      outcome: "info";
+      note: string;
+      /** Limits reached on the way: each is reported as a scope gap as well. */
+      gaps?: string[];
+    }
   | { outcome: "finding"; finding: FindingDraft }
   | { outcome: "gap"; reason: string };
 
@@ -27,6 +33,23 @@ export interface StepContext {
   http: ScopedHttp;
   /** GET of the application URL, fetched once and shared by the checks that need the page. */
   baseline(): Promise<HttpResult>;
+  /** DNS records of hosts the customer declared (name lookups only; no connection to anything). */
+  dns: DnsClient;
+  /** The discovery step shared by the surface and authn agents; null when the run has no model. */
+  explorer: Explorer | null;
+  /** Scripts the pages load, from the explorer's pages or, failing that, the home page. */
+  pageScripts(): Promise<{ external: string[]; inline: string[] }>;
+  /** The body of a script the application serves (same host only; fetched once, null if unavailable). */
+  scriptBody(url: string): Promise<string | null>;
+}
+
+export type DnsAnswer = { ok: true; values: string[] } | { ok: false; code: string };
+
+export interface DnsClient {
+  records(
+    host: string,
+    type: "A" | "AAAA" | "CNAME" | "MX" | "NS" | "TXT" | "CAA",
+  ): Promise<DnsAnswer>;
 }
 
 export type Step = (ctx: StepContext) => Promise<StepResult>;

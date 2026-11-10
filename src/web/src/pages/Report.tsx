@@ -141,6 +141,78 @@ function ReportView({ report, demo = false }: { report: RunReport; demo?: boolea
         </p>
       </section>
 
+      <section className="card" aria-labelledby="understood-title">
+        <h2 id="understood-title" className="card-title">
+          What we understood about the application
+        </h2>
+        {report.profile ? (
+          <div data-testid="report-profile">
+            <p>{report.profile.purpose}</p>
+            <p className="muted small">
+              Described from {report.profile.coverage.pagesVisited} pages
+              {report.profile.coverage.signedIn
+                ? `, including the signed-in side (${report.profile.coverage.loginsUsed} login${report.profile.coverage.loginsUsed === 1 ? "" : "s"})`
+                : ", signed out"}
+              . This is the scan&apos;s reading of what it saw, not a statement from the
+              application&apos;s owner.
+            </p>
+            {report.profile.areas.length > 0 && (
+              <>
+                <h3>Areas and features</h3>
+                <ul>
+                  {report.profile.areas.map((a, i) => (
+                    <li key={i}>
+                      <strong>{a.name}</strong>
+                      {a.path && (
+                        <>
+                          {" "}
+                          <code>{a.path}</code>
+                        </>
+                      )}
+                      {a.requiresLogin && <span className="muted"> (signed in)</span>}:{" "}
+                      {a.description}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {report.profile.roles.length > 0 && (
+              <>
+                <h3>Roles</h3>
+                <ul>
+                  {report.profile.roles.map((r, i) => (
+                    <li key={i}>
+                      <strong>{r.name}</strong>: {r.description}
+                      {r.access.length > 0 && <> Reaches: {r.access.join(", ")}.</>}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {report.profile.flows.length > 0 && (
+              <>
+                <h3>Main flows</h3>
+                <ul>
+                  {report.profile.flows.map((f, i) => (
+                    <li key={i}>
+                      <strong>{f.name}</strong>: {f.description}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {report.profile.technologies.length > 0 && (
+              <>
+                <h3>Technologies seen</h3>
+                <p>{report.profile.technologies.join(", ")}</p>
+              </>
+            )}
+          </div>
+        ) : (
+          <p className="muted">The scan could not build a description of the application.</p>
+        )}
+      </section>
+
       <section className="card" aria-labelledby="findings-title">
         <h2 id="findings-title" className="card-title">
           Technical findings
@@ -234,6 +306,26 @@ function ReportView({ report, demo = false }: { report: RunReport; demo?: boolea
               </li>
             ))}
           </ul>
+        )}
+      </section>
+
+      <section className="card" aria-labelledby="notincluded-title">
+        <h2 id="notincluded-title" className="card-title">
+          Not included at this depth
+        </h2>
+        {report.notIncluded.length === 0 ? (
+          <p className="muted">This depth runs every agent.</p>
+        ) : (
+          <>
+            <p className="muted">A deeper scan adds these checks.</p>
+            <ul data-testid="report-not-included">
+              {report.notIncluded.map((n) => (
+                <li key={n.agent}>
+                  <strong>{n.name}</strong>: {n.covers}
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </section>
 

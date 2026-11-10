@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server";
+import { PlaywrightDriver, createOfflineLlm } from "@swarm/agents";
 import { createTarget, USERS } from "@swarm/synthetic-target";
 import { Hono } from "hono";
 import { TERMS_VERSION, TIER_IDS, tierIdSchema } from "@swarm/shared";
@@ -43,6 +44,10 @@ const launcher = new LocalLauncher({
   allowPrivate: true,
   // Offline: every name points at this machine, where only the synthetic target listens.
   resolve: async () => ["127.0.0.1"],
+  // A scripted model and a real local Chromium: the whole explorer pipeline, with no Bedrock.
+  llm: () => createOfflineLlm(),
+  driverFactory: (options) => PlaywrightDriver.launch(options),
+  pollMs: 200,
   finalize: { store, mailer, publisher, now: Date.now, siteOrigin },
 });
 

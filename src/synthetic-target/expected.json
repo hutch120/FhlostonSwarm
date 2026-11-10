@@ -1,7 +1,25 @@
 {
-  "description": "Known-good findings the synthetic target must produce. Each entry is one finding the headers agent (tls, zap, cors) raises against it. Used by the agent regression test and by the deployed Phase 5 verification.",
+  "description": "Known-good findings the synthetic target must produce. Each entry is one finding a roster agent raises against it; a depth is expected to raise the entries whose agent belongs to its group (config/tiers.json). Used by the agent regression test and by the deployed verification.",
   "target": "synthetic-target (plain HTTP, port 8080)",
   "findings": [
+    {
+      "agent": "surface",
+      "step": "fingerprint",
+      "severity": "low",
+      "titleIncludes": "Server software and version are disclosed"
+    },
+    {
+      "agent": "bundle",
+      "step": "secrets",
+      "severity": "high",
+      "titleIncludes": "Secrets are exposed in public JavaScript"
+    },
+    {
+      "agent": "bundle",
+      "step": "sourcemaps",
+      "severity": "medium",
+      "titleIncludes": "Source maps are publicly available"
+    },
     {
       "agent": "tls",
       "step": "protocols",
@@ -49,16 +67,30 @@
       "step": "credentials",
       "severity": "high",
       "titleIncludes": "Credentialed cross-origin access"
+    },
+    {
+      "agent": "authn",
+      "step": "login",
+      "severity": "high",
+      "titleIncludes": "Sign-in handling has weaknesses",
+      "needsLogin": true
     }
   ],
+  "app": {
+    "description": "What the explorer should understand about the synthetic target (rubric for the app-profile checks).",
+    "publicAreas": ["about", "pricing", "help", "community"],
+    "signedInAreas": ["orders", "profile"],
+    "adminOnlyAreas": ["manage users"],
+    "roles": ["administrator", "customer"]
+  },
   "notCoveredYet": [
     {
-      "issue": "IDOR: GET /api/users/:id returns any user's record to any signed-in user",
+      "issue": "IDOR: GET /api/users/:id and GET /orders/:id return any user's record to any signed-in user",
       "futureAgent": "idor"
     },
     {
-      "issue": "Three roles (swarm-test-admin, swarm-test-user1, swarm-test-user2) for authenticated testing",
-      "futureAgent": "authn"
+      "issue": "Three roles (swarm-test-admin, swarm-test-user1, swarm-test-user2) for authenticated testing across roles",
+      "futureAgent": "authz"
     }
   ]
 }

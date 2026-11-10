@@ -1,1 +1,8 @@
-export { USERS, createTarget, type FixtureUser } from "./server.js";
+export {
+  HOSTILE_HOST,
+  USERS,
+  createTarget,
+  type FixtureUser,
+  type SeenRequest,
+  type TargetServer,
+} from "./server.js";

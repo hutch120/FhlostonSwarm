@@ -44,6 +44,8 @@ const REPO_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
 const API_PREFIXES = ["users", "auth", "suppression"] as const;
 // Closing a run also writes the anonymised cost index.
 const ADMIN_WRITE_PREFIXES = ["admin"] as const;
+/** Concurrency pool state (read and written with compare-and-swap by every function that starts or ends a run). */
+const POOL_PREFIX = "admin/pools";
 
 /**
  * The API: Hono on Lambda behind an HTTP API, the IAM-protected internal API the agent tasks call,
@@ -246,6 +248,7 @@ export class ApiStack extends Stack {
       ...readSecrets,
       ...bucketAccess(API_PREFIXES, ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]),
       ...bucketAccess(ADMIN_WRITE_PREFIXES, ["s3:PutObject"]),
+      ...bucketAccess([POOL_PREFIX], ["s3:GetObject", "s3:PutObject"]),
       sendMail,
       new PolicyStatement({ actions: ["states:StartExecution"], resources: [stateMachineArn] }),
       new PolicyStatement({ actions: ["states:StopExecution"], resources: [executionArn] }),
@@ -330,6 +333,7 @@ export class ApiStack extends Stack {
       for (const statement of [
         ...readSecrets,
         ...bucketAccess(["users"], ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]),
+        ...bucketAccess([POOL_PREFIX], ["s3:GetObject", "s3:PutObject"]),
       ]) {
         fn.addToRolePolicy(statement);
       }
@@ -448,7 +452,7 @@ export class ApiStack extends Stack {
       });
       for (const id of [
         "AwsSolutions-IAM5[Resource::*]",
-        ...[...API_PREFIXES, ...ADMIN_WRITE_PREFIXES].map(
+        ...[...API_PREFIXES, ...ADMIN_WRITE_PREFIXES, POOL_PREFIX].map(
           (p) => `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:s3:::${bucketName}/${p}/*]`,
         ),
         `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:ses:${this.region}:${this.account}:identity/*]`,

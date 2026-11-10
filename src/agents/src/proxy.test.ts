@@ -107,6 +107,7 @@ function viaProxy(
   proxyPort: number,
   url: string,
   method = "GET",
+  extraHeaders: Record<string, string> = {},
 ): Promise<{ status: number; block: string | undefined; body: string }> {
   return new Promise((resolve, reject) => {
     const req = http.request(
@@ -115,7 +116,7 @@ function viaProxy(
         port: proxyPort,
         method,
         path: url,
-        headers: { host: new URL(url).host },
+        headers: { host: new URL(url).host, ...extraHeaders },
       },
       (res) => {
         let body = "";
@@ -219,6 +220,48 @@ describe("scope proxy", () => {
     const next = await viaProxy(port, "http://169.254.169.254/latest/meta-data/");
     expect(next.status).toBe(403);
     expect(next.block).toBe("host_not_in_scope");
+  });
+
+  it("lets only the sign-in through while read-only: a POST with the run's key, up to the allowance", async () => {
+    const { target, proxy, port } = await setup({
+      allowPrivate: true,
+      loginKey: "secret-key",
+      loginSubmissions: 1,
+    });
+    const url = `http://app.test:${target.port}/api/login`;
+    // Without the key, or with the wrong one, a write is refused like any other.
+    expect((await viaProxy(port, url, "POST")).block).toBe("method_not_allowed");
+    expect((await viaProxy(port, url, "POST", { "x-swarm-login": "guess" })).block).toBe(
+      "method_not_allowed",
+    );
+    // With the key it goes through once, and the key does not reach the target.
+    const ok = await viaProxy(port, url, "POST", { "x-swarm-login": "secret-key" });
+    expect(ok).toMatchObject({ status: 200, body: "hello POST /api/login" });
+    expect(proxy.log().entries.at(-1)).toMatchObject({
+      method: "POST",
+      decision: "allowed",
+      reason: "login_submission",
+    });
+    // The allowance is used up: a second submission is refused, and so is any other write method.
+    expect((await viaProxy(port, url, "POST", { "x-swarm-login": "secret-key" })).block).toBe(
+      "method_not_allowed",
+    );
+    expect((await viaProxy(port, url, "DELETE", { "x-swarm-login": "secret-key" })).block).toBe(
+      "method_not_allowed",
+    );
+  });
+
+  it("never lets a sign-in key open a write to a host outside the scope", async () => {
+    const { proxy, port } = await setup({
+      allowPrivate: true,
+      loginKey: "secret-key",
+      loginSubmissions: 5,
+    });
+    const res = await viaProxy(port, "http://other.test/api/login", "POST", {
+      "x-swarm-login": "secret-key",
+    });
+    expect(res).toMatchObject({ status: 403, block: "host_not_in_scope" });
+    expect(proxy.log().entries.at(-1)).toMatchObject({ decision: "blocked" });
   });
 
   it("caps the total number of requests", async () => {

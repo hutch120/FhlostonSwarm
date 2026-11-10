@@ -36,6 +36,8 @@ export const keys = {
   otp: (emailHash: string) => `auth/otp/${emailHash}.json`,
   notifyConfirm: (tokenHash: string) => `auth/notify-confirm/${tokenHash}.json`,
   rateLimit: (scope: string, window: string) => `auth/ratelimit/${scope}/${window}.json`,
+  /** Per-depth concurrency pool: which runs hold a slot and which wait; test runs have their own. */
+  pool: (tier: string, test: boolean) => `admin/pools/${test ? "test/" : ""}${tier}.json`,
   /** Every counter scoped to one mailbox (`email-<hash>-...`), for account deletion. */
   emailRateLimits: (emailHash: string) => `auth/ratelimit/email-${emailHash}-`,
   suppression: (emailHash: string) => `suppression/${emailHash}.json`,

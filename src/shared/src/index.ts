@@ -15,6 +15,7 @@ export const userIdSchema = idSchema("usr");
 export type UserId = z.infer<typeof userIdSchema>;
 
 export * from "./events.js";
+export * from "./app-profile.js";
 export * from "./reducer.js";
 export * from "./tiers.js";
 export * from "./scans.js";

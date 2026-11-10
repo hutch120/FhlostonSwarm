@@ -1,5 +1,5 @@
 import { proxyStatsSchema, runtimeConfig } from "@swarm/shared/server";
-import { InternalApi, identityFromEnv } from "./internal.js";
+import { InternalApi, identityFromEnv, loginKeyFor } from "./internal.js";
 import { createProxy } from "./proxy.js";
 
 /**
@@ -8,12 +8,15 @@ import { createProxy } from "./proxy.js";
  * (and every 30 seconds, in case it is killed).
  */
 async function main(): Promise<void> {
-  const api = new InternalApi(identityFromEnv());
+  const identity = identityFromEnv();
+  const api = new InternalApi(identity);
   const input = await api.getInput();
   const proxy = createProxy({
     scope: input.scope,
     requestsPerSecond: input.budgets.requestsPerSecond,
     requestCap: input.budgets.maxRequests,
+    loginSubmissions: input.scope.loginSubmissions,
+    loginKey: loginKeyFor(identity.token),
   });
   await proxy.listen(runtimeConfig.proxyPort, "127.0.0.1");
   console.log(JSON.stringify({ msg: "proxy_ready", port: runtimeConfig.proxyPort }));

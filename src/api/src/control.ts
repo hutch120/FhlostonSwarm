@@ -3,7 +3,7 @@ import type { Mailer } from "./mailer.js";
 import type { RunLauncher } from "./launcher.js";
 import type { EventPublisher } from "./publisher.js";
 import { finalizeRun } from "./finalize.js";
-import { claimRun, getRunFile, listRunFiles, releaseRun, type RunFile } from "./runs.js";
+import { getRunFile, listRunFiles, type RunFile } from "./runs.js";
 import { createJson } from "./storage/json.js";
 import { keys } from "./storage/keys.js";
 import type { ObjectStore } from "./storage/store.js";
@@ -17,7 +17,11 @@ export interface ControlDeps {
   siteOrigin: string;
 }
 
-/** Begins executing a queued run. Only one caller can claim it; if the execution cannot start the run goes back to queued. */
+/**
+ * Hands a queued run to the launcher. The run stays queued until its depth's pool has a free slot
+ * (the execution's first step takes the slot and moves it to running), so this returns at once.
+ * Starting twice is harmless: the execution is named by the run id.
+ */
 export async function startExecution(
   deps: ControlDeps,
   emailHash: string,
@@ -25,39 +29,50 @@ export async function startExecution(
 ): Promise<RunFile> {
   const run = await getRunFile(deps.store, emailHash, runId);
   if (!run) return reject(404, "not_found");
-  const claimed = await claimRun(deps.store, emailHash, runId, deps.now());
-  if (!claimed) return reject(409, "already_started");
+  if (run.status !== "queued") return reject(409, "already_started");
   try {
     await deps.launcher.start(emailHash, runId);
   } catch (err) {
-    await releaseRun(deps.store, emailHash, runId);
     console.error(JSON.stringify({ msg: "start_failed", name: (err as Error).name }));
     return reject(503, "start_failed");
   }
-  return claimed;
+  return run;
 }
 
 /**
- * Stops a running run: records the request (so the finaliser reports `stopped`, not `failed`),
- * terminates the execution and its tasks, and closes the run with a partial report. A run that is
- * not running is left alone and returned as is.
+ * Stops a run that is running or still waiting for a slot: records the request (so the finaliser
+ * reports `stopped`, not `failed`), terminates the execution and its tasks, and closes the run with a
+ * partial report. A run that waited and never started gets its credit back. A finished run is left
+ * alone and returned as is.
  */
 export async function stopRun(
   deps: ControlDeps,
   ids: { emailHash: string; runId: string },
   by: string,
+  options: { cancelQueued?: boolean } = {},
 ): Promise<RunFile> {
   const { store } = deps;
   const run = await getRunFile(store, ids.emailHash, ids.runId);
   if (!run) return reject(404, "not_found");
-  if (run.status !== "running") return run;
+  if (run.status === "queued" && !options.cancelQueued) {
+    // About to be deleted: just make sure a waiting execution does not outlive the run.
+    await deps.launcher.stop(ids.emailHash, ids.runId);
+    return run;
+  }
+  if (run.status !== "running" && run.status !== "queued") return run;
   await createJson(store, keys.runStop(ids.emailHash, ids.runId), {
     ...(run.test ? { test: true } : {}),
     at: deps.now(),
     by,
   });
   await deps.launcher.stop(ids.emailHash, ids.runId);
-  return (await finalizeRun(deps, ids, { kind: "stopped" })) ?? run;
+  return (
+    (await finalizeRun(
+      deps,
+      ids,
+      run.status === "queued" ? { kind: "cancelled" } : { kind: "stopped" },
+    )) ?? run
+  );
 }
 
 /** Stops every running run of an account (before the account or a run is deleted). */
@@ -67,7 +82,7 @@ export async function stopRunningRuns(
   by: string,
 ): Promise<void> {
   const runs = await listRunFiles(deps.store, emailHash);
-  for (const run of runs.filter((r) => r.status === "running")) {
+  for (const run of runs.filter((r) => r.status === "running" || r.status === "queued")) {
     await stopRun(deps, { emailHash, runId: run.runId }, by);
   }
 }

@@ -204,6 +204,8 @@ export function buildAgentInput(input: RunInput): AgentInput {
       hosts: input.target.hosts,
       ports: scopePorts([input.target.appUrl, input.target.marketingUrl]),
       readOnly: true,
+      // One sign-in per login, plus one retry; nothing else may change state.
+      loginSubmissions: Object.keys(input.target.logins).length * 2,
     },
     agents: tier.agents,
     budgets: {
@@ -211,6 +213,15 @@ export function buildAgentInput(input: RunInput): AgentInput {
       maxSteps: limits.stepCap,
       maxRequests: limits.requestCap,
       requestsPerSecond: limits.requestsPerSecond,
+      maxPages: limits.pageCap,
+      llm: {
+        modelId: limits.modelId,
+        maxCalls: limits.llmStepCap,
+        phaseCalls: limits.explorerPhaseCalls,
+        maxInputTokens: limits.tokenCap?.input ?? null,
+        maxOutputTokens: limits.tokenCap?.output ?? null,
+        spendCapUsd: limits.spendCapUsd,
+      },
     },
     logins: input.target.logins,
     scopeNotes: input.target.scopeNotes,
@@ -240,7 +251,9 @@ export async function claimRun(
       claimed = false;
       if (!current || current.status !== "queued") return undefined;
       claimed = true;
-      return { ...current, status: "running" as const, startedAt: iso(now) };
+      const running = { ...current, status: "running" as const, startedAt: iso(now) };
+      delete running.reason; // it may have been waiting for a slot
+      return running;
     },
   );
   return claimed ? updated : null;

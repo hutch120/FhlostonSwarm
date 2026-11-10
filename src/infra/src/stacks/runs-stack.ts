@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { runtimeConfig } from "@swarm/shared/server";
+import { runtimeConfig, tierLimits } from "@swarm/shared/server";
 import {
   CfnOutput,
   Duration,
@@ -12,12 +12,14 @@ import {
 import { IpAddresses, Peer, Port, SecurityGroup, SubnetType, Vpc } from "aws-cdk-lib/aws-ec2";
 import { DockerImageAsset, Platform } from "aws-cdk-lib/aws-ecr-assets";
 import {
+  Capability,
   Cluster,
   ContainerDependencyCondition,
   ContainerImage,
   CpuArchitecture,
   FargatePlatformVersion,
   FargateTaskDefinition,
+  LinuxParameters,
   LogDriver,
   OperatingSystemFamily,
   type ContainerDefinition,
@@ -26,12 +28,16 @@ import { PolicyStatement, Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import type { IFunction } from "aws-cdk-lib/aws-lambda";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import {
+  Choice,
+  Condition,
   DefinitionBody,
   IntegrationPattern,
   JsonPath,
   LogLevel,
   StateMachine,
   Timeout,
+  Wait,
+  WaitTime,
 } from "aws-cdk-lib/aws-stepfunctions";
 import {
   EcsFargateLaunchTarget,
@@ -112,7 +118,8 @@ export class RunsStack extends Stack {
 
     const taskRole = new Role(this, "AgentTaskRole", {
       assumedBy: new ServicePrincipal("ecs-tasks.amazonaws.com"),
-      description: "Agent tasks: may only call the internal API (no S3, no Bedrock yet)",
+      description:
+        "Agent tasks: may call the internal API and invoke the configured Bedrock models (no S3)",
     });
     taskRole.addToPolicy(
       new PolicyStatement({
@@ -120,6 +127,45 @@ export class RunsStack extends Stack {
         resources: [props.internalInvokeArn],
       }),
     );
+    // The `au.` inference profiles run in ap-southeast-2 and ap-southeast-4, so the underlying
+    // foundation model is allowed in any region, but only when reached through the profile.
+    const profileIds = [...new Set(Object.values(tierLimits).map((l) => l.modelId))];
+    taskRole.addToPolicy(
+      new PolicyStatement({
+        actions: ["bedrock:InvokeModel"],
+        resources: profileIds.map(
+          (id) =>
+            `arn:${this.partition}:bedrock:${this.region}:${this.account}:inference-profile/${id}`,
+        ),
+      }),
+    );
+    taskRole.addToPolicy(
+      new PolicyStatement({
+        actions: ["bedrock:InvokeModel"],
+        resources: profileIds.map(
+          (id) =>
+            `arn:${this.partition}:bedrock:*::foundation-model/${id.replace(/^[a-z]+\./, "")}`,
+        ),
+        conditions: {
+          StringLike: {
+            "bedrock:InferenceProfileArn": profileIds.map(
+              (id) =>
+                `arn:${this.partition}:bedrock:${this.region}:${this.account}:inference-profile/${id}`,
+            ),
+          },
+        },
+      }),
+    );
+    Validations.of(taskRole).acknowledge({
+      id: "AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0]",
+      reason:
+        "An au. inference profile routes to the model in either Australian region, so the foundation model ARN needs a region wildcard; it is usable only through the profile (condition).",
+    });
+    Validations.of(taskRole).acknowledge({
+      id: "AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6]",
+      reason:
+        "An au. inference profile routes to the model in either Australian region, so the foundation model ARN needs a region wildcard; it is usable only through the profile (condition).",
+    });
     Validations.of(taskRole).acknowledge({
       id: `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:execute-api:${this.region}:${this.account}:SwarmApi:ExportsOutputRefHttpApiF5A9A8A7F70B5BDD/*/*/api/internal/*]`,
       reason:
@@ -155,6 +201,8 @@ export class RunsStack extends Stack {
       logging: LogDriver.awsLogs({ logGroup: agentLogs, streamPrefix: "run" }),
       environment: { AWS_REGION: this.region },
     };
+    const agentLinux = new LinuxParameters(this, "AgentLinuxParameters");
+    agentLinux.dropCapabilities(Capability.ALL);
     const proxy = agentTask.addContainer("proxy", {
       ...containerCommon,
       command: ["node", "proxy.mjs"],
@@ -166,6 +214,12 @@ export class RunsStack extends Stack {
       ...containerCommon,
       command: ["node", "task.mjs"],
       essential: true,
+      // The browser parses hostile pages: no Linux capabilities and a non-root user. Its profile
+      // goes to /tmp in the container's own ephemeral layer; a Fargate scratch volume is root-owned
+      // and the user cannot write to it, so the root filesystem is not read-only for this container.
+      readonlyRootFilesystem: false,
+      linuxParameters: agentLinux,
+      environment: { ...containerCommon.environment, HOME: "/tmp", TMPDIR: "/tmp" },
     });
     agent.addContainerDependencies({
       container: proxy,
@@ -220,7 +274,15 @@ export class RunsStack extends Stack {
     // Any failure still closes the run (partial report, credit returned), and a stopped run takes the same path.
     prepare.addCatch(finalize, { resultPath: "$.error" });
     runAgent.addCatch(finalize, { resultPath: "$.error" });
-    prepare.next(runAgent);
+    // A run whose depth pool is full waits here (the run stays queued), looking again every few seconds.
+    const waitForSlot = new Wait(this, "WaitForSlot", {
+      time: WaitTime.duration(Duration.seconds(runtimeConfig.pool.pollSeconds)),
+    });
+    waitForSlot.next(prepare);
+    const slotFree = new Choice(this, "SlotFree")
+      .when(Condition.booleanEquals("$.prepared.waiting", true), waitForSlot)
+      .otherwise(runAgent);
+    prepare.next(slotFree);
     runAgent.next(finalize);
 
     const stateLogs = new LogGroup(this, "StateMachineLogs", {

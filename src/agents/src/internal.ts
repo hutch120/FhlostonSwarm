@@ -1,11 +1,10 @@
+import { createHash } from "node:crypto";
 import type { EventBatch } from "@swarm/shared";
 import {
   agentInputSchema,
   containerCredentials,
   signedFetch,
   type AgentInput,
-  type ProxyLogEntry,
-  type ProxyStats,
 } from "@swarm/shared/server";
 import type { EventSink } from "./emitter.js";
 
@@ -79,9 +78,13 @@ export class InternalApi implements EventSink {
   }
 
   async postEvidence(
-    name: "proxy-log" | "proxy-stats",
-    body: { entries: ProxyLogEntry[]; dropped: number } | ProxyStats,
+    name: "proxy-log" | "proxy-stats" | "app-profile" | "usage" | "explorer-log",
+    body: object,
   ): Promise<void> {
     await this.call("POST", "/evidence", { name, body });
   }
 }
+
+/** The key the browser puts on its sign-in POST and the proxy checks, derived from the run token both have. */
+export const loginKeyFor = (token: string): string =>
+  createHash("sha256").update(`login:${token}`).digest("hex");

@@ -1,7 +1,9 @@
 {
-  "agentTask": { "vcpu": 0.5, "memoryGb": 1 },
+  "agentTask": { "vcpu": 1, "memoryGb": 2 },
   "taskTimeoutMarginSeconds": 300,
   "reaper": { "intervalMinutes": 5, "graceMinutes": 10 },
   "streamTokenMinutes": 15,
-  "proxyPort": 8899
+  "proxyPort": 8899,
+  "pool": { "pollSeconds": 20, "queueTimeoutMinutes": 30 },
+  "llm": { "maxOutputTokensPerCall": 1500, "maxRetries": 8, "retryBaseMs": 1000 }
 }

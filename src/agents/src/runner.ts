@@ -1,22 +1,31 @@
 import { AGENTS, findingSchema, type Finding } from "@swarm/shared";
 import type { AgentInput } from "@swarm/shared/server";
+import { authnAgent } from "./agents/authn.js";
+import { bundleAgent } from "./agents/bundle.js";
 import { corsAgent } from "./agents/cors.js";
+import { dnsAgent } from "./agents/dns.js";
+import { surfaceAgent } from "./agents/surface.js";
 import { tlsAgent } from "./agents/tls.js";
 import { zapAgent } from "./agents/zap.js";
 import { Budget, BudgetExhausted } from "./budget.js";
 import type { Emitter } from "./emitter.js";
+import type { Explorer } from "./explorer/explorer.js";
 import { RequestFailed, type HttpResult, type ScopedHttp } from "./http.js";
-import type { AgentModule, StepContext, StepResult } from "./types.js";
+import type { AgentModule, DnsClient, StepContext, StepResult } from "./types.js";
 
 /**
- * The deterministic "headers agent" (no LLM): transport, security headers and CORS. It reports as the
- * `tls`, `zap` and `cors` roster agents so the live view animates the same agents the tier names.
- * Roster agents without a module here are reported as gaps until a later phase adds them.
+ * The roster agents this runtime implements. Roster agents without a module here are reported as
+ * gaps until a later phase adds them. `surface` and `authn` drive the explorer (the model-driven
+ * discovery step); the rest are deterministic.
  */
 export const MODULES: Record<string, AgentModule> = {
+  dns: dnsAgent,
+  surface: surfaceAgent,
+  bundle: bundleAgent,
   tls: tlsAgent,
   zap: zapAgent,
   cors: corsAgent,
+  authn: authnAgent,
 };
 
 export interface RunnerDeps {
@@ -24,6 +33,9 @@ export interface RunnerDeps {
   emitter: Emitter;
   http: ScopedHttp;
   budget: Budget;
+  dns: DnsClient;
+  /** The explorer, or null when the run has no model or browser. */
+  explorer: Explorer | null;
   /** Set by the entrypoint on SIGTERM: stop between checks. */
   aborted?: () => boolean;
 }
@@ -39,8 +51,71 @@ export interface RunnerResult {
 
 const idOf = (n: number) => `F-${String(n).padStart(2, "0")}`;
 
+const SCRIPT_SRC = /<script\b[^>]*\bsrc=["']([^"']+)["']/gi;
+const INLINE_SCRIPT = /<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi;
+
+/** The agents' shared helpers: one fetch of the home page, one fetch of each script. */
+function stepContext(deps: RunnerDeps): StepContext {
+  const { input, http, explorer, dns } = deps;
+  const appUrl = new URL(input.target.appUrl);
+  let baseline: Promise<HttpResult> | undefined;
+  const scripts = new Map<string, Promise<string | null>>();
+
+  const ctx: StepContext = {
+    input,
+    appUrl,
+    http,
+    dns,
+    explorer,
+    baseline: () => (baseline ??= http.request({ url: input.target.appUrl })),
+    async pageScripts() {
+      const pages = explorer?.pages ?? [];
+      if (pages.length > 0) {
+        return {
+          external: [...new Set(pages.flatMap((p) => p.scripts))],
+          inline: pages.flatMap((p) => p.inlineScripts),
+        };
+      }
+      const page = await ctx.baseline();
+      return {
+        external: [
+          ...new Set(
+            [...page.body.matchAll(SCRIPT_SRC)].map((m) => new URL(m[1]!, page.url).toString()),
+          ),
+        ],
+        inline: [...page.body.matchAll(INLINE_SCRIPT)].map((m) => m[1]!.slice(0, 4000)),
+      };
+    },
+    scriptBody(url) {
+      if (new URL(url).hostname !== appUrl.hostname) return Promise.resolve(null);
+      let body = scripts.get(url);
+      if (!body) {
+        body = http.request({ url, maxRedirects: 0 }).then(
+          (res) => (res.status === 200 ? res.body : null),
+          (err) => {
+            if (err instanceof RequestFailed) return null;
+            throw err;
+          },
+        );
+        scripts.set(url, body);
+      }
+      return body;
+    },
+  };
+  return ctx;
+}
+
+/** Runs the planned agents, then lets the explorer write its profile if no phase got to. */
 export async function runAgents(deps: RunnerDeps): Promise<RunnerResult> {
-  const { input, emitter, http, budget } = deps;
+  try {
+    return await runPlanned(deps);
+  } finally {
+    await deps.explorer?.ensureProfile();
+  }
+}
+
+async function runPlanned(deps: RunnerDeps): Promise<RunnerResult> {
+  const { input, emitter, budget } = deps;
   const planned = AGENTS.filter((a) => input.agents.includes(a.id));
   const result: RunnerResult = { checks: 0, gaps: 0, findings: [], agentsRun: [], stoppedBy: null };
 
@@ -50,13 +125,7 @@ export async function runAgents(deps: RunnerDeps): Promise<RunnerResult> {
     result.gaps += 1;
   }
 
-  let baseline: Promise<HttpResult> | undefined;
-  const ctx: StepContext = {
-    input,
-    appUrl: new URL(input.target.appUrl),
-    http,
-    baseline: () => (baseline ??= http.request({ url: input.target.appUrl })),
-  };
+  const ctx = stepContext(deps);
 
   for (const spec of planned) {
     const module = MODULES[spec.id];
@@ -132,6 +201,13 @@ export async function runAgents(deps: RunnerDeps): Promise<RunnerResult> {
           break;
         default:
           emitter.finish(spec.id, step.id, step.label, requests, outcome);
+          if (outcome.outcome === "info") {
+            for (const reason of outcome.gaps ?? []) {
+              emitter.gap(spec.id, reason, spec.area);
+              result.gaps += 1;
+              agentGaps += 1;
+            }
+          }
       }
       if (outcome.outcome !== "gap") {
         result.checks += 1;

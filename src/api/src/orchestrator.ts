@@ -10,9 +10,10 @@ import { tiers } from "@swarm/shared";
 import { runtimeConfig } from "@swarm/shared/server";
 import { z } from "zod";
 import { orchestratorEnvSchema } from "./env.js";
-import { finalizeRun, type FinalizeDeps, type TaskTimes } from "./finalize.js";
+import { finalizeRun, type FinalizeDeps, type Outcome, type TaskTimes } from "./finalize.js";
 import { describeRunningTasks, stopTask, taskEnv, taskRunId } from "./launcher.js";
 import { SesMailer } from "./mailer.js";
+import { acquireRun } from "./pool.js";
 import { AppSyncPublisher } from "./publisher.js";
 import { runToken } from "./runtoken.js";
 import { getRunFile, getRunInput, isTerminal } from "./runs.js";
@@ -55,8 +56,9 @@ function services() {
 const taskInput = z.object({ owner: z.string().regex(/^[0-9a-f]{64}$/), runId: z.string().min(1) });
 
 /**
- * State machine step 1: confirms the run is ready to execute and mints its run token. The token and
- * the hard time limit go to the agent task through the container environment.
+ * State machine step 1: takes the run's place in its depth's pool (it keeps waiting, a poll at a
+ * time, while the pool is full), then mints the run token. The token and the hard time limit go to
+ * the agent task through the container environment.
  */
 export async function prepare(event: unknown) {
   const { owner, runId } = taskInput.parse(event);
@@ -64,12 +66,18 @@ export async function prepare(event: unknown) {
   const run = await getRunFile(deps.store, owner, runId);
   const input = await getRunInput(deps.store, owner, runId);
   if (!run || !input) throw new Error("run_not_found");
-  if (run.status !== "running") throw new Error("run_not_running");
+  if (isTerminal(run.status)) throw new Error("run_not_running");
+  if (run.status === "queued") {
+    const got = await acquireRun(deps.store, { emailHash: owner, runId }, deps.now());
+    if (got.status === "waiting") return { owner, runId, waiting: true as const };
+    if (got.status === "declined") throw new Error("queue_timeout");
+  }
   const maxSeconds =
     Math.round(tiers[input.tier].wallClockMinutes * 60) + runtimeConfig.taskTimeoutMarginSeconds;
   return {
     owner,
     runId,
+    waiting: false as const,
     token: runToken(await secrets(), owner, runId),
     maxSeconds,
     apiBase: env.INTERNAL_API_BASE,
@@ -95,6 +103,14 @@ export const finalizeInput = taskInput.extend({
   error: z.unknown().optional(),
 });
 
+/** A wait that ran out is a decline (the credit goes back); any other error is a failure on our side. */
+const outcomeOf = (error: unknown): Outcome =>
+  error === undefined || error === null
+    ? { kind: "finished" }
+    : JSON.stringify(error).includes("queue_timeout")
+      ? { kind: "declined" }
+      : { kind: "failed" };
+
 /** State machine last step: closes the run (report, cost, index, notice). */
 export async function finalize(event: unknown) {
   const input = finalizeInput.parse(event);
@@ -102,7 +118,7 @@ export async function finalize(event: unknown) {
   const run = await finalizeRun(
     deps,
     { emailHash: input.owner, runId: input.runId },
-    input.error ? { kind: "failed" } : { kind: "finished" },
+    outcomeOf(input.error),
     (input.task ?? {}) as TaskTimes,
   );
   return { runId: input.runId, status: run?.status ?? "missing" };
@@ -183,7 +199,7 @@ export async function reaper(event: unknown) {
       const owner = await ownerOf(sfn, execution.executionArn);
       if (!owner) continue;
       const run = await getRunFile(deps.store, owner, runId);
-      if (run && run.status === "running") {
+      if (run && (run.status === "running" || run.status === "queued")) {
         await finalizeRun(deps, { emailHash: owner, runId }, { kind: "failed" });
         report.runsClosed += 1;
       }

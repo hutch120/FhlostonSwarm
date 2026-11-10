@@ -18,6 +18,8 @@ export const agentInputSchema = z.object({
     ports: z.array(z.number().int().min(1).max(65535)).min(1),
     /** Only safe methods (GET, HEAD, OPTIONS) leave the proxy. */
     readOnly: z.boolean(),
+    /** Sign-in submissions (POST) the proxy lets through even when read-only; 0 at Scout depth. */
+    loginSubmissions: z.number().int().nonnegative(),
   }),
   /** The roster ids this run plans to cover (the tier's agent group). */
   agents: z.array(agentIdSchema).min(1),
@@ -26,6 +28,17 @@ export const agentInputSchema = z.object({
     maxSteps: z.number().int().positive(),
     maxRequests: z.number().int().positive(),
     requestsPerSecond: z.number().positive(),
+    /** Pages the explorer may open; null leaves it to the agent budgets. */
+    maxPages: z.number().int().positive().nullable(),
+    llm: z.object({
+      modelId: z.string().min(1),
+      maxCalls: z.number().int().positive().nullable(),
+      /** Calls one explorer phase may use. */
+      phaseCalls: z.number().int().positive().nullable(),
+      maxInputTokens: z.number().int().positive().nullable(),
+      maxOutputTokens: z.number().int().positive().nullable(),
+      spendCapUsd: z.number().positive(),
+    }),
   }),
   logins: z.partialRecord(
     loginSlotIdSchema,

@@ -85,7 +85,11 @@ test.describe("a real run", () => {
         page.getByTestId("report-finding").filter({ hasText: want.titleIncludes }),
       ).toHaveCount(1);
     }
-    await expect(page.getByTestId("report-gaps")).toContainText("not available yet");
+    // Checks a read-only outside-in scan cannot make are listed, the deeper agents are "not
+    // included at this depth", and the app profile says what the scan understood.
+    await expect(page.getByTestId("report-gaps")).toContainText("lockout");
+    await expect(page.getByTestId("report-not-included")).toContainText("IDOR");
+    await expect(page.getByTestId("report-profile")).toContainText("signed-in side");
 
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "Download HTML" }).click();
@@ -93,6 +97,8 @@ test.describe("a real run", () => {
     expect(file.suggestedFilename()).toBe(`swarm-report-${runId}.html`);
     const html = readFileSync((await file.path())!, "utf8");
     expect(html).toContain("Security assessment: 127.0.0.1");
+    expect(html).toContain("What we understood about the application");
+    expect(html).toContain("Not included at this depth");
     for (const want of expected.findings) expect(html).toContain(want.titleIncludes);
     expect(html).not.toContain("<script");
   });

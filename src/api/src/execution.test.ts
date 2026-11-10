@@ -153,10 +153,10 @@ describe("starting and stopping a run", () => {
     r = await setup();
   });
 
-  it("starts a queued run once: running, with one execution", async () => {
+  it("starts a queued run once: one execution, which takes a slot and moves it to running", async () => {
     const res = await start(r);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, status: "running" });
+    expect(await res.json()).toEqual({ ok: true, status: "queued" });
     expect(r.h.launcher.started).toEqual([{ owner: r.owner, runId: r.runId }]);
     expect((await summaryOf(r)).status).toBe("running");
 
@@ -219,10 +219,14 @@ describe("starting and stopping a run", () => {
     expect((await r.browser.withCsrf("POST", `/api/runs/${r.runId}/stop`)).status).toBe(409);
   });
 
-  it("will not stop a run that has not started", async () => {
+  it("stopping a run that is still waiting closes it as stopped and returns the credit", async () => {
+    const credits = (await getCredits(r.h.store, r.owner)).sweep;
     const res = await r.browser.withCsrf("POST", `/api/runs/${r.runId}/stop`);
-    expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "not_running" });
+    expect(await res.json()).toEqual({ ok: true, status: "stopped" });
+    const summary = await summaryOf(r);
+    expect(summary.status).toBe("stopped");
+    expect(summary.reason).toMatch(/credit has been returned/);
+    expect((await getCredits(r.h.store, r.owner)).sweep).toBe(credits + 1);
   });
 
   it("stops a running run before deleting it, and keeps only the anonymised index", async () => {

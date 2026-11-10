@@ -455,6 +455,27 @@ describe("A queued run", () => {
     expect(screen.getByTestId("run-status")).toHaveTextContent("running");
   });
 
+  it("shows that it is waiting for a free slot, follows it when it starts, and can be cancelled", async () => {
+    let status: "queued" | "running" = "queued";
+    const waiting = { ...queued, reason: "Waiting for a free Scout slot. It starts by itself." };
+    const stop = vi.fn(async () => undefined);
+    setApi({
+      ...createMockApi(),
+      getRun: async () =>
+        status === "queued" ? waiting : { ...queued, summary: { ...queued.summary, status } },
+      stopRun: stop,
+    });
+    renderApp("/runs/run_queued001");
+    expect(await screen.findByTestId("queued-wait")).toHaveTextContent(
+      "Waiting for a free Scout slot. It starts by itself.",
+    );
+    // No Start button while it waits: the run starts by itself.
+    expect(screen.queryByRole("button", { name: "Start run" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel and return the credit" }));
+    expect(stop).toHaveBeenCalledWith("run_queued001");
+    status = "running";
+  });
+
   it("says why a start failed and stays queued", async () => {
     setApi({
       ...createMockApi(),
@@ -588,6 +609,49 @@ describe("A real report", () => {
       "href",
       `/runs/${RUN}`,
     );
+  });
+
+  it("shows what the scan understood and what this depth did not include", async () => {
+    const shallow = {
+      ...buildReport({
+        state: applyEvents(
+          createRunState({ runId: RUN, ...tierRoster("sweep"), tier: "sweep" }),
+          [],
+        ),
+        events: [],
+        summary: summarise(
+          applyEvents(createRunState({ runId: RUN, ...tierRoster("sweep"), tier: "sweep" }), []),
+        ),
+        target: "staging.example.com",
+        generatedAt: "2026-11-10T00:00:00.000Z",
+        profile: {
+          purpose: "An orders portal where customers track deliveries.",
+          areas: [
+            { name: "Orders", description: "Past orders.", path: "/orders", requiresLogin: true },
+            { name: "Pricing", description: "Plans.", requiresLogin: false },
+          ],
+          roles: [{ name: "Administrator", description: "Manages users.", access: ["Orders"] }],
+          flows: [{ name: "Track an order", description: "Open orders and pick one." }],
+          technologies: ["nginx"],
+          coverage: { pagesVisited: 9, loginsUsed: 1, signedIn: true },
+        },
+      }),
+      runId: RUN,
+    };
+    setApi({ ...createMockApi(), getReport: async () => shallow });
+    renderApp(`/runs/${RUN}/report`);
+    const understood = await screen.findByTestId("report-profile");
+    expect(understood).toHaveTextContent("An orders portal where customers track deliveries.");
+    expect(understood).toHaveTextContent(
+      "Described from 9 pages, including the signed-in side (1 login)",
+    );
+    expect(understood).toHaveTextContent("Orders /orders (signed in): Past orders.");
+    expect(understood).toHaveTextContent("Administrator: Manages users. Reaches: Orders.");
+    // Sweep leaves out the deeper agents, and says so.
+    const notIncluded = screen.getByTestId("report-not-included");
+    for (const name of ["Session", "Access", "Prompt", "Output", "IDOR"]) {
+      expect(within(notIncluded).getByText(name)).toBeInTheDocument();
+    }
   });
 
   it("downloads the HTML through a time-limited link", async () => {

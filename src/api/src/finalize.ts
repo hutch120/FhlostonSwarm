@@ -1,7 +1,15 @@
-import { buildReport, summarise, tiers, type RunStatus, type Summary } from "@swarm/shared";
-import { estimateCost, proxyStatsSchema } from "@swarm/shared/server";
+import {
+  appProfileSchema,
+  buildReport,
+  summarise,
+  tiers,
+  type RunStatus,
+  type Summary,
+} from "@swarm/shared";
+import { estimateCost, llmUsageSchema, proxyStatsSchema } from "@swarm/shared/server";
 import { appendEvents, getSequencer, readAllEvents, type DraftEvent } from "./events.js";
 import type { Mailer } from "./mailer.js";
+import { releaseSlot } from "./pool.js";
 import type { EventPublisher } from "./publisher.js";
 import { renderReportHtml } from "./report-html.js";
 import {
@@ -25,7 +33,16 @@ export interface FinalizeDeps {
   siteOrigin: string;
 }
 
-export type Outcome = { kind: "finished" } | { kind: "stopped" } | { kind: "failed" };
+/**
+ * How a run ended. `cancelled` is a stop while it still waited for a slot and `declined` is a wait
+ * that ran out; neither ever ran, so both give the credit back.
+ */
+export type Outcome =
+  | { kind: "finished" }
+  | { kind: "stopped" }
+  | { kind: "failed" }
+  | { kind: "cancelled" }
+  | { kind: "declined" };
 
 /** When the agent task ran, from the ECS task description the state machine passes on. */
 export interface TaskTimes {
@@ -38,17 +55,19 @@ const REASONS = {
   stopped: "Stopped before it finished. The report covers what ran.",
   failed:
     "The run ended because of a problem on our side. Your credit has been returned. The report covers what ran.",
+  cancelled: "Stopped before it started. Your credit has been returned.",
+  declined:
+    "Every scan slot at this depth stayed busy, so the scan did not start. Your credit has been returned.",
 } as const;
 
 const statusFor = (
   outcome: Outcome,
   stopRequested: boolean,
-): Extract<RunStatus, "complete" | "stopped" | "failed"> =>
-  stopRequested || outcome.kind === "stopped"
-    ? "stopped"
-    : outcome.kind === "failed"
-      ? "failed"
-      : "complete";
+): Extract<RunStatus, "complete" | "stopped" | "failed"> => {
+  if (outcome.kind === "declined") return "failed";
+  if (stopRequested || outcome.kind === "stopped" || outcome.kind === "cancelled") return "stopped";
+  return outcome.kind === "failed" ? "failed" : "complete";
+};
 
 const seconds = (from: string | undefined, to: string | undefined): number | null => {
   if (!from || !to) return null;
@@ -73,7 +92,11 @@ export async function finalizeRun(
   const { emailHash, runId } = ids;
   const file = await getRunFile(store, emailHash, runId);
   if (!file) return null;
-  if (isTerminal(file.status)) return file;
+  const slot = { tier: file.tier, runId, test: file.test };
+  if (isTerminal(file.status)) {
+    await releaseSlot(store, slot);
+    return file;
+  }
 
   const input = await getRunInput(store, emailHash, runId);
   const stopRequested = (await store.get(keys.runStop(emailHash, runId))) !== null;
@@ -107,12 +130,18 @@ export async function finalizeRun(
   );
 
   const events = await readAllEvents(store, { emailHash, runId });
+  const profile = await getJson(
+    store,
+    keys.runEvidence(emailHash, runId, "app-profile"),
+    appProfileSchema,
+  ).catch(() => null);
   const report = buildReport({
     state: { ...sequencer.run, status, finishedAt, summary },
     events,
     summary,
     target: file.target,
     generatedAt: finishedAt,
+    profile: profile?.value ?? null,
   });
   const marker = file.test ? { test: true as const } : {};
   await putJson(store, keys.runReportData(emailHash, runId), { ...marker, ...report });
@@ -124,6 +153,11 @@ export async function finalizeRun(
     proxyStatsSchema.partial(),
   );
   const proxy = stats?.value;
+  const usage = (
+    await getJson(store, keys.runEvidence(emailHash, runId, "usage"), llmUsageSchema).catch(
+      () => null,
+    )
+  )?.value;
   const taskSeconds =
     seconds(task.pullStartedAt ?? task.startedAt, task.stoppedAt) ??
     (proxy?.uptimeSeconds !== undefined ? proxy.uptimeSeconds + 20 : 0);
@@ -138,6 +172,7 @@ export async function finalizeRun(
     bytesIn: proxy?.bytesIn ?? 0,
     requests: summary.requests,
     checks: summary.checks,
+    ...(usage ? { bedrock: usage } : {}),
   });
   await putJson(store, keys.runCost(emailHash, runId), cost);
 
@@ -168,6 +203,12 @@ export async function finalizeRun(
   });
 
   let won = false;
+  const reasonKey: keyof typeof REASONS =
+    outcome.kind === "cancelled" || outcome.kind === "declined"
+      ? outcome.kind
+      : status === "failed"
+        ? "failed"
+        : "stopped";
   const settled = await updateJson(
     store,
     keys.runSummary(emailHash, runId),
@@ -179,13 +220,16 @@ export async function finalizeRun(
       return {
         ...current,
         ...summary,
-        ...(status === "complete" ? {} : { reason: REASONS[status] }),
+        ...(status === "complete" ? {} : { reason: REASONS[reasonKey] }),
       };
     },
   );
+  await releaseSlot(store, slot);
   if (!settled) return null;
 
-  if (status === "failed") await refundRunCredit(store, emailHash, runId, at);
+  if (status === "failed" || outcome.kind === "cancelled") {
+    await refundRunCredit(store, emailHash, runId, at);
+  }
 
   if (won && status === "complete" && input) {
     const { notify } = input.scan;
