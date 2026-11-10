@@ -107,11 +107,9 @@ code {
   text-decoration: none;
 }
 .brand-mark {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #fff, var(--accent) 45%, var(--accent-alt));
-  box-shadow: var(--glow-strong);
+  width: 26px;
+  height: 26px;
+  filter: drop-shadow(0 0 6px rgba(96, 165, 250, 0.55));
 }
 .nav {
   display: flex;

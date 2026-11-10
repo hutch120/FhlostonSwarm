@@ -35,7 +35,7 @@ export function Layout() {
       </a>
       <header className="topbar">
         <Link to="/" className="brand" aria-label="Swarm home">
-          <span className="brand-mark" aria-hidden="true" />
+          <img className="brand-mark" src="/favicon.svg" alt="" aria-hidden="true" />
           Swarm
         </Link>
         <nav aria-label="Main">
