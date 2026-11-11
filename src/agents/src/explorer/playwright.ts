@@ -253,10 +253,15 @@ export class PlaywrightDriver implements PageDriver {
   async cookies(): Promise<BrowserCookie[]> {
     return (await this.context.cookies()).map((c) => ({
       name: c.name,
+      value: c.value,
       secure: c.secure,
       httpOnly: c.httpOnly,
       sameSite: c.sameSite ?? null,
     }));
+  }
+
+  async resetSession(): Promise<void> {
+    await this.context.clearCookies();
   }
 
   async close(): Promise<void> {

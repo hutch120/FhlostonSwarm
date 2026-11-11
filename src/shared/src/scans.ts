@@ -192,3 +192,7 @@ export type StreamToken = z.infer<typeof streamTokenSchema>;
 /** A time-limited download link for the run's report. */
 export const reportLinkSchema = z.object({ url: z.string().min(1), expiresAt: z.iso.datetime() });
 export type ReportLink = z.infer<typeof reportLinkSchema>;
+
+/** The formats a report is delivered in. */
+export const reportFormatSchema = z.enum(["html", "pdf", "json"]);
+export type ReportFormat = z.infer<typeof reportFormatSchema>;

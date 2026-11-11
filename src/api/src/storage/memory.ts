@@ -9,6 +9,7 @@ import {
 /** In-memory store with the same conditional-write semantics as S3, for unit tests and local dev. */
 export class MemoryStore implements ObjectStore {
   private readonly objects = new Map<string, StoredObject>();
+  private readonly bytes = new Map<string, Uint8Array>();
 
   async get(key: string): Promise<StoredObject | null> {
     const found = this.objects.get(key);
@@ -25,8 +26,21 @@ export class MemoryStore implements ObjectStore {
     return { etag };
   }
 
+  async putBytes(key: string, body: Uint8Array): Promise<void> {
+    this.bytes.set(key, body);
+    this.objects.set(key, {
+      body: `[binary ${body.length} bytes]`,
+      etag: `"bytes-${body.length}"`,
+    });
+  }
+
+  async getBytes(key: string): Promise<Uint8Array | null> {
+    return this.bytes.get(key) ?? null;
+  }
+
   async delete(key: string): Promise<void> {
     this.objects.delete(key);
+    this.bytes.delete(key);
   }
 
   async list(prefix: string): Promise<string[]> {

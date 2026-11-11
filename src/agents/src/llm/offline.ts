@@ -23,6 +23,7 @@ export function createOfflineLlm(
   const visited: { path: string; title: string; afterSignIn: boolean }[] = [];
   const requests: LlmRequest[] = [];
   let signedIn = false;
+  const signedSlots = new Set<string>();
   let counter = 0;
   let phaseStart = 0;
 
@@ -61,16 +62,14 @@ export function createOfflineLlm(
       visited.push({ path, title, afterSignIn: signedIn });
     }
 
-    const slot = /^- (\w+): /m.exec(
-      request.messages[0]?.content[0]?.type === "text" ? request.messages[0].content[0].text : "",
-    )?.[1];
-    if (
-      names.includes("sign_in") &&
-      !signedIn &&
-      slot &&
-      /type=password|password:password/.test(text)
-    ) {
-      return [toolUse(counter, "sign_in", { login: slot })];
+    const prompt =
+      request.messages[0]?.content[0]?.type === "text" ? request.messages[0].content[0].text : "";
+    const slots = [...prompt.matchAll(/^- (\w+): /gm)].map((m) => m[1]!);
+    const nextSlot = slots.find((s) => !signedSlots.has(s));
+    const signingIn = names.includes("sign_in") && nextSlot !== undefined;
+    if (signingIn && !signedIn && /type=password|password:password/.test(text)) {
+      signedSlots.add(nextSlot);
+      return [toolUse(counter, "sign_in", { login: nextSlot })];
     }
 
     const links = [...text.matchAll(/^(\d+)\. .* -> (\S+)$/gm)].map((m) => ({
@@ -82,6 +81,12 @@ export function createOfflineLlm(
     );
     if (next && visited.length - phaseStart < maxPages) {
       return [toolUse(counter, "open_link", { id: next.id })];
+    }
+
+    // Another login is still to be used: the sign-in tool starts from a signed-out browser itself.
+    if (signingIn && signedIn) {
+      signedSlots.add(nextSlot);
+      return [toolUse(counter, "sign_in", { login: nextSlot })];
     }
 
     if (names.includes("record_profile")) return [toolUse(counter, "record_profile", profile())];

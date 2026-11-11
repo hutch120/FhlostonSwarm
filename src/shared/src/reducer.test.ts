@@ -72,11 +72,11 @@ describe("applyEvent over the scripted run", () => {
     expect(ranks.at(-1)).toBe("info");
   });
 
-  it("marks verified findings open and leaves failed cross-checks unverified", () => {
+  it("marks verified findings open, failed cross-checks unconfirmed and the rest unverified", () => {
     const { findings } = finalState();
     const byId = Object.fromEntries(findings.map((f) => [f.id, f]));
     expect(byId["F-01"]).toMatchObject({ verified: true, status: "open" });
-    expect(byId["F-06"]).toMatchObject({ verified: false, status: "unverified" });
+    expect(byId["F-06"]).toMatchObject({ verified: false, status: "unconfirmed" });
     expect(byId["F-11"]).toMatchObject({ verified: false, status: "unverified" });
     expect(findings.filter((f) => f.verified)).toHaveLength(7);
   });

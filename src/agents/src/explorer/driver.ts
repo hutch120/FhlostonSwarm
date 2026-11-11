@@ -29,6 +29,8 @@ export interface PageSnapshot {
 
 export interface BrowserCookie {
   name: string;
+  /** The cookie's value. A secret: it is kept in memory for the role-aware checks and never logged or emitted. */
+  value: string;
   secure: boolean;
   httpOnly: boolean;
   sameSite: string | null;
@@ -56,6 +58,8 @@ export interface PageDriver {
   /** Fills the sign-in form on the current page and submits it; the only state-changing request allowed. */
   signIn(login: { username: string; password: string }): Promise<SignInResult>;
   cookies(): Promise<BrowserCookie[]>;
+  /** Forgets every cookie, so the next sign-in starts from a signed-out browser. */
+  resetSession(): Promise<void>;
   /** Requests the browser sent (through the proxy). */
   readonly requests: number;
   /** Requests the browser refused to send, and why (not seen by the proxy). */

@@ -1,7 +1,20 @@
+import type { Engagement, RoleKind } from "@swarm/shared/server";
 import type { Severity } from "@swarm/shared";
 import type { AgentInput } from "@swarm/shared/server";
-import type { Explorer } from "./explorer/explorer.js";
+import type { Explorer, RoleSession } from "./explorer/explorer.js";
 import type { HttpResult, ScopedHttp } from "./http.js";
+
+/**
+ * What an independent re-test found. `null` means the check could not be repeated on its own, which
+ * the verifier reports as "unconfirmed" (never as verified).
+ */
+export interface ReplayResult {
+  confirmed: boolean | null;
+  /** What was re-tested and what came back, in customer-safe words (no credentials or tokens). */
+  note: string;
+}
+
+export type Replay = () => Promise<ReplayResult>;
 
 export interface FindingDraft {
   title: string;
@@ -12,6 +25,15 @@ export interface FindingDraft {
   remediation: string;
   /** OWASP / LLM Top 10 mapping, when there is one. */
   mapping?: string;
+  impact?: string;
+  /** Short excerpts of what was observed. Never a credential, token or cookie value. */
+  evidence?: string[];
+  reproduction?: string[];
+  /**
+   * How to repeat the observation independently, for the verifier. A check without one is re-run as
+   * a whole in a fresh context.
+   */
+  replay?: Replay;
 }
 
 export type StepResult =
@@ -24,6 +46,11 @@ export type StepResult =
     }
   | { outcome: "finding"; finding: FindingDraft }
   | { outcome: "gap"; reason: string };
+
+/** A login together with the session it holds and what kind of role it is. */
+export interface RoleView extends RoleSession {
+  kind: RoleKind;
+}
 
 /** What a check can use. It cannot reach the network except through `http` (the scope proxy). */
 export interface StepContext {
@@ -41,6 +68,12 @@ export interface StepContext {
   pageScripts(): Promise<{ external: string[]; inline: string[] }>;
   /** The body of a script the application serves (same host only; fetched once, null if unavailable). */
   scriptBody(url: string): Promise<string | null>;
+  /** The engagement plan (deep depths, once discovery is done); null before that. */
+  plan: Engagement | null;
+  /** The logins that signed in and hold a session. */
+  roles(): RoleView[];
+  /** Results shared by the checks of one run (the access matrix is computed once). */
+  shared: Map<string, unknown>;
 }
 
 export type DnsAnswer = { ok: true; values: string[] } | { ok: false; code: string };

@@ -9,14 +9,24 @@ import {
   replayEvents,
   summarise,
   tierRoster,
+  type ReportFormat,
   type RunReport,
 } from "@swarm/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
-import { api, messageFor } from "../api/client.js";
+import { ApiError, api, messageFor } from "../api/client.js";
 import { capitalise, formatClock } from "../format.js";
 import { SeverityBadge, VerifiedBadge } from "../panels/FindingsPanel.js";
+
+const OUTCOME_LABEL: Record<string, string> = {
+  clear: "passed",
+  info: "observation",
+  finding: "finding",
+  gap: "not tested",
+  "not-applicable": "not applicable",
+  "not-run": "not run",
+};
 
 /** The report of the scripted demo run, built the same way a real run's is. */
 function demoReport(): RunReport {
@@ -65,17 +75,21 @@ function ReportView({ report, demo = false }: { report: RunReport; demo?: boolea
   const { summary } = report;
   const [error, setError] = useState<string | null>(null);
 
-  const downloadHtml = async () => {
+  const download = async (format: ReportFormat) => {
     setError(null);
     try {
-      const link = await api.getReportLink(report.runId);
+      const link = await api.getReportLink(report.runId, format);
       // The link carries Content-Disposition: attachment, so the browser downloads it from S3.
       const anchor = document.createElement("a");
       anchor.href = link.url;
       anchor.rel = "noopener";
       anchor.click();
     } catch (err) {
-      setError(messageFor(err, "Could not prepare the download."));
+      setError(
+        format === "pdf" && err instanceof ApiError && err.code === "report_not_ready"
+          ? "The PDF is still being prepared. Try again in a minute."
+          : messageFor(err, "Could not prepare the download."),
+      );
     }
   };
   const downloadJson = () => {
@@ -101,13 +115,23 @@ function ReportView({ report, demo = false }: { report: RunReport; demo?: boolea
           </p>
         </div>
         <div className="actions-row">
-          <button type="button" className="btn" disabled={demo} onClick={() => void downloadHtml()}>
+          <button
+            type="button"
+            className="btn"
+            disabled={demo}
+            onClick={() => void download("html")}
+          >
             Download HTML
           </button>
           <button type="button" className="btn" onClick={downloadJson}>
             Download JSON
           </button>
-          <button type="button" className="btn" disabled title="PDF arrives with the full report">
+          <button
+            type="button"
+            className="btn"
+            disabled={demo}
+            onClick={() => void download("pdf")}
+          >
             Download PDF
           </button>
         </div>
@@ -136,10 +160,31 @@ function ReportView({ report, demo = false }: { report: RunReport; demo?: boolea
           ))}
         </ul>
         <p data-testid="report-summary">
-          {summary.findings.total} findings ({summary.findings.verified} verified), {summary.checks}{" "}
-          checks, {summary.gaps} scope gaps.
+          {summary.findings.total} findings ({summary.findings.verified} verified
+          {report.counts.unconfirmed > 0 ? `, ${report.counts.unconfirmed} unconfirmed` : ""}),{" "}
+          {summary.checks} checks, {summary.gaps} scope gaps.
+        </p>
+        <p className="muted small" data-testid="report-ai">
+          AI/LLM testing: {report.ai.summary}
         </p>
       </section>
+
+      {report.priorities.length > 0 && (
+        <section className="card" aria-labelledby="priorities-title">
+          <h2 id="priorities-title" className="card-title">
+            Recommended priorities
+          </h2>
+          <ol data-testid="report-priorities">
+            {report.priorities.map((p) => (
+              <li key={p.findingId}>
+                <SeverityBadge severity={p.severity} /> {p.findingId} {p.title}
+                {!p.confirmed && <span className="muted"> (unconfirmed)</span>}
+                <p className="muted small">{p.action}</p>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       <section className="card" aria-labelledby="understood-title">
         <h2 id="understood-title" className="card-title">
@@ -241,15 +286,40 @@ function ReportView({ report, demo = false }: { report: RunReport; demo?: boolea
                     <td>
                       {f.title}
                       <p className="muted small">{f.description}</p>
+                      {f.impact && (
+                        <p className="small">
+                          <strong>Impact:</strong> {f.impact}
+                        </p>
+                      )}
                       <p className="small">
                         <strong>Fix:</strong> {f.remediation}
                       </p>
+                      {(f.evidence?.length || f.reproduction?.length) && (
+                        <details className="small">
+                          <summary>Evidence and steps</summary>
+                          {f.evidence && (
+                            <ul>
+                              {f.evidence.map((x, i) => (
+                                <li key={i}>{x}</li>
+                              ))}
+                            </ul>
+                          )}
+                          {f.reproduction && (
+                            <ol>
+                              {f.reproduction.map((x, i) => (
+                                <li key={i}>{x}</li>
+                              ))}
+                            </ol>
+                          )}
+                        </details>
+                      )}
+                      <p className="muted small">Re-test: {f.verification.note}</p>
                     </td>
                     <td>
                       <code>{f.component}</code>
                     </td>
                     <td>
-                      <VerifiedBadge verified={f.verified} />
+                      <VerifiedBadge verified={f.verified} status={f.status} />
                     </td>
                   </tr>
                 ))}
@@ -257,6 +327,39 @@ function ReportView({ report, demo = false }: { report: RunReport; demo?: boolea
             </table>
           </div>
         )}
+      </section>
+
+      <section className="card" aria-labelledby="tests-title">
+        <h2 id="tests-title" className="card-title">
+          Testing performed
+        </h2>
+        {report.plan && (
+          <p className="muted small" data-testid="report-plan">
+            Planned from discovery
+            {report.plan.plannedBy === "model" ? " with a model refining the plan" : ""}. Roles
+            tested:{" "}
+            {report.plan.roles.map((r) => `${r.slot} (${r.description})`).join(", ") || "none"}.
+            Instruction modules {report.instructionsVersion}.
+          </p>
+        )}
+        {report.phases.map((phase) => (
+          <div key={phase.phase}>
+            <h3>
+              Phase {phase.phase}: {phase.name}
+            </h3>
+            <ul className="small" data-testid={`report-phase-${phase.phase}`}>
+              {phase.checks.map((c) => (
+                <li key={`${c.agent}-${c.stepId}`}>
+                  {c.label} <span className="muted">({c.agentName})</span>:{" "}
+                  <strong>{OUTCOME_LABEL[c.outcome]}</strong>
+                  {c.outcome === "not-applicable" && c.detail && (
+                    <span className="muted"> {c.detail}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
       </section>
 
       <section className="card" aria-labelledby="passed-title">

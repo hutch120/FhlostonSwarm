@@ -27,6 +27,8 @@ export const tierConfigSchema = z.object({
   logins: z.number().int().min(0).max(4),
   wallClockMinutes: z.number().positive(),
   steering: z.boolean(),
+  /** Plans the engagement from discovery, runs the role-aware agents and verifies each finding. */
+  deep: z.boolean(),
   /** The group of agents this tier runs (ids from the roster). */
   agents: z.array(agentIdSchema).min(1),
 });

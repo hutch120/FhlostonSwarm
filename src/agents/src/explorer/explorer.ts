@@ -1,4 +1,4 @@
-import { appProfileSchema, type AppProfile } from "@swarm/shared";
+import { appProfileSchema, tiers, type AppProfile } from "@swarm/shared";
 import type { AgentInput } from "@swarm/shared/server";
 import { runtimeConfig } from "@swarm/shared/server";
 import { z } from "zod";
@@ -32,7 +32,18 @@ export interface SignInRecord {
   insecureTransport: boolean;
   landedPath: string;
   message: string;
+  /** The cookies the browser held right after signing in (values are secrets: never log or emit them). */
   cookies: BrowserCookie[];
+  /** The cookies it held just before, to tell whether the session identifier was renewed. */
+  before: BrowserCookie[];
+}
+
+/** One login's session, for the checks that make their own requests as that role. */
+export interface RoleSession {
+  slot: string;
+  description: string;
+  /** The `Cookie` header that carries the session. A secret. */
+  cookie: string;
 }
 
 export interface ExplorerDeps {
@@ -47,6 +58,13 @@ export interface ExplorerDeps {
 
 const MODEL_TEXT = 1800;
 const MODEL_LINKS = 30;
+/** Pages the explorer opens by itself after each sign-in at deep depths, so every role's reach is mapped. */
+const SWEEP_PAGES = 14;
+const SWEEP_DEPTH = 2;
+/** Links never followed by the sweep: they sign out or change state even when requested with GET. */
+const UNSAFE_LINK = /log-?out|sign-?out|delete|remove|destroy|unsubscribe|cancel|reset-password/i;
+/** Key of the pages seen before any sign-in. */
+const PUBLIC = "public";
 /** Calls kept back for writing the profile, so a long exploration can never end without one. */
 const PROFILE_RESERVE = 3;
 /** Paths that came back as not found; after this many, `open_path` is refused (no guessing). */
@@ -98,8 +116,28 @@ export class Explorer {
   private publicPaths = new Set<string>();
   private readonly counted = new WeakMap<PageDriver, number>();
   private readonly openedBy = new WeakMap<PageDriver, Set<string>>();
+  /** Pages by who saw them: `public`, or the login slot they were opened as. */
+  private readonly slotPages = new Map<string, Map<string, PageSnapshot>>();
+  private currentSlot = PUBLIC;
+  private signInUrl: string | null = null;
 
   constructor(private readonly deps: ExplorerDeps) {}
+
+  /** The pages one role reached (`public` for the signed-out visitor); a path that errored is not a page. */
+  pagesFor(slot: string): PageSnapshot[] {
+    return [...(this.slotPages.get(slot)?.values() ?? [])].filter((p) => p.status < 400);
+  }
+
+  /** The logins that signed in, with the cookies their sessions carry (tokens kept in memory only). */
+  get roleSessions(): RoleSession[] {
+    return this.logins
+      .filter((l) => l.ok && l.cookies.length > 0)
+      .map((l) => ({
+        slot: l.slot,
+        description: l.description,
+        cookie: l.cookies.map((c) => `${c.name}=${c.value}`).join("; "),
+      }));
+  }
 
   get profile(): AppProfile | null {
     return this.profileRecord;
@@ -360,8 +398,45 @@ export class Explorer {
     opened.add(page.url);
     this.seen.set(url, page);
     this.seen.set(page.url, page);
+    this.tag(page);
     this.current = page;
     return this.render(page);
+  }
+
+  private tag(page: PageSnapshot): void {
+    const pages = this.slotPages.get(this.currentSlot) ?? new Map<string, PageSnapshot>();
+    pages.set(page.url, page);
+    this.slotPages.set(this.currentSlot, pages);
+  }
+
+  /**
+   * At deep depths the explorer maps each role's reach by code, not by the model's choices: after a
+   * sign-in it opens the linked pages (GET only, never a sign-out or a delete) a couple of links deep.
+   */
+  private async sweep(driver: PageDriver, from: PageSnapshot): Promise<void> {
+    const { budget } = this.deps;
+    const queue: { page: PageSnapshot; depth: number }[] = [{ page: from, depth: 0 }];
+    const visited = new Set<string>([pathOf(from.url)]);
+    let opened = 0;
+    while (queue.length > 0 && opened < SWEEP_PAGES) {
+      const { page, depth } = queue.shift()!;
+      if (depth >= SWEEP_DEPTH) continue;
+      for (const link of page.links) {
+        if (opened >= SWEEP_PAGES || budget.exhaustedKind() !== null || this.deps.aborted?.()) {
+          return;
+        }
+        if (!this.inScope(link.href)) continue;
+        const key = pathOf(link.href);
+        if (visited.has(key) || UNSAFE_LINK.test(key)) continue;
+        visited.add(key);
+        const limitBefore = this.limitReason;
+        await this.visit(driver, link.href);
+        if (this.limitReason !== limitBefore) return;
+        opened += 1;
+        const seen = this.current;
+        if (seen && seen.status < 400) queue.push({ page: seen, depth: depth + 1 });
+      }
+    }
   }
 
   private openLinkTool(driver: PageDriver): Tool<{ id: number }> {
@@ -413,6 +488,17 @@ export class Explorer {
         if (this.logins.some((l) => l.slot === login && l.ok)) {
           return { text: "Already signed in with that login." };
         }
+        this.signInUrl ??= this.current?.url ?? null;
+        if (this.logins.some((l) => l.ok) && this.signInUrl) {
+          // Each login starts from a signed-out browser, on the page that has the sign-in form.
+          await driver.resetSession();
+          this.currentSlot = PUBLIC;
+          const form = await driver.open(this.signInUrl);
+          this.count(driver);
+          this.openedBy.set(driver, new Set([this.signInUrl, form.url]));
+          this.current = form;
+        }
+        const before = await driver.cookies();
         const result = await driver.signIn({
           username: credentials.username,
           password: credentials.password,
@@ -427,13 +513,20 @@ export class Explorer {
           landedPath: pathOf(result.landedUrl),
           message: result.message,
           cookies,
+          before,
         });
         if (result.snapshot) {
           this.seen.set(result.snapshot.url, result.snapshot);
           // Everything seen so far was seen signed out; a page opened again must load signed in.
           this.openedBy.set(driver, new Set(result.ok ? [result.snapshot.url] : []));
+          if (result.ok) this.currentSlot = login;
+          this.tag(result.snapshot);
           this.current = result.snapshot;
           this.pageCount += 1;
+          if (result.ok && tiers[this.deps.input.tier].deep) {
+            await this.sweep(driver, result.snapshot);
+            this.current = result.snapshot;
+          }
           const shown = this.render(result.snapshot);
           const lead = result.ok
             ? `Signed in as "${credentials.description}". This is the page you landed on. Explore what is reachable now by following the links below; the sign-in page is behind you.`

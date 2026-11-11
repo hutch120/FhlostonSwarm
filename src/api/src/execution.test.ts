@@ -399,6 +399,79 @@ describe("the agent-facing API", () => {
 });
 
 describe("closing a run", () => {
+  it("serves the report to the PDF step only after the run closes, and stores the PDF it hands back", async () => {
+    const r = await setup();
+    await start(r);
+    await r.internal("POST", "/events", batch(r, typicalEvents()));
+    // While the run is going there is no report to render, and the PDF cannot be written.
+    expect((await r.internal("GET", "/report")).status).toBe(409);
+    const pdf = Buffer.concat([
+      Buffer.from("%PDF-1.7\n"),
+      Buffer.alloc(64, 1),
+      Buffer.from("%%EOF"),
+    ]);
+    expect((await r.internal("POST", "/report-pdf", { pdf: pdf.toString("base64") })).status).toBe(
+      409,
+    );
+
+    const deps = {
+      store: r.h.store,
+      mailer: r.h.mailer,
+      publisher: r.h.publisher,
+      now: r.h.clock.now,
+      siteOrigin: "https://fhlostonswarm.com",
+    };
+    await finalizeRun(deps, { emailHash: r.owner, runId: r.runId }, { kind: "finished" });
+
+    const report = await r.internal("GET", "/report");
+    expect(report.status).toBe(200);
+    expect(((await report.json()) as { html: string }).html).toContain("1. Executive summary");
+
+    // Only a PDF is accepted, and nothing else may be written once the run is closed.
+    const notPdf = Buffer.from("not a pdf at all, just some text of a decent length");
+    expect(
+      (await r.internal("POST", "/report-pdf", { pdf: notPdf.toString("base64") })).status,
+    ).toBe(400);
+    expect((await r.internal("POST", "/report-pdf", { pdf: "" })).status).toBe(400);
+    expect((await r.internal("POST", "/report-pdf", { pdf: pdf.toString("base64") })).status).toBe(
+      200,
+    );
+    expect(Buffer.from((await r.h.store.getBytes(keys.runReportPdf(r.owner, r.runId)))!)).toEqual(
+      pdf,
+    );
+    expect((await r.internal("POST", "/evidence", { name: "usage", body: {} })).status).toBe(409);
+
+    // The customer can then ask for it; before it exists the link is "not ready".
+    const link = await r.browser.request("GET", `/api/runs/${r.runId}/report/link?format=pdf`);
+    expect(link.status).toBe(200);
+  });
+
+  it("offers the PDF only once it exists", async () => {
+    const r = await setup();
+    await start(r);
+    await r.internal("POST", "/events", batch(r, typicalEvents()));
+    await finalizeRun(
+      {
+        store: r.h.store,
+        mailer: r.h.mailer,
+        publisher: r.h.publisher,
+        now: r.h.clock.now,
+        siteOrigin: "https://fhlostonswarm.com",
+      },
+      { emailHash: r.owner, runId: r.runId },
+      { kind: "finished" },
+    );
+    const early = await r.browser.request("GET", `/api/runs/${r.runId}/report/link?format=pdf`);
+    expect(early.status).toBe(404);
+    expect(await early.json()).toEqual({ error: "report_not_ready" });
+    for (const format of ["html", "json"]) {
+      expect(
+        (await r.browser.request("GET", `/api/runs/${r.runId}/report/link?format=${format}`))
+          .status,
+      ).toBe(200);
+    }
+  });
+
   it("writes the report, cost and an anonymised index, and tells the notification address", async () => {
     const r = await setup();
     await start(r);

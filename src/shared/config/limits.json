@@ -7,7 +7,10 @@
     "stepCap": 40,
     "requestCap": 300,
     "requestsPerSecond": 2,
-    "tokenCap": { "input": 600000, "output": 30000 },
+    "tokenCap": {
+      "input": 600000,
+      "output": 30000
+    },
     "spendCapUsd": 1,
     "concurrency": 4
   },
@@ -19,31 +22,40 @@
     "stepCap": 80,
     "requestCap": 800,
     "requestsPerSecond": 3,
-    "tokenCap": { "input": 1500000, "output": 60000 },
+    "tokenCap": {
+      "input": 1500000,
+      "output": 60000
+    },
     "spendCapUsd": 3,
     "concurrency": 3
   },
   "probe": {
     "modelId": "au.anthropic.claude-sonnet-4-6",
-    "pageCap": null,
-    "llmStepCap": null,
-    "explorerPhaseCalls": null,
+    "pageCap": 150,
+    "llmStepCap": 220,
+    "explorerPhaseCalls": 60,
     "stepCap": 200,
     "requestCap": 1800,
     "requestsPerSecond": 4,
-    "tokenCap": null,
+    "tokenCap": {
+      "input": 2500000,
+      "output": 120000
+    },
     "spendCapUsd": 8,
     "concurrency": 2
   },
   "siege": {
     "modelId": "au.anthropic.claude-sonnet-4-6",
-    "pageCap": null,
-    "llmStepCap": null,
-    "explorerPhaseCalls": null,
+    "pageCap": 250,
+    "llmStepCap": 350,
+    "explorerPhaseCalls": 100,
     "stepCap": 400,
     "requestCap": 3000,
     "requestsPerSecond": 5,
-    "tokenCap": null,
+    "tokenCap": {
+      "input": 4500000,
+      "output": 200000
+    },
     "spendCapUsd": 15,
     "concurrency": 2
   }

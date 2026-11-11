@@ -74,6 +74,53 @@
       "severity": "high",
       "titleIncludes": "Sign-in handling has weaknesses",
       "needsLogin": true
+    },
+    {
+      "agent": "session",
+      "step": "token",
+      "severity": "medium",
+      "titleIncludes": "Session identifier has low entropy",
+      "needsLogin": true
+    },
+    {
+      "agent": "authz",
+      "step": "vertical",
+      "severity": "high",
+      "titleIncludes": "Pages meant for administrators are open to a lower role",
+      "needsLogin": true,
+      "minLogins": 2
+    },
+    {
+      "agent": "prompt",
+      "step": "injection",
+      "severity": "high",
+      "titleIncludes": "follows instructions injected"
+    },
+    {
+      "agent": "prompt",
+      "step": "leak",
+      "severity": "medium",
+      "titleIncludes": "discloses its hidden instructions"
+    },
+    {
+      "agent": "output",
+      "step": "render",
+      "severity": "high",
+      "titleIncludes": "rendered as HTML without escaping"
+    },
+    {
+      "agent": "output",
+      "step": "tools",
+      "severity": "medium",
+      "titleIncludes": "high-impact tools"
+    },
+    {
+      "agent": "idor",
+      "step": "horizontal",
+      "severity": "high",
+      "titleIncludes": "Users can read other users' records",
+      "needsLogin": true,
+      "minLogins": 3
     }
   ],
   "app": {
@@ -85,12 +132,8 @@
   },
   "notCoveredYet": [
     {
-      "issue": "IDOR: GET /api/users/:id and GET /orders/:id return any user's record to any signed-in user",
-      "futureAgent": "idor"
-    },
-    {
-      "issue": "Three roles (swarm-test-admin, swarm-test-user1, swarm-test-user2) for authenticated testing across roles",
-      "futureAgent": "authz"
+      "issue": "Workflow step skipping and brute-force lockout need state-changing requests, which the read-only scope never sends",
+      "futureAgent": "none (reported as scope gaps)"
     }
   ]
 }

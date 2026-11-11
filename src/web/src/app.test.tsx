@@ -629,6 +629,43 @@ describe("A real report", () => {
     );
   });
 
+  it("shows the full report: priorities, testing by phase, the AI outcome and unconfirmed findings", async () => {
+    setApi({ ...createMockApi(), getReport: async () => report });
+    renderApp(`/runs/${RUN}/report`);
+    await screen.findByRole("heading", { name: "Report" });
+    expect(screen.getByTestId("report-summary")).toHaveTextContent(/unconfirmed/);
+    expect(screen.getByTestId("report-ai")).toHaveTextContent(/AI\/LLM testing:/);
+    const priorities = screen.getByTestId("report-priorities");
+    expect(within(priorities).getAllByRole("listitem").length).toBe(report.priorities.length);
+    // Every phase of the depth is listed, with each check's result.
+    for (const phase of report.phases) {
+      expect(screen.getByTestId(`report-phase-${phase.phase}`)).toBeInTheDocument();
+    }
+    expect(screen.getAllByText("Unconfirmed").length).toBe(report.counts.unconfirmed);
+  });
+
+  it("downloads the PDF through a time-limited link, and says when it is not ready", async () => {
+    const link = vi
+      .fn<ApiClient["getReportLink"]>()
+      .mockRejectedValueOnce(new ApiError(404, "report_not_ready"))
+      .mockResolvedValueOnce({
+        url: "https://data.test/report.pdf",
+        expiresAt: "2026-11-10T00:05:00.000Z",
+      });
+    setApi({ ...createMockApi(), getReport: async () => report, getReportLink: link });
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+    renderApp(`/runs/${RUN}/report`);
+    const button = await screen.findByRole("button", { name: "Download PDF" });
+    await userEvent.click(button);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/PDF is still being prepared/);
+    await userEvent.click(button);
+    expect(link).toHaveBeenLastCalledWith(RUN, "pdf");
+    await vi.waitFor(() => expect(click).toHaveBeenCalled());
+    click.mockRestore();
+  });
+
   it("shows what the scan understood and what this depth did not include", async () => {
     const shallow = {
       ...buildReport({
@@ -683,7 +720,7 @@ describe("A real report", () => {
       .mockImplementation(() => undefined);
     renderApp(`/runs/${RUN}/report`);
     await userEvent.click(await screen.findByRole("button", { name: "Download HTML" }));
-    expect(link).toHaveBeenCalledWith(RUN);
+    expect(link).toHaveBeenCalledWith(RUN, "html");
     expect(click).toHaveBeenCalled();
     click.mockRestore();
   });

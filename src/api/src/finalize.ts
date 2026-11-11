@@ -6,7 +6,12 @@ import {
   type RunStatus,
   type Summary,
 } from "@swarm/shared";
-import { estimateCost, llmUsageSchema, proxyStatsSchema } from "@swarm/shared/server";
+import {
+  engagementSchema,
+  estimateCost,
+  llmUsageSchema,
+  proxyStatsSchema,
+} from "@swarm/shared/server";
 import { appendEvents, getSequencer, readAllEvents, type DraftEvent } from "./events.js";
 import type { Mailer } from "./mailer.js";
 import { releaseSlot } from "./pool.js";
@@ -135,6 +140,11 @@ export async function finalizeRun(
     keys.runEvidence(emailHash, runId, "app-profile"),
     appProfileSchema,
   ).catch(() => null);
+  const engagement = await getJson(
+    store,
+    keys.runEvidence(emailHash, runId, "engagement"),
+    engagementSchema,
+  ).catch(() => null);
   const report = buildReport({
     state: { ...sequencer.run, status, finishedAt, summary },
     events,
@@ -142,6 +152,9 @@ export async function finalizeRun(
     target: file.target,
     generatedAt: finishedAt,
     profile: profile?.value ?? null,
+    engagement: engagement?.value ?? null,
+    // The supplied passwords are removed wherever they appear; patterns catch tokens and cookies.
+    redact: { secrets: Object.values(input?.target.logins ?? {}).map((l) => l.password) },
   });
   const marker = file.test ? { test: true as const } : {};
   await putJson(store, keys.runReportData(emailHash, runId), { ...marker, ...report });
@@ -192,6 +205,8 @@ export async function finalizeRun(
     coverage: summary.coverage,
     gaps: summary.gaps,
     findings: { total: summary.findings.total, bySeverity: summary.findings.bySeverity },
+    instructionsVersion: report.instructionsVersion,
+    verification: { verified: report.counts.verified, unconfirmed: report.counts.unconfirmed },
     agents: summary.agents,
     cost: {
       pricingVersion: cost.pricingVersion,

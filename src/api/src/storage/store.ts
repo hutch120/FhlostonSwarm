@@ -25,6 +25,10 @@ export class PreconditionFailedError extends Error {
 export interface ObjectStore {
   get(key: string): Promise<StoredObject | null>;
   put(key: string, body: string, condition?: PutCondition): Promise<{ etag: string }>;
+  /** Writes a binary object (the PDF report). */
+  putBytes(key: string, body: Uint8Array, contentType: string): Promise<void>;
+  /** Reads a binary object. */
+  getBytes(key: string): Promise<Uint8Array | null>;
   delete(key: string): Promise<void>;
   /** Every key under the prefix. */
   list(prefix: string): Promise<string[]>;
@@ -43,6 +47,12 @@ export class PrefixedStore implements ObjectStore {
   }
   put(key: string, body: string, condition?: PutCondition) {
     return this.inner.put(this.prefix + key, body, condition);
+  }
+  putBytes(key: string, body: Uint8Array, contentType: string) {
+    return this.inner.putBytes(this.prefix + key, body, contentType);
+  }
+  getBytes(key: string) {
+    return this.inner.getBytes(this.prefix + key);
   }
   delete(key: string) {
     return this.inner.delete(this.prefix + key);
@@ -100,6 +110,22 @@ export class S3ObjectStore implements ObjectStore {
         (status === 404 && condition && "ifMatch" in condition)
       )
         throw new PreconditionFailedError(key);
+      throw err;
+    }
+  }
+
+  async putBytes(key: string, body: Uint8Array, contentType: string): Promise<void> {
+    await this.client.send(
+      new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType }),
+    );
+  }
+
+  async getBytes(key: string): Promise<Uint8Array | null> {
+    try {
+      const res = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+      return (await res.Body?.transformToByteArray()) ?? new Uint8Array();
+    } catch (err) {
+      if (nameOf(err) === "NoSuchKey" || statusOf(err) === 404) return null;
       throw err;
     }
   }

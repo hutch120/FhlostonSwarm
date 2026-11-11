@@ -94,7 +94,9 @@ describe("FindingsPanel", () => {
     expect(within(items[0]!).getByText("F-01")).toBeInTheDocument();
     expect(within(items[0]!).getByText("Verified")).toBeInTheDocument();
     expect(screen.getAllByText("Verified")).toHaveLength(7);
-    expect(screen.getAllByText("Unverified")).toHaveLength(4);
+    // The demo's failed cross-checks are shown as unconfirmed, the rest were never cross-checked.
+    expect(screen.getAllByText("Unconfirmed")).toHaveLength(1);
+    expect(screen.getAllByText("Unverified")).toHaveLength(3);
   });
 });
 

@@ -60,7 +60,7 @@ describe("server-only tier limits", () => {
   it("parses the shipped limits", () => {
     expect(tierLimits.scout.spendCapUsd).toBe(1);
     expect(tierLimits.scout.tokenCap).toEqual({ input: 600000, output: 30000 });
-    expect(tierLimits.siege.tokenCap).toBeNull();
+    expect(tierLimits.siege.tokenCap).toEqual({ input: 4500000, output: 200000 });
     expect(server.limitsFor("siege").spendCapUsd).toBe(15);
   });
 

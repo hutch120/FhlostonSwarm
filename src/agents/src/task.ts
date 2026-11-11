@@ -102,6 +102,8 @@ export async function runTask(options: TaskOptions): Promise<TaskResult> {
     budget,
     dns: options.dns ?? systemDns(),
     explorer,
+    llm: explorer ? options.llm : null,
+    meter: explorer ? meter : null,
     aborted: options.aborted,
   });
   await emitter.flush();

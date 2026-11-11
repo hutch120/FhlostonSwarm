@@ -4,3 +4,4 @@ export * from "./runtime.js";
 export * from "./agent-input.js";
 export * from "./sigv4.js";
 export * from "./net.js";
+export * from "./engagement.js";

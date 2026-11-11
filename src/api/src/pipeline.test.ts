@@ -1,8 +1,8 @@
 import type { AddressInfo } from "node:net";
 import type http from "node:http";
-import { PlaywrightDriver, chromiumAvailable, createOfflineLlm } from "@swarm/agents";
+import { PlaywrightDriver, chromiumAvailable, createOfflineLlm, renderPdf } from "@swarm/agents";
 import { runEventsPageSchema, runReportSchema, TERMS_VERSION, tiers } from "@swarm/shared";
-import { limitsFor } from "@swarm/shared/server";
+import { engagementSchema, INSTRUCTIONS_VERSION, limitsFor } from "@swarm/shared/server";
 import expected from "@swarm/synthetic-target/expected.json" with { type: "json" };
 import { createTarget, USERS } from "@swarm/synthetic-target";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -38,7 +38,12 @@ afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
-async function setup(tier: "scout" | "sweep", appUrl = () => `http://127.0.0.1:${port}/`) {
+const DEEP_SLOTS = ["admin", "user1", "user2"] as const;
+
+async function setup(
+  tier: "scout" | "sweep" | "probe" | "siege",
+  appUrl = () => `http://127.0.0.1:${port}/`,
+) {
   // The harness needs the launcher and the launcher needs the harness's store: tie them with a box.
   const box: { launcher?: LocalLauncher } = {};
   const h: Harness = createHarness({
@@ -54,6 +59,7 @@ async function setup(tier: "scout" | "sweep", appUrl = () => `http://127.0.0.1:$
     allowPrivate: true,
     llm: () => createOfflineLlm(),
     driverFactory: (options) => PlaywrightDriver.launch(options),
+    renderPdf,
     pollMs: 20,
     now: h.clock.now,
     finalize: {
@@ -76,9 +82,30 @@ async function setup(tier: "scout" | "sweep", appUrl = () => `http://127.0.0.1:$
 
   // The intake refuses loopback addresses, so the target is saved directly.
   const at = h.clock.now();
-  const user = USERS[1]!;
   const url = appUrl();
   const host = new URL(url).hostname;
+  const deep = tier === "probe" || tier === "siege";
+  const login = (username: string, password: string, description: string) => ({
+    username,
+    password,
+    description,
+    notes: "",
+  });
+  const logins = deep
+    ? Object.fromEntries(
+        (tier === "probe" ? DEEP_SLOTS.slice(0, 2) : DEEP_SLOTS).map((slot) => {
+          const u = USERS.find((x) => x.username === `swarm-test-${slot}`)!;
+          return [
+            slot,
+            login(
+              u.username,
+              u.password,
+              slot === "admin" ? "Administrator" : `Customer ${slot.slice(-1)}`,
+            ),
+          ];
+        }),
+      )
+    : { user1: login(USERS[1]!.username, USERS[1]!.password, "User") };
   await putJson(h.store, keys.target(owner, "tgt_pipeline01"), {
     test: true,
     id: "tgt_pipeline01",
@@ -86,9 +113,7 @@ async function setup(tier: "scout" | "sweep", appUrl = () => `http://127.0.0.1:$
     marketingUrl: "",
     scopeNotes: "",
     hosts: [host],
-    logins: {
-      user1: { username: user.username, password: user.password, description: "User", notes: "" },
-    },
+    logins,
     acknowledgement: { at, ip: "127.0.0.1", termsVersion: TERMS_VERSION },
     createdAt: at,
     updatedAt: at,
@@ -101,7 +126,7 @@ async function setup(tier: "scout" | "sweep", appUrl = () => `http://127.0.0.1:$
     timezone: "Australia/Sydney",
     notifyEmail: OWNER,
     notifyOn: "always",
-    loginSlots: tier === "scout" ? [] : ["user1"],
+    loginSlots: tier === "scout" ? [] : Object.keys(logins),
   });
   expect(scan.status, await scan.clone().text()).toBe(201);
   const scanId = ((await scan.json()) as { id: string }).id;
@@ -289,5 +314,79 @@ describe.skipIf(!browserAvailable)("a run, end to end", () => {
     expect(report.findings).toEqual([]);
     expect(report.gaps.length).toBeGreaterThan(3);
     expect((await getCredits(h.store, owner)).scout).toBe(1);
+  });
+});
+
+describe.skipIf(!browserAvailable)("a Siege run, end to end", () => {
+  vi.setConfig({ testTimeout: 120_000 });
+
+  it("plans, tests across roles, verifies, and closes with the full report in HTML, PDF and JSON", async () => {
+    const { h, browser, launcher, runId } = await setup("siege");
+    expect((await browser.withCsrf("POST", `/api/runs/${runId}/start`)).status).toBe(200);
+    await launcher.settled(runId);
+
+    const run = (await (await browser.request("GET", `/api/runs/${runId}`)).json()) as {
+      summary: { status: string; findings: { total: number; verified: number }; agents: object };
+    };
+    expect(run.summary.status).toBe("complete");
+    expect(run.summary.agents).toEqual({ total: 12, done: 12 });
+
+    // The report: every seeded issue, each independently verified.
+    const report = runReportSchema.parse(
+      await (await browser.request("GET", `/api/runs/${runId}/report`)).json(),
+    );
+    const want = expected.findings.filter((f) => tiers.siege.agents.includes(f.agent));
+    for (const w of want) {
+      expect(
+        report.findings.find((f) => f.agent === w.agent && f.title.includes(w.titleIncludes)),
+        `${w.agent}: ${w.titleIncludes}`,
+      ).toBeDefined();
+    }
+    expect(report.counts.verified).toBe(report.counts.total);
+    expect(report.counts.unconfirmed).toBe(0);
+    expect(report.findings.every((f) => f.verification.checked)).toBe(true);
+    expect(report.ai.status).toBe("tested");
+    expect(report.plan?.roles.map((r) => r.slot)).toEqual(["admin", "user1", "user2"]);
+    expect(report.instructionsVersion).toBe(INSTRUCTIONS_VERSION);
+
+    // The plan is private evidence; the version is also in the anonymised run index.
+    const plan = engagementSchema.parse(
+      JSON.parse((await h.store.get(keys.runEvidence(owner, runId, "engagement")))!.body),
+    );
+    expect(plan.instructionsVersion).toBe(INSTRUCTIONS_VERSION);
+    const indexKey = (await h.store.list("admin/run-index/")).find((k) =>
+      k.endsWith(`${runId}.json`),
+    )!;
+    expect(JSON.parse((await h.store.get(indexKey))!.body)).toMatchObject({
+      instructionsVersion: INSTRUCTIONS_VERSION,
+      verification: { verified: report.counts.verified, unconfirmed: 0 },
+    });
+
+    // No login password is anywhere in what the customer can download.
+    const html = (await h.store.get(keys.runReportHtml(owner, runId)))!.body;
+    const pdf = (await h.store.getBytes(keys.runReportPdf(owner, runId)))!;
+    expect(pdf).toBeDefined();
+    expect(Buffer.from(pdf).subarray(0, 5).toString("latin1")).toBe("%PDF-");
+    for (const user of USERS) {
+      expect(JSON.stringify(report)).not.toContain(user.password);
+      expect(html).not.toContain(user.password);
+    }
+    expect(html).toContain("6. Technical findings");
+
+    // The three formats are offered through time-limited links; a format that does not exist is refused.
+    for (const format of ["html", "pdf", "json"]) {
+      const link = await browser.request("GET", `/api/runs/${runId}/report/link?format=${format}`);
+      expect(link.status, format).toBe(200);
+      expect(((await link.json()) as { url: string }).url).toContain(
+        `swarm-report-${runId}.${format}`,
+      );
+    }
+    expect(
+      (await browser.request("GET", `/api/runs/${runId}/report/link?format=docx`)).status,
+    ).toBe(400);
+
+    // A Siege costs more than a Scout would, within its cap (the scripted model is nearly free here).
+    const cost = JSON.parse((await h.store.get(keys.runCost(owner, runId)))!.body);
+    expect(cost.totalUsd).toBeLessThan(limitsFor("siege").spendCapUsd);
   });
 });

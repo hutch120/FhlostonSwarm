@@ -1,5 +1,6 @@
 import {
   TERMS_VERSION,
+  reportFormatSchema,
   runIdSchema,
   runReportSchema,
   scanIdSchema,
@@ -417,15 +418,28 @@ export function dataRoutes(deps: DataDeps) {
     return c.json(found!.value);
   });
 
+  /** The report in one of its formats: the HTML, the PDF (rendered after the run closes) or the data as JSON. */
+  const REPORT_FORMATS = {
+    html: {
+      key: keys.runReportHtml,
+      contentType: "text/html; charset=utf-8",
+    },
+    pdf: { key: keys.runReportPdf, contentType: "application/pdf" },
+    json: { key: keys.runReportData, contentType: "application/json" },
+  } as const;
+
   app.get("/runs/:id/report/link", async (c) => {
     const { emailHash } = c.get("auth");
     const id = idParam(c, runIdSchema);
-    const key = keys.runReportHtml(emailHash, id);
-    if (!(await store.get(key))) reject(404, "report_not_ready");
+    const format = reportFormatSchema.parse(c.req.query("format") ?? "html");
+    const { key: keyOf, contentType } = REPORT_FORMATS[format];
+    const key = keyOf(emailHash, id);
+    // The PDF arrives a little after the report; until it does, it is simply not ready.
+    if (!(await store.list(key)).includes(key)) reject(404, "report_not_ready");
     const expiresSeconds = 300;
     const url = await deps.presign(key, {
-      filename: `swarm-report-${id}.html`,
-      contentType: "text/html; charset=utf-8",
+      filename: `swarm-report-${id}.${format}`,
+      contentType,
       expiresSeconds,
     });
     return c.json({ url, expiresAt: new Date(now() + expiresSeconds * 1000).toISOString() });

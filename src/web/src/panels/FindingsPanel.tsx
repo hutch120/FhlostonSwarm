@@ -8,10 +8,25 @@ export function SeverityBadge({ severity }: { severity: Finding["severity"] }) {
   );
 }
 
-export function VerifiedBadge({ verified }: { verified: boolean }) {
-  return verified ? (
-    <span className="badge badge-verified">Verified</span>
-  ) : (
+export function VerifiedBadge({
+  verified,
+  status,
+}: {
+  verified: boolean;
+  status?: Finding["status"];
+}) {
+  if (verified) return <span className="badge badge-verified">Verified</span>;
+  if (status === "unconfirmed") {
+    return (
+      <span
+        className="badge badge-unverified"
+        title="An independent re-test could not reproduce or repeat this finding"
+      >
+        Unconfirmed
+      </span>
+    );
+  }
+  return (
     <span className="badge badge-unverified" title="Not yet cross-checked by a second agent">
       Unverified
     </span>
@@ -38,7 +53,7 @@ export function FindingsPanel({ state }: { state: RunState }) {
               <div className="finding-head">
                 <SeverityBadge severity={f.severity} />
                 <span className="finding-id">{f.id}</span>
-                <VerifiedBadge verified={f.verified} />
+                <VerifiedBadge verified={f.verified} status={f.status} />
               </div>
               <p className="finding-title">{f.title}</p>
               <p className="finding-meta">

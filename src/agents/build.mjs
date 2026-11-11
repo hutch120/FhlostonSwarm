@@ -5,9 +5,9 @@ import { build } from "esbuild";
 const external = ["playwright-core"];
 const own = JSON.parse(readFileSync("package.json", "utf8"));
 
-// Two entry points from one image: the agent task and the scope proxy sidecar.
+// Entry points of one image: the agent task, the scope proxy sidecar and the PDF renderer.
 await build({
-  entryPoints: { task: "src/task-main.ts", proxy: "src/proxy-main.ts" },
+  entryPoints: { task: "src/task-main.ts", proxy: "src/proxy-main.ts", pdf: "src/pdf-main.ts" },
   outdir: "dist",
   outExtension: { ".js": ".mjs" },
   bundle: true,

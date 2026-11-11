@@ -235,14 +235,14 @@ describe("run calls", () => {
     await api.getRunEvents("run_abcd1234", 17);
     await api.getStreamToken("run_abcd1234");
     await api.getReport("run_abcd1234");
-    await api.getReportLink("run_abcd1234");
+    await api.getReportLink("run_abcd1234", "pdf");
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
       "POST /api/runs/run_abcd1234/start",
       "POST /api/runs/run_abcd1234/stop",
       "GET /api/runs/run_abcd1234/events?after=17",
       "POST /api/runs/run_abcd1234/stream-token",
       "GET /api/runs/run_abcd1234/report",
-      "GET /api/runs/run_abcd1234/report/link",
+      "GET /api/runs/run_abcd1234/report/link?format=pdf",
     ]);
     // Only the mutations carry the CSRF token.
     expect(calls.map((c) => c.headers["x-csrf-token"])).toEqual([

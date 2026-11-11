@@ -462,6 +462,12 @@ describe("infrastructure app", () => {
       expect(definition).toContain("WaitForSlot");
       expect(definition).toContain(`\\"Seconds\\":${runtimeConfig.pool.pollSeconds}`);
       expect(definition).toContain("$.prepared.waiting");
+      // After the report is written, a task of the same image renders the PDF: best effort, and only
+      // for a run that got as far as running a task.
+      expect(definition).toContain("RenderPdf");
+      expect(definition).toContain("pdf.mjs");
+      expect(definition).toContain("$.prepared.token");
+      expect(definition).toMatch(/RenderPdf[\s\S]*States\.ALL[\s\S]*Done/);
       t.hasResourceProperties("AWS::StepFunctions::StateMachine", {
         LoggingConfiguration: Match.objectLike({ Level: "ERROR", IncludeExecutionData: false }),
       });

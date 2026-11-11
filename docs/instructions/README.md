@@ -2,7 +2,7 @@
 
 High-level outline for blackbox penetration tests performed by **Fhloston Advisory** against customer websites. This document describes the standard methodology, scope considerations, and the tiered login access levels used during authenticated testing phases.
 
-> This is the general methodology reference, shared across engagement years. For the **current, live engagement** (target URL, provisioned credentials, and phase checklist), see [tasks.md](tasks.md). Each phase below has a corresponding detailed instructions file: [phase-1-reconnaissance.md](phase-1-reconnaissance.md), [phase-2-vulnerability-assessment.md](phase-2-vulnerability-assessment.md), [phase-3-authenticated-testing.md](phase-3-authenticated-testing.md), [phase-4-ai-llm-security-testing.md](phase-4-ai-llm-security-testing.md), [phase-5-business-logic-privilege-escalation.md](phase-5-business-logic-privilege-escalation.md), [phase-6-reporting.md](phase-6-reporting.md). For ready-to-use AI agent prompts, see [prompts.md](prompts.md).
+> This is the general methodology reference. It holds no engagement-specific content: a run supplies its own target, logins and plan, and [tasks.md](tasks.md) shows the checklist that is generated for each run. The phases are also the versioned prompt modules the platform builds its agents' prompts from (`src/agents/src/instructions/modules.ts`, recorded as `instructionsVersion` on every run). Each phase below has a corresponding detailed instructions file: [phase-1-reconnaissance.md](phase-1-reconnaissance.md), [phase-2-vulnerability-assessment.md](phase-2-vulnerability-assessment.md), [phase-3-authenticated-testing.md](phase-3-authenticated-testing.md), [phase-4-ai-llm-security-testing.md](phase-4-ai-llm-security-testing.md), [phase-5-business-logic-privilege-escalation.md](phase-5-business-logic-privilege-escalation.md), [phase-6-reporting.md](phase-6-reporting.md). For ready-to-use AI agent prompts, see [prompts.md](prompts.md).
 
 ## 1. Engagement Overview
 
@@ -94,3 +94,9 @@ Testing is performed iteratively using accounts provisioned at each of the follo
 - Draft report delivered within an agreed number of business days after testing concludes
 - Findings review call offered to walk through results with the client
 - Retest window available upon remediation
+
+## 8. Evidence
+
+- Evidence is kept per run, in the run's private evidence folder, with a subfolder per phase and, in phase 3, per account.
+- Keep short excerpts of what was observed (a header line, a path, a masked secret), never a full secret. Describe a session identifier by its length and character set, never by its value.
+- For every check, record why it was run and how the result was read, including why something was *not* flagged as a finding. The customer-facing report is a redacted view of the evidence: passwords, tokens, cookies and personal addresses are scrubbed from it.

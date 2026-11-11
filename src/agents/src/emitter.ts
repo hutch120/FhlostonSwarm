@@ -95,6 +95,11 @@ export class Emitter {
     this.push({ ...this.base(), type: "agent-done", agent, payload: { summary } });
   }
 
+  /** An independent re-test of a finding: `verified` false marks it unconfirmed. */
+  verify(agent: string, findingId: string, verified: boolean, note: string): void {
+    this.push({ ...this.base(), type: "verify", agent, payload: { findingId, verified, note } });
+  }
+
   gap(agent: string | null, reason: string, area?: string): void {
     this.push({
       ...this.base(),

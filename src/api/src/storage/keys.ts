@@ -24,6 +24,9 @@ export const keys = {
     `users/${emailHash}/runs/${runId}/evidence/${name}.json`,
   runReportHtml: (emailHash: string, runId: string) =>
     `users/${emailHash}/runs/${runId}/report/report.html`,
+  /** The same report as a PDF, rendered by a headless browser after the run closes. */
+  runReportPdf: (emailHash: string, runId: string) =>
+    `users/${emailHash}/runs/${runId}/report/report.pdf`,
   runReportData: (emailHash: string, runId: string) =>
     `users/${emailHash}/runs/${runId}/report/findings.json`,
   /** Estimated cost of the run; staff only. */

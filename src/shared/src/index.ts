@@ -20,5 +20,6 @@ export * from "./reducer.js";
 export * from "./tiers.js";
 export * from "./scans.js";
 export * from "./report.js";
+export * from "./redact.js";
 export { AGENTS, AREAS, DEMO_RUN_ID, DEMO_TARGET } from "./fixtures/roster.js";
 export { buildReplayEvents, replayEvents } from "./fixtures/script.js";

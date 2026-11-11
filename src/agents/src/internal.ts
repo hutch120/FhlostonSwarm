@@ -78,10 +78,21 @@ export class InternalApi implements EventSink {
   }
 
   async postEvidence(
-    name: "proxy-log" | "proxy-stats" | "app-profile" | "usage" | "explorer-log",
+    name: "proxy-log" | "proxy-stats" | "app-profile" | "usage" | "explorer-log" | "engagement",
     body: object,
   ): Promise<void> {
     await this.call("POST", "/evidence", { name, body });
+  }
+
+  /** The closed run's report as HTML (only available once the run has finished). */
+  async getReportHtml(): Promise<string> {
+    const { html } = (await this.call("GET", "/report")) as { html: string };
+    return html;
+  }
+
+  /** Hands back the PDF rendered from the report. */
+  async postReportPdf(pdf: Uint8Array): Promise<void> {
+    await this.call("POST", "/report-pdf", { pdf: Buffer.from(pdf).toString("base64") });
   }
 }
 

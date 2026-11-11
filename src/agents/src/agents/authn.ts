@@ -1,3 +1,4 @@
+import { headerValues } from "../http.js";
 import type { AgentModule, StepContext, StepResult } from "../types.js";
 
 const gap = (reason: string): StepResult => ({ outcome: "gap", reason });
@@ -51,16 +52,32 @@ async function login(ctx: StepContext): Promise<StepResult> {
         }
       : { outcome: "clear" };
   }
+  const plainHttp = worked.some((w) => w.insecureTransport);
   return {
     outcome: "finding",
     finding: {
       title: "Sign-in handling has weaknesses",
-      severity: worked.some((w) => w.insecureTransport) ? "high" : "medium",
+      severity: plainHttp ? "high" : "medium",
       component: `Sign-in at ${ctx.appUrl.origin}`,
       description: `Signing in worked, and it showed that ${issues.join("; and ")}. Credentials and session tokens are the keys to every account, so they need the strongest protection.`,
       remediation:
         "Serve the whole application over HTTPS only (redirect HTTP and set HSTS), and set HttpOnly, Secure and SameSite on the session cookie.",
       mapping: "OWASP A07:2021 Identification and Authentication Failures",
+      evidence: issues.map((i) => i.charAt(0).toUpperCase() + i.slice(1) + "."),
+      // Independent look: a fresh request for the page the sign-in form is on, and its cookies.
+      replay: async () => {
+        const page = await ctx.http.request({ url: ctx.appUrl.toString(), maxRedirects: 0 });
+        const cookies = headerValues(page, "set-cookie").filter((c) =>
+          /sess|sid|token|auth|jwt/i.test(c.split("=")[0] ?? ""),
+        );
+        const unflagged = cookies.filter((c) => !/;\s*httponly/i.test(c));
+        const plain =
+          plainHttp && ctx.appUrl.protocol === "http:" && /type=["']?password/i.test(page.body);
+        return {
+          confirmed: plain || unflagged.length > 0,
+          note: `Fetched the sign-in page again: ${plain ? "it still has a password form served over plain HTTP; " : ""}${unflagged.length} of ${cookies.length} session-like cookies it sets lack HttpOnly.`,
+        };
+      },
     },
   };
 }

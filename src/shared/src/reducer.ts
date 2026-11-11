@@ -216,7 +216,7 @@ export function applyEvent(state: RunState, event: RunEvent): RunState {
             ? {
                 ...f,
                 verified: event.payload.verified,
-                status: event.payload.verified ? "open" : "unverified",
+                status: event.payload.verified ? "open" : "unconfirmed",
               }
             : f,
         ),

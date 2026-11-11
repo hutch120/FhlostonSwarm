@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { PlaywrightDriver, createOfflineLlm } from "@swarm/agents";
+import { PlaywrightDriver, createOfflineLlm, renderPdf } from "@swarm/agents";
 import { createTarget, USERS } from "@swarm/synthetic-target";
 import { Hono } from "hono";
 import { TERMS_VERSION, TIER_IDS, tierIdSchema } from "@swarm/shared";
@@ -47,6 +47,7 @@ const launcher = new LocalLauncher({
   // A scripted model and a real local Chromium: the whole explorer pipeline, with no Bedrock.
   llm: () => createOfflineLlm(),
   driverFactory: (options) => PlaywrightDriver.launch(options),
+  renderPdf,
   pollMs: 200,
   finalize: { store, mailer, publisher, now: Date.now, siteOrigin },
 });
@@ -130,12 +131,23 @@ server.post("/__dev/seed-target", async (c) => {
   return c.json({ targetId: target.id });
 });
 server.get("/__dev/object", async (c) => {
-  const found = await store.get(c.req.query("key") ?? "");
+  const key = c.req.query("key") ?? "";
+  const name = c.req.query("name") ?? "report.html";
+  const bytes = key.endsWith(".pdf") ? await store.getBytes(key) : null;
+  if (bytes) {
+    return new Response(Buffer.from(bytes), {
+      headers: {
+        "content-type": "application/pdf",
+        "content-disposition": `attachment; filename="${name}"`,
+      },
+    });
+  }
+  const found = await store.get(key);
   if (!found) return c.json({ error: "not_found" }, 404);
   return new Response(found.body, {
     headers: {
-      "content-type": "text/html; charset=utf-8",
-      "content-disposition": `attachment; filename="${c.req.query("name") ?? "report.html"}"`,
+      "content-type": key.endsWith(".json") ? "application/json" : "text/html; charset=utf-8",
+      "content-disposition": `attachment; filename="${name}"`,
     },
   });
 });

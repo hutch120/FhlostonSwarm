@@ -53,6 +53,8 @@ describe("updateJson", () => {
       list: store.list.bind(store),
       folders: store.folders.bind(store),
       delete: store.delete.bind(store),
+      putBytes: store.putBytes.bind(store),
+      getBytes: store.getBytes.bind(store),
       put: async () => {
         throw new PreconditionFailedError("k");
       },

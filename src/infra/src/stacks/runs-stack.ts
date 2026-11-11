@@ -35,6 +35,7 @@ import {
   JsonPath,
   LogLevel,
   StateMachine,
+  Succeed,
   Timeout,
   Wait,
   WaitTime,
@@ -156,16 +157,13 @@ export class RunsStack extends Stack {
         },
       }),
     );
-    Validations.of(taskRole).acknowledge({
-      id: "AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0]",
-      reason:
-        "An au. inference profile routes to the model in either Australian region, so the foundation model ARN needs a region wildcard; it is usable only through the profile (condition).",
-    });
-    Validations.of(taskRole).acknowledge({
-      id: "AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6]",
-      reason:
-        "An au. inference profile routes to the model in either Australian region, so the foundation model ARN needs a region wildcard; it is usable only through the profile (condition).",
-    });
+    for (const id of profileIds) {
+      Validations.of(taskRole).acknowledge({
+        id: `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:bedrock:*::foundation-model/${id.replace(/^[a-z]+\./, "")}]`,
+        reason:
+          "An au. inference profile routes to the model in either Australian region, so the foundation model ARN needs a region wildcard; it is usable only through the profile (condition).",
+      });
+    }
     Validations.of(taskRole).acknowledge({
       id: `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:execute-api:${this.region}:${this.account}:SwarmApi:ExportsOutputRefHttpApiF5A9A8A7F70B5BDD/*/*/api/internal/*]`,
       reason:
@@ -284,6 +282,34 @@ export class RunsStack extends Stack {
       .otherwise(runAgent);
     prepare.next(slotFree);
     runAgent.next(finalize);
+
+    // The PDF of the closed run's report: the same image, a different entrypoint. Best effort: a
+    // failure here never changes the run, and the HTML and JSON reports are already in place.
+    const renderPdf = new EcsRunTask(this, "RenderPdf", {
+      integrationPattern: IntegrationPattern.RUN_JOB,
+      cluster: this.cluster,
+      taskDefinition: agentTask,
+      launchTarget: new EcsFargateLaunchTarget({ platformVersion: FargatePlatformVersion.LATEST }),
+      assignPublicIp: true,
+      subnets: { subnetType: SubnetType.PUBLIC },
+      securityGroups: [agentSecurityGroup],
+      containerOverrides: [
+        { ...asOverride(agent), command: ["node", "pdf.mjs"] },
+        // The scope proxy has nothing to do here: it exits at once.
+        { ...asOverride(proxy), command: ["node", "-e", "0"] },
+      ],
+      taskTimeout: Timeout.duration(Duration.minutes(5)),
+      resultPath: JsonPath.DISCARD,
+    });
+    const done = new Succeed(this, "Done");
+    renderPdf.addCatch(done, { resultPath: JsonPath.DISCARD });
+    renderPdf.next(done);
+    // A run that never got a token never ran a task (declined in the queue, or failed to prepare).
+    finalize.next(
+      new Choice(this, "ReportReady")
+        .when(Condition.isPresent("$.prepared.token"), renderPdf)
+        .otherwise(done),
+    );
 
     const stateLogs = new LogGroup(this, "StateMachineLogs", {
       retention: RetentionDays.ONE_MONTH,

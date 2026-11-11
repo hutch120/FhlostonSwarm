@@ -59,7 +59,8 @@ export const areaSpecSchema = z.object({
 });
 export type AreaSpec = z.infer<typeof areaSpecSchema>;
 
-export const findingStatusSchema = z.enum(["unverified", "open", "accepted"]);
+/** `unverified`: not cross-checked yet. `unconfirmed`: an independent re-test could not reproduce it. */
+export const findingStatusSchema = z.enum(["unverified", "unconfirmed", "open", "accepted"]);
 export type FindingStatus = z.infer<typeof findingStatusSchema>;
 
 export const findingSchema = z.object({
@@ -73,6 +74,12 @@ export const findingSchema = z.object({
   remediation: z.string().min(1),
   /** OWASP / LLM Top 10 mapping, when there is one. */
   mapping: z.string().optional(),
+  /** What an attacker gains, when the description does not say. */
+  impact: z.string().max(600).optional(),
+  /** Short excerpts of what was observed (never credentials, tokens or cookies). */
+  evidence: z.array(z.string().max(600)).max(6).optional(),
+  /** Steps to reproduce it by hand. */
+  reproduction: z.array(z.string().max(300)).max(8).optional(),
   /** A finding is a candidate (unverified) until an independent agent cross-checks it. */
   verified: z.boolean(),
   status: findingStatusSchema,

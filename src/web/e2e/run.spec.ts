@@ -5,9 +5,16 @@ import { signIn } from "./helpers.js";
 const API = "http://localhost:8787";
 const SITE = "http://localhost:5173";
 
-const expected = JSON.parse(
+const everything = JSON.parse(
   readFileSync(new URL("../../synthetic-target/expected.json", import.meta.url), "utf8"),
 ) as { findings: { agent: string; step: string; severity: string; titleIncludes: string }[] };
+const tiersConfig = JSON.parse(
+  readFileSync(new URL("../../shared/config/tiers.json", import.meta.url), "utf8"),
+) as Record<string, { agents: string[] }>;
+// The run below is a Sweep with one login: it raises the findings of the Sweep agent group.
+const expected = {
+  findings: everything.findings.filter((f) => tiersConfig["sweep"]!.agents.includes(f.agent)),
+};
 
 /**
  * A real run against the synthetic target, end to end through the real UI: the local API runs the

@@ -13,6 +13,7 @@ import { acquireRun } from "./pool.js";
 import type { EventPublisher } from "./publisher.js";
 import { runToken } from "./runtoken.js";
 import type { Secrets } from "./sessions.js";
+import { keys } from "./storage/keys.js";
 import type { ObjectStore } from "./storage/store.js";
 
 export interface LocalLauncherDeps {
@@ -30,6 +31,8 @@ export interface LocalLauncherDeps {
   driverFactory?: DriverFactory;
   /** How often a run waiting for a slot looks again. */
   pollMs?: number;
+  /** Renders a closed run's report to PDF (a headless browser); without it no PDF is made. */
+  renderPdf?: (html: string) => Promise<Uint8Array>;
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -129,6 +132,7 @@ export class LocalLauncher implements RunLauncher {
       if (result.profile) await api.postEvidence("app-profile", result.profile);
       if (result.usage) await api.postEvidence("usage", result.usage);
       if (result.explorerLog) await api.postEvidence("explorer-log", result.explorerLog);
+      if (result.engagement) await api.postEvidence("engagement", result.engagement);
     } catch (err) {
       console.error(JSON.stringify({ msg: "local_agent_failed", error: (err as Error).message }));
       await finalizeRun(this.deps.finalize, { emailHash: owner, runId }, { kind: "failed" });
@@ -139,5 +143,23 @@ export class LocalLauncher implements RunLauncher {
       { emailHash: owner, runId },
       state.aborted ? { kind: "stopped" } : { kind: "finished" },
     );
+    await this.renderPdf(owner, runId);
+  }
+
+  /** What the PDF step does in the cloud, in process: render the closed run's report. Best effort. */
+  private async renderPdf(owner: string, runId: string): Promise<void> {
+    const render = this.deps.renderPdf;
+    if (!render) return;
+    try {
+      const html = await this.deps.store.get(keys.runReportHtml(owner, runId));
+      if (!html) return;
+      await this.deps.store.putBytes(
+        keys.runReportPdf(owner, runId),
+        await render(html.body),
+        "application/pdf",
+      );
+    } catch (err) {
+      console.error(JSON.stringify({ msg: "local_pdf_failed", error: (err as Error).message }));
+    }
   }
 }

@@ -14,4 +14,5 @@ export type { LlmClient, LlmRequest, LlmResponse } from "./llm/types.js";
 export { checkResolved, decide, scopePorts, type Scope } from "./policy.js";
 export { createProxy, type ProxyOptions, type ScopeProxy } from "./proxy.js";
 export { MODULES, runAgents, type RunnerResult } from "./runner.js";
+export { renderPdf } from "./pdf.js";
 export { runTask, waitForProxy, type TaskResult } from "./task.js";

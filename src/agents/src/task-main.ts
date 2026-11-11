@@ -53,6 +53,7 @@ async function main(): Promise<void> {
   await post("app-profile", result.profile);
   await post("usage", result.usage);
   await post("explorer-log", result.explorerLog);
+  await post("engagement", result.engagement);
 
   console.log(
     JSON.stringify({
@@ -62,6 +63,7 @@ async function main(): Promise<void> {
       gaps: result.gaps,
       stoppedBy: result.stoppedBy,
       profile: result.profile !== null,
+      verification: result.verification,
       llm: result.usage,
     }),
   );

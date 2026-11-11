@@ -1,4 +1,5 @@
 import type {
+  ReportFormat,
   ReportLink,
   RunEventsPage,
   RunListItem,
@@ -61,8 +62,8 @@ export interface ApiClient {
   /** A short-lived credential for the live channel; fails with `streaming_unavailable` when there is none. */
   getStreamToken(runId: string): Promise<StreamToken>;
   getReport(runId: string): Promise<RunReport>;
-  /** A time-limited download link for the report's HTML. */
-  getReportLink(runId: string): Promise<ReportLink>;
+  /** A time-limited download link for the report as HTML or PDF. */
+  getReportLink(runId: string, format: ReportFormat): Promise<ReportLink>;
 
   listTargets(): Promise<TargetView[]>;
   /** Deletes the target and the scans that use it; returns the ids of those scans. */
@@ -232,7 +233,8 @@ export function createHttpApi(fetchFn: FetchLike = (input, init) => fetch(input,
     getRunEvents: (runId, after) => call("GET", `/api/runs/${id(runId)}/events?after=${after}`),
     getStreamToken: (runId) => call("POST", `/api/runs/${id(runId)}/stream-token`),
     getReport: (runId) => call("GET", `/api/runs/${id(runId)}/report`),
-    getReportLink: (runId) => call("GET", `/api/runs/${id(runId)}/report/link`),
+    getReportLink: (runId, format) =>
+      call("GET", `/api/runs/${id(runId)}/report/link?format=${format}`),
 
     listTargets: () => call("GET", "/api/targets"),
     deleteTarget: (targetId) => call("DELETE", `/api/targets/${id(targetId)}`),
