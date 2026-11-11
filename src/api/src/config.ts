@@ -53,7 +53,9 @@ export const intakeConfigSchema = z.object({
     perAccountPerHour: z.number().int().positive(),
   }),
   blockedHosts: z.object({
-    /** Our own domains and well-known third-party services: the domain and its subdomains. */
+    /** Our own domains: blocked for customers, scannable by staff. The domain and its subdomains. */
+    ownDomains: hostList,
+    /** Well-known third-party services, blocked for everyone: the domain and its subdomains. */
     domains: hostList,
     /** Public-sector and similar suffixes, e.g. `gov.au`. */
     suffixes: hostList,

@@ -128,7 +128,7 @@ export function dataRoutes(deps: DataDeps) {
   app.post("/targets", async (c) => {
     const user = owner(c);
     const body = await readJson(c, targetInputSchema);
-    const hosts = scopeHosts(body, intake);
+    const hosts = scopeHosts(body, intake, user.role === "staff");
     if ((await count(keys.targetsPrefix(user.emailHash))) >= intake.quotas.maxTargets)
       reject(409, "quota_exceeded");
     const at = now();
@@ -153,7 +153,7 @@ export function dataRoutes(deps: DataDeps) {
     const id = idParam(c, targetIdSchema);
     const existing = (await getTarget(store, user.emailHash, id)) ?? reject(404, "not_found");
     const body = await readJson(c, targetInputSchema);
-    const hosts = scopeHosts(body, intake);
+    const hosts = scopeHosts(body, intake, user.role === "staff");
     const logins = mergeLogins(existing.logins, body.logins);
     const scans = (await listScans(store, user.emailHash)).filter((s) => s.targetId === id);
     // A login that a scan signs in with cannot be removed from under it.

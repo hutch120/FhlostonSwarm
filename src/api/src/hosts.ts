@@ -16,10 +16,15 @@ const inDomain = (host: string, domain: string) => host === domain || host.endsW
 /**
  * Checks a customer-supplied URL before it becomes a scan target: http(s) only, no embedded
  * credentials, no private or metadata addresses, no internal-only names, and none of the blocked
- * domains (our own, other well-known services, public-sector suffixes). The hostname is lowercased.
+ * domains (our own, other well-known services, public-sector suffixes). Staff may scan our own
+ * domains; everything else stays blocked for them. The hostname is lowercased.
  * DNS is not resolved here; the egress proxy enforces the same rule on the addresses it connects to.
  */
-export function parseTargetUrl(raw: string, config: IntakeConfig): ParsedTargetUrl {
+export function parseTargetUrl(
+  raw: string,
+  config: IntakeConfig,
+  options: { staff?: boolean } = {},
+): ParsedTargetUrl {
   let url: URL;
   try {
     url = new URL(raw.trim());
@@ -42,13 +47,14 @@ export function parseTargetUrl(raw: string, config: IntakeConfig): ParsedTargetU
       : { ok: true, hostname: host, registrableDomain: null };
   }
 
-  const { unroutable, domains, suffixes } = config.blockedHosts;
+  const { unroutable, ownDomains, domains, suffixes } = config.blockedHosts;
   const trimmed = host.replace(/\.$/, "");
   if (!trimmed.includes(".") || unroutable.some((s) => inDomain(trimmed, s)))
     return fail("unroutable_host");
   const registrable = getDomain(trimmed);
   if (!registrable || parse(trimmed).isIp) return fail("invalid_url");
-  if (domains.some((d) => inDomain(trimmed, d)) || suffixes.some((s) => inDomain(trimmed, s)))
+  const blocked = options.staff ? domains : [...ownDomains, ...domains];
+  if (blocked.some((d) => inDomain(trimmed, d)) || suffixes.some((s) => inDomain(trimmed, s)))
     return fail("blocked_host");
   return { ok: true, hostname: trimmed, registrableDomain: registrable };
 }

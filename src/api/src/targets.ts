@@ -64,12 +64,13 @@ export async function getTarget(
 export function scopeHosts(
   input: Pick<TargetInput, "appUrl" | "marketingUrl">,
   config: IntakeConfig,
+  staff: boolean,
 ): string[] {
-  const app = parseTargetUrl(input.appUrl, config);
+  const app = parseTargetUrl(input.appUrl, config, { staff });
   if (!app.ok) return reject(400, `app_url_${app.problem}`);
   const hosts = [app.hostname];
   if (input.marketingUrl) {
-    const marketing = parseTargetUrl(input.marketingUrl, config);
+    const marketing = parseTargetUrl(input.marketingUrl, config, { staff });
     if (!marketing.ok) return reject(400, `marketing_url_${marketing.problem}`);
     if (!hosts.includes(marketing.hostname)) hosts.push(marketing.hostname);
   }

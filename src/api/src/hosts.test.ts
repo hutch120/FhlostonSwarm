@@ -17,8 +17,16 @@ describe("intake config", () => {
     expect(bad({ blockedHosts: undefined })).toBe(false);
   });
 
-  it("blocks our own domain", () => {
-    expect(intakeConfig.blockedHosts.domains).toContain("fhlostonswarm.com");
+  it("blocks our own domain for customers, but staff may scan it", () => {
+    expect(intakeConfig.blockedHosts.ownDomains).toContain("fhlostonswarm.com");
+    expect(parseTargetUrl("https://app.fhlostonswarm.com", intakeConfig, { staff: true })).toEqual({
+      ok: true,
+      hostname: "app.fhlostonswarm.com",
+      registrableDomain: "fhlostonswarm.com",
+    });
+    for (const url of ["https://mail.google.com", "https://agency.gov.au", "http://10.0.0.5"]) {
+      expect(parseTargetUrl(url, intakeConfig, { staff: true }), url).toMatchObject({ ok: false });
+    }
   });
 });
 

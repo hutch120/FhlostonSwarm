@@ -129,6 +129,22 @@ describe("targets", () => {
     expect(await (await owner.request("GET", "/api/targets")).json()).toEqual([]);
   });
 
+  it("lets staff target our own domain, and a customer cannot", async () => {
+    const { h, owner } = ctx;
+    const staff = await signedIn(h, "swarm-test-staff3@fhlostonswarm.com");
+    const own = { appUrl: "https://app.fhlostonswarm.com" };
+    const created = await staff.withCsrf("POST", "/api/targets", targetBody(own));
+    expect(created.status).toBe(201);
+    expect(await created.json()).toMatchObject({ hosts: ["app.fhlostonswarm.com"] });
+    const res = await staff.withCsrf(
+      "POST",
+      "/api/targets",
+      targetBody({ appUrl: "https://mail.google.com" }),
+    );
+    expect(await res.json()).toEqual({ error: "app_url_blocked_host" });
+    expect((await owner.withCsrf("POST", "/api/targets", targetBody(own))).status).toBe(400);
+  });
+
   it("needs the authorisation acknowledgement and a password for each new login", async () => {
     const { owner } = ctx;
     expect(

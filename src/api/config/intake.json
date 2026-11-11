@@ -9,8 +9,8 @@
     "perAccountPerHour": 10
   },
   "blockedHosts": {
+    "ownDomains": ["fhlostonswarm.com"],
     "domains": [
-      "fhlostonswarm.com",
       "google.com",
       "googleapis.com",
       "microsoft.com",
