@@ -9,6 +9,7 @@ import { clientIp, MUTATING, readJson, type Vars } from "./http.js";
 import { deriveRole, emailHash, ipHash, isDisposable, parseEmail } from "./identity.js";
 import type { Mailer } from "./mailer.js";
 import { issueChallenge, verifyChallenge } from "./otp.js";
+import { looksLikePasscode, verifyTestPasscode } from "./testpass.js";
 import { hit } from "./ratelimit.js";
 import type { RunLauncher } from "./launcher.js";
 import type { EventPublisher } from "./publisher.js";
@@ -61,7 +62,10 @@ const requestBody = z.object({
 });
 
 const verifyBody = z.union([
-  z.object({ email: z.string().max(254), code: z.string().regex(/^\d{4,10}$/) }),
+  z.object({
+    email: z.string().max(254),
+    code: z.string().regex(/^(\d{4,10}|[A-Za-z0-9 -]{16,32})$/),
+  }),
   z.object({ token: z.string().max(400) }),
 ]);
 
@@ -252,6 +256,7 @@ export function createApp(deps: AppDeps) {
 
     let hash: string | null = null;
     let proof: { code: string } | { linkSecret: string } | null = null;
+    let passcode: string | null = null;
     if ("token" in body) {
       const dot = body.token.indexOf(".");
       const candidate = body.token.slice(0, dot);
@@ -261,15 +266,20 @@ export function createApp(deps: AppDeps) {
       }
     } else {
       const parsed = parseEmail(body.email);
-      if (parsed && body.code.length === config.otp.codeLength) {
+      if (parsed && looksLikePasscode(body.code)) {
+        hash = emailHash(secrets.pepper, parsed);
+        passcode = body.code;
+      } else if (parsed && body.code.length === config.otp.codeLength) {
         hash = emailHash(secrets.pepper, parsed);
         proof = { code: body.code };
       }
     }
     const failure = () => json(c, 401, { error: "invalid_or_expired_code" });
-    if (!hash || !proof) return failure();
+    if (!hash || (!proof && !passcode)) return failure();
 
-    const outcome = await verifyChallenge(store, secrets.pepper, hash, proof, config, now());
+    const outcome = passcode
+      ? await verifyTestPasscode(store, secrets.pepper, hash, passcode, now())
+      : await verifyChallenge(store, secrets.pepper, hash, proof!, config, now());
     if (!outcome.ok) return failure();
 
     const parsed = parseEmail(outcome.email);

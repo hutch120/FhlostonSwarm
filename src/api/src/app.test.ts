@@ -453,3 +453,99 @@ describe("entitlements", () => {
     expect(me.entitlements.credits).toEqual({ scout: 0, sweep: 0, probe: 0, siege: 0 });
   });
 });
+
+describe("test passcode", () => {
+  const generate = async (
+    b: ReturnType<ReturnType<typeof createHarness>["browser"]>,
+    lifetime = "day",
+  ) =>
+    (await (await b.withCsrf("POST", "/api/account/test-passcode", { lifetime })).json()) as {
+      code: string;
+      expiresAt: number;
+    };
+
+  it("signs in repeatedly with the generated passcode until it expires", async () => {
+    const h = createHarness();
+    const b = h.browser();
+    await h.signIn(b, "buyer@example.com");
+    const { code, expiresAt } = await generate(b, "week");
+    expect(code).toMatch(/^[a-z2-9]{4}(-[a-z2-9]{4}){3}$/);
+    expect(expiresAt).toBe(h.clock.now() + 7 * 86_400_000);
+
+    for (const typed of [code, code.toUpperCase(), code.replaceAll("-", " ")]) {
+      const fresh = h.browser();
+      const res = await fresh.request("POST", "/api/auth/verify", {
+        email: "Buyer@Example.com",
+        code: typed,
+      });
+      expect(res.status).toBe(200);
+      expect((await sessionBody(res)).user).toEqual({
+        email: "buyer@example.com",
+        role: "customer",
+      });
+    }
+
+    h.clock.advance(7 * 86_400_000 + 1);
+    const late = await h.browser().request("POST", "/api/auth/verify", {
+      email: "buyer@example.com",
+      code,
+    });
+    expect(late.status).toBe(401);
+  });
+
+  it("offers an hour, a day, a week or a month, and nothing else", async () => {
+    const h = createHarness();
+    const b = h.browser();
+    await h.signIn(b, "buyer@example.com");
+    const spans = {
+      hour: 3_600_000,
+      day: 86_400_000,
+      week: 7 * 86_400_000,
+      month: 30 * 86_400_000,
+    };
+    for (const [lifetime, ms] of Object.entries(spans)) {
+      expect((await generate(b, lifetime)).expiresAt).toBe(h.clock.now() + ms);
+    }
+    const res = await b.withCsrf("POST", "/api/account/test-passcode", { lifetime: "year" });
+    expect(res.status).toBe(400);
+  });
+
+  it("works only for the account that generated it, and a new one replaces the old", async () => {
+    const h = createHarness();
+    const b = h.browser();
+    await h.signIn(b, "buyer@example.com");
+    const first = await generate(b);
+    const second = await generate(b);
+    const verify = (email: string, code: string) =>
+      h.browser().request("POST", "/api/auth/verify", { email, code });
+    expect((await verify("buyer@example.com", first.code)).status).toBe(401);
+    expect((await verify("other@example.com", second.code)).status).toBe(401);
+    expect((await verify("buyer@example.com", second.code)).status).toBe(200);
+  });
+
+  it("needs a signed-in session and the CSRF token, and stores only a hash", async () => {
+    const h = createHarness();
+    const anon = h.browser();
+    expect(
+      (await anon.request("POST", "/api/account/test-passcode", { lifetime: "day" })).status,
+    ).toBe(401);
+    const b = h.browser();
+    await h.signIn(b, "buyer@example.com");
+    expect(
+      (await b.request("POST", "/api/account/test-passcode", { lifetime: "day" })).status,
+    ).toBe(403);
+    const { code } = await generate(b);
+    const stored = (await h.store.get(keys.testPasscode(hashOf("buyer@example.com"))))!.body;
+    expect(stored).not.toContain(code.replaceAll("-", ""));
+  });
+
+  it("is removed with the account", async () => {
+    const h = createHarness();
+    const b = h.browser();
+    await h.signIn(b, "buyer@example.com");
+    await generate(b);
+    const deletion = await h.codeFor(b, "buyer@example.com");
+    await b.withCsrf("DELETE", "/api/account", { code: deletion });
+    expect(await h.store.get(keys.testPasscode(hashOf("buyer@example.com")))).toBeNull();
+  });
+});

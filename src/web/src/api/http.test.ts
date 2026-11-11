@@ -276,6 +276,14 @@ describe("account and notification calls", () => {
     expect(calls[1]!.headers["x-csrf-token"]).toBe("csrf-1");
   });
 
+  it("generates a test passcode", async () => {
+    const issued = { code: "abcd-efgh-jkmn-pqrs", expiresAt: 5 };
+    const { calls, fetchFn } = fakeFetch(() => reply(200, issued));
+    expect(await createHttpApi(fetchFn).createTestPasscode("month")).toEqual(issued);
+    expect(`${calls[0]!.method} ${calls[0]!.path}`).toBe("POST /api/account/test-passcode");
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ lifetime: "month" });
+  });
+
   it("confirms a notification link without a retry on 401", async () => {
     const { calls, fetchFn } = fakeFetch(() => reply(400, { error: "invalid_or_expired_link" }));
     await expect(createHttpApi(fetchFn).confirmNotify("tok")).rejects.toMatchObject({

@@ -3,6 +3,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { api, messageFor } from "../api/client.js";
+import {
+  TEST_PASSCODE_LIFETIMES,
+  type TestPasscode,
+  type TestPasscodeLifetime,
+} from "../api/http.js";
 import { useSession } from "../state/session.js";
 
 const CONFIRM_WORD = "DELETE";
@@ -16,6 +21,10 @@ export function Account() {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lifetime, setLifetime] = useState<TestPasscodeLifetime>("day");
+  const [passcode, setPasscode] = useState<TestPasscode | null>(null);
+  const [passcodeBusy, setPasscodeBusy] = useState(false);
+  const [passcodeError, setPasscodeError] = useState<string | null>(null);
   const account = useQuery({ queryKey: ["account"], queryFn: () => api.getAccount() });
 
   const sendCode = async () => {
@@ -28,6 +37,18 @@ export function Account() {
       setError(messageFor(err, "Could not send the code. Try again."));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const generatePasscode = async () => {
+    setPasscodeBusy(true);
+    setPasscodeError(null);
+    try {
+      setPasscode(await api.createTestPasscode(lifetime));
+    } catch (err) {
+      setPasscodeError(messageFor(err, "Could not generate a passcode. Try again."));
+    } finally {
+      setPasscodeBusy(false);
     }
   };
 
@@ -64,6 +85,50 @@ export function Account() {
             ? TIERS.map((t) => `${account.data.credits[t.id]} ${t.name}`).join(" · ") + " credits"
             : "Loading…"}
         </p>
+      </section>
+
+      <section className="card" aria-labelledby="passcode-title">
+        <h2 id="passcode-title" className="card-title">
+          Test passcode
+        </h2>
+        <p>
+          Generate a passcode to sign in without waiting for an email, for example in automated
+          testing. Enter it where the sign-in page asks for the 6-digit code. It works as many times
+          as you like until it expires, and a new one replaces the old. Anyone who has it can sign
+          in as you, so keep it private.
+        </p>
+        <div className="field">
+          <label htmlFor="passcode-lifetime">Valid for</label>
+          <select
+            id="passcode-lifetime"
+            value={lifetime}
+            onChange={(e) => setLifetime(e.target.value as TestPasscodeLifetime)}
+          >
+            {TEST_PASSCODE_LIFETIMES.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={passcodeBusy}
+          onClick={generatePasscode}
+        >
+          Generate test passcode
+        </button>
+        {passcode && (
+          <p data-testid="test-passcode">
+            <code>{passcode.code}</code> expires {new Date(passcode.expiresAt).toLocaleString()}
+          </p>
+        )}
+        {passcodeError && (
+          <p className="error" role="alert">
+            {passcodeError}
+          </p>
+        )}
       </section>
 
       <section className="card danger-zone" aria-labelledby="delete-title">

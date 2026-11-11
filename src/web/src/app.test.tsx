@@ -32,7 +32,9 @@ describe("Login", () => {
     const code = await screen.findByLabelText(/6-digit code/i);
     const submit = screen.getByRole("button", { name: "Sign in" });
     expect(submit).toBeDisabled();
-    await userEvent.type(code, "12a3456");
+    await userEvent.type(code, "12345");
+    expect(submit).toBeDisabled();
+    await userEvent.type(code, "6!");
     expect(code).toHaveValue("123456");
     await userEvent.click(submit);
     expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
@@ -299,6 +301,22 @@ describe("Scans", () => {
 });
 
 describe("Account", () => {
+  it("generates a test passcode for the chosen lifetime", async () => {
+    const asked: string[] = [];
+    setApi({
+      ...createMockApi(),
+      createTestPasscode: async (lifetime) => {
+        asked.push(lifetime);
+        return { code: "abcd-efgh-jkmn-pqrs", expiresAt: Date.now() + 3_600_000 };
+      },
+    });
+    renderApp("/account");
+    await userEvent.selectOptions(await screen.findByLabelText("Valid for"), "week");
+    await userEvent.click(screen.getByRole("button", { name: "Generate test passcode" }));
+    expect(await screen.findByTestId("test-passcode")).toHaveTextContent("abcd-efgh-jkmn-pqrs");
+    expect(asked).toEqual(["week"]);
+  });
+
   it("shows credits and walks through deleting the account with a fresh code", async () => {
     const calls: string[] = [];
     setApi({

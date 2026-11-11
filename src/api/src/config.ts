@@ -11,6 +11,15 @@ export const authConfigSchema = z.object({
     ttlMinutes: z.number().positive(),
     maxAttempts: z.number().int().positive(),
   }),
+  /** Reusable sign-in codes an account holder generates for testing, by chosen lifetime. */
+  testPasscode: z.object({
+    lifetimeMinutes: z.object({
+      hour: z.number().positive(),
+      day: z.number().positive(),
+      week: z.number().positive(),
+      month: z.number().positive(),
+    }),
+  }),
   rateLimits: z.object({
     requestPerEmailPerHour: z.number().int().positive(),
     requestPerIpPerHour: z.number().int().positive(),

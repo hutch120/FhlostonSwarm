@@ -68,25 +68,29 @@ export function Login() {
         <form onSubmit={verify}>
           <p>
             If <strong>{email}</strong> can receive mail, a code is on its way. It expires in 10
-            minutes.{" "}
+            minutes. Testing? Enter a test passcode from your Account page instead.{" "}
             <button type="button" className="link" onClick={() => setStep("email")}>
               Use a different email
             </button>
           </p>
           <div className="field">
-            <label htmlFor="code">6-digit code</label>
+            <label htmlFor="code">6-digit code or test passcode</label>
             <input
               id="code"
-              inputMode="numeric"
               autoComplete="one-time-code"
-              pattern="[0-9]{6}"
-              maxLength={6}
+              autoCapitalize="none"
+              spellCheck={false}
+              maxLength={32}
               required
               value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+              onChange={(e) => setCode(e.target.value.replace(/[^A-Za-z0-9 -]/g, ""))}
             />
           </div>
-          <button type="submit" className="btn btn-primary" disabled={busy || code.length !== 6}>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={busy || code.trim().length < 6}
+          >
             Sign in
           </button>
         </form>

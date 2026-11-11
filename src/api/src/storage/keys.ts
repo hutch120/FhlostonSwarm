@@ -28,6 +28,8 @@ export const keys = {
     `users/${emailHash}/runs/${runId}/report/findings.json`,
   /** Estimated cost of the run; staff only. */
   runCost: (emailHash: string, runId: string) => `users/${emailHash}/runs/${runId}/cost.json`,
+  /** The reusable sign-in code the account holder generated for testing. */
+  testPasscode: (emailHash: string) => `users/${emailHash}/test-passcode.json`,
   entitlements: (emailHash: string) => `users/${emailHash}/entitlements.json`,
   targetsPrefix: (emailHash: string) => `users/${emailHash}/targets/`,
   target: (emailHash: string, targetId: string) => `users/${emailHash}/targets/${targetId}.json`,

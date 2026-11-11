@@ -85,6 +85,23 @@ export interface ApiClient {
   /** Emails a fresh code that confirms deleting the account. */
   requestAccountDeletion(): Promise<void>;
   deleteAccount(code: string): Promise<void>;
+  /** A reusable sign-in code for testing (entered like an emailed code); replaces any earlier one. */
+  createTestPasscode(lifetime: TestPasscodeLifetime): Promise<TestPasscode>;
+}
+
+export const TEST_PASSCODE_LIFETIMES = [
+  { id: "hour", label: "1 hour" },
+  { id: "day", label: "1 day" },
+  { id: "week", label: "1 week" },
+  { id: "month", label: "1 month" },
+] as const;
+
+export type TestPasscodeLifetime = (typeof TEST_PASSCODE_LIFETIMES)[number]["id"];
+
+export interface TestPasscode {
+  code: string;
+  /** Epoch milliseconds. */
+  expiresAt: number;
 }
 
 const URL_PROBLEMS: Record<string, string> = {
@@ -265,6 +282,7 @@ export function createHttpApi(fetchFn: FetchLike = (input, init) => fetch(input,
     deleteAccount: async (code) => {
       await call("DELETE", "/api/account", { code });
     },
+    createTestPasscode: (lifetime) => call("POST", "/api/account/test-passcode", { lifetime }),
   };
   return api;
 }

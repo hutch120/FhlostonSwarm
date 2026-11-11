@@ -19,6 +19,7 @@ import { newId } from "./ids.js";
 import { ipHash, testMarkerFor } from "./identity.js";
 import type { RunLauncher } from "./launcher.js";
 import { issueChallenge, verifyChallenge } from "./otp.js";
+import { issueTestPasscode, testPasscodeLifetimeSchema } from "./testpass.js";
 import {
   confirmNotification,
   revokeConfirmation,
@@ -81,6 +82,7 @@ export interface DataDeps extends NotifyDeps {
 const statusBody = z.object({ status: scanStatusSchema });
 const confirmBody = z.object({ token: z.string().min(20).max(100) });
 const deleteBody = z.object({ code: z.string().regex(/^\d{4,10}$/) });
+const testPasscodeBody = z.object({ lifetime: testPasscodeLifetimeSchema });
 
 /** Targets, scans, runs, notification confirmation and account deletion (everything past sign-in). */
 export function dataRoutes(deps: DataDeps) {
@@ -455,6 +457,33 @@ export function dataRoutes(deps: DataDeps) {
       reject(429, "rate_limited");
     if (!(await confirmNotification(deps, token))) reject(400, "invalid_or_expired_link");
     return c.json({ ok: true });
+  });
+
+  // Test passcode ---------------------------------------------------------------------------
+
+  app.post("/account/test-passcode", async (c) => {
+    const { emailHash, email } = c.get("auth");
+    const { lifetime } = await readJson(c, testPasscodeBody);
+    const { pepper } = await deps.secrets();
+    if (
+      !(await hit(
+        store,
+        `email-${emailHash}-testpass`,
+        config.rateLimits.requestPerEmailPerHour,
+        now(),
+      ))
+    )
+      reject(429, "rate_limited");
+    const issued = await issueTestPasscode(
+      store,
+      pepper,
+      emailHash,
+      email,
+      lifetime,
+      config,
+      now(),
+    );
+    return c.json(issued);
   });
 
   // Account deletion ------------------------------------------------------------------------

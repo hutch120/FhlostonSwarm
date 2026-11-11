@@ -103,6 +103,10 @@ export function createMockApi(): ApiClient {
 
     requestAccountDeletion: async () => undefined,
     deleteAccount: async () => undefined,
+    createTestPasscode: async () => ({
+      code: "abcd-efgh-jkmn-pqrs",
+      expiresAt: Date.now() + 86_400_000,
+    }),
   };
 }
 
