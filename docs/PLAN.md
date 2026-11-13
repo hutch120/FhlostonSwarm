@@ -1,6 +1,6 @@
 # Swarm — Self-Serve Product Plan
 
-Turn the *simulated* swarm on the Fhloston Advisory marketing site into a real, self-serve product, **Swarm**, at its own dedicated domain, `fhlostonswarm.com` (registered in the swarm AWS account, with Google Workspace for human mailboxes): a customer signs in, points the swarm at their application, watches the agents work in real time, steers them, and receives a report like [example-report.html](./example-report.html).
+Turn the *simulated* swarm on the Fhloston Advisory marketing site into a real, self-serve product, **Swarm**, at its own dedicated domain, `fhlostonswarm.com` (registered in the swarm AWS account, with Google Workspace for human mailboxes): a customer signs in, points the swarm at their application, watches the agents work in real time, and receives a report like [example-report.html](./example-report.html).
 
 > Status: **draft, all decisions made** (see [section 16](#16-decisions-log)); remaining actions and numbers to tune are in [section 17](#17-launch-checklist--items-still-to-tune). The phased build and verification plan is in [IMPLEMENTATION.md](./IMPLEMENTATION.md).
 
@@ -8,7 +8,7 @@ Turn the *simulated* swarm on the Fhloston Advisory marketing site into a real, 
 
 | Area | Summary |
 |------|---------|
-| **Web app** (Vite) | OTP email login → intake form → live "swarm" view → steering → report download; account/data deletion |
+| **Web app** (Vite) | OTP email login → intake form → live "swarm" view → report download; account/data deletion |
 | **Staff dashboard** | `@fhlostonswarm.com` logins only: per-run cost analysis, usage, support tools |
 | **Backend** (AWS, `ap-southeast-2`, account `885922397779`) | Auth, run orchestration, sandboxed agent execution on Bedrock, event streaming, report generation. **All data in S3.** |
 | **Agent runtime** | Driven by the baseline methodology in [instructions/](./instructions/README.md), adapted per target by a discovery phase |
@@ -35,7 +35,7 @@ flowchart LR
   subgraph Browser
     UI[Vite SPA<br/>S3 + CloudFront]
   end
-  UI -- HTTPS --> API[API Gateway + Lambda<br/>auth, runs, steering, reports]
+  UI -- HTTPS --> API[API Gateway + Lambda<br/>auth, runs, reports]
   UI <-- realtime --> RT[AppSync Events]
   API --> S3[(S3 — all data<br/>users, OTP, runs, evidence, reports, costs)]
   API --> SES[SES<br/>OTP + notifications]
@@ -68,7 +68,7 @@ flowchart LR
 ```
 src/
   web/        Vite + React + TS SPA
-  api/        Lambda handlers (auth, runs, steering, reports, billing)
+  api/        Lambda handlers (auth, runs, reports, billing)
   agents/     Agent runtime (container image), tool implementations, prompts loader
   infra/      AWS CDK app (stacks: edge, auth, data, runs, agents, reports, billing)
   shared/     Types: run events, findings schema, API contracts (zod)
@@ -87,7 +87,7 @@ utils/        Existing CLI (swarm login, later: swarm deploy / swarm run-local)
 2. **Dashboard** — past runs, status, report links, credits held per scan depth, "New assessment", per-run **Run again** and **Delete** actions.
 3. **New assessment (intake)** — creates a **saved scan** and starts its first run ([section 13](#13-saved-scans-schedules--notifications)):
    - Application URL (required) and marketing/landing page URL (optional). Their hostnames become the run's allowed scope.
-   - **Scan depth** shown up front as four cards from shallow to deep (**Scout**, **Sweep**, **Probe**, **Siege**), each showing the agents it runs, how many logins it uses, the time it takes and whether steering is available ([section 11](#11-scan-depths-tiers-entitlements--payments)). Prices are shown at checkout once payments exist.
+   - **Scan depth** shown up front as four cards from shallow to deep (**Scout**, **Sweep**, **Probe**, **Siege**), each showing the agents it runs, how many logins it uses, and the time it takes ([section 11](#11-scan-depths-tiers-entitlements--payments)). Prices are shown at checkout once payments exist.
    - **Schedule:** one-off (default), daily, weekly, monthly or yearly. Different scans on the same application can use different depths, for example Scout daily, Sweep weekly and Siege monthly.
    - **Notifications:** the email that receives the report notice (defaults to the account email, set per scan) and when to send it (after every run, only on new findings, or never).
    - **Test logins** — four fixed slots with a free-text *description of permissions* each. The depth sets how many are used (Scout none, Sweep 1, Probe 2, Siege 4); the form asks for at least one for any depth above Scout and refuses more than the depth uses:
@@ -106,9 +106,8 @@ utils/        Existing CLI (swarm login, later: swarm deploy / swarm run-local)
    - Futuristic canvas: agents render as glowing faces swarming around the target "core", with beams/pulses when an agent probes an endpoint, colour-coded by area (reuse the site's 12-agent palette/faces).
    - Side panels: per-area progress, live findings (severity + verified badge), event log, checks counter, coverage meter (percent of planned work covered; never dollars, tokens or caps, see [revenue.md](./revenue.md#2-stop-exposing-cost-to-customers)).
    - Tech: PixiJS (WebGL) or plain Canvas 2D for the swarm; React for panels. Respect `prefers-reduced-motion` and provide a low-power mode.
-   - Click an agent → its current task, recent steps, and a "steer this agent" box.
-5. **Steering panel** — see [section 9](#9-steering-the-agents).
-6. **Report** — in-app HTML view, download HTML / PDF / JSON (and SARIF later).
+   - Click an agent → its current task and recent steps.
+5. **Report** — in-app HTML view, download HTML / PDF / JSON (and SARIF later).
 7. **Scans** — the saved scans: depth, cadence, notification email, status, last and next run. Each can be **run again**, paused or resumed (recurring ones), or deleted, without reconfiguring. Editing a scan (target, logins, depth, schedule, notification email) reuses the same form ([section 13](#13-saved-scans-schedules--notifications)).
 8. **Account / data** — delete an individual run (and its report/evidence), or **delete account** (removes everything, see [section 14](#14-security-privacy--operations)).
 9. **Staff dashboard** (`/staff`, only visible to `@fhlostonswarm.com` logins) — see [section 12](#12-staff-support-dashboard--cost-tracking).
@@ -260,23 +259,22 @@ The existing [instructions/](./instructions/README.md) are a **baseline playbook
 1. **Productise the baseline.** Convert each `phase-N-*.md` into a versioned **prompt module** with explicit sections: *objective, guardrails (immutable), checks, tools, evidence format, output schema*. Store in S3 (versioned) / bundled in the agent image; record the `instructionsVersion` on each run for reproducibility.
 2. **Discovery (Phase 0):** a planner agent crawls the app (unauthenticated, then with each login the scan's depth uses; Scout and Sweep are bounded by the page cap) and classifies it: SPA/server-rendered, API style (REST/GraphQL), auth mechanism (session cookie / JWT / OAuth), tech stack, presence of AI/LLM features, file uploads, payments, multi-tenancy, roles. Its output is the "what we understood about your application" section of every report.
 3. **Engagement plan:** the planner emits `engagement.json` (schema-validated): which agents to run, which checks to enable/skip (e.g., skip Phase 4 if no LLM features — recorded as "not applicable" in the report), role-specific test matrices from the customer's login descriptions, target-specific hints (routes, API base URLs), and estimated budget.
-4. **Constraints on adaptation:** the planner can add/remove/reorder checks but **cannot** remove guardrails, widen scope, or change the allowed-tool list. Plan is shown to the customer (and editable by steering) before/while it executes.
+4. **Constraints on adaptation:** the planner can add/remove/reorder checks but **cannot** remove guardrails, widen scope, or change the allowed-tool list. Plan is shown to the customer. Between runs the instructions themselves keep learning ([section 9](#9-the-learning-loop)).
 5. **Replace human sign-off points** with: automated verifier agent + explicit "unverified" label. Reports are **automated only** for now (no analyst review step); the report says so.
 6. The instruction files carry no engagement-specific content (no target URL, credentials or paths); `tasks.md` is a template for the checklist generated per run rather than a hand-edited file.
 
-## 9. Steering the agents
+## 9. The learning loop
 
-The customer talks to the swarm through a **steering inbox** (per run, per optional agent):
+Runs execute unattended in the background, so the swarm is not steered live. It adapts between runs instead: the hard-coded instruction modules are only a **baseline**, and a **dynamic layer** of instructions and agents, stored in S3, is revised by a short learning pass (about a minute) after every run. This keeps the swarm current as new risk categories and high-risk issues appear, without code changes.
 
-| Customer intent | Example | Effect |
-|-----------------|-----------|--------|
-| **Deep dive** | "Look harder at F-03 / the file upload" | Orchestrator spawns/redirects an agent with the finding's context and extra budget |
-| **Accept risk** | "We accept the risk on F-05" | Finding status → *Accepted by customer* (kept in report, separated, excluded from future-run alerts); requires note, audit-logged |
-| **Scope narrowing** | "Don't test /billing", "skip LLM tests" | Added to engagement plan + enforced in the proxy where it's a path/host rule |
-| **Context** | "Role `other` is a support agent who can view all tickets" | Added to the role matrix |
-| **Pause / stop** | Stop button | Run state machine cancels tasks, still produces a partial report |
+- **Baseline (code, immutable):** guardrails, the typed-tool allow-list, the scope proxy, the 12-agent roster and the instruction modules of [section 8](#8-dynamic-instructions--discovery-phase). Nothing learned can remove, weaken or override them.
+- **Dynamic layer (S3, global, versioned):** *knowledge items* (a risk category or technique with the technologies it applies to, its source and date) and *dynamic agents* (declarative specs whose checks are built only from the existing read-only typed primitives, so they inherit the scope proxy and the run's caps). Planner and agents receive the relevant items next to the baseline modules, and each run records the `dynamicVersion` it used.
+- **Learning pass:** after the run closes, a short model call sees the **anonymised** run summary (technology tags, which checks fired, finding categories; never hosts, URLs, credentials, evidence or customer text), the current layer and fresh content from allow-listed sources (OWASP Top 10, OWASP LLM Top 10, CISA KEV, vendor advisories, best-practice sites). It proposes additions, revisions and retirements, including new agents. Source content is untrusted data and cannot choose hosts, tools or limits.
+- **Bounded:** configured caps on active items, on **dynamic agents** (globally and per depth, taken from the depth's own time and spend caps, none in Scout and Sweep), on changes per pass and on the pass's own time and spend. When full, a new agent replaces the lowest-scoring one; anything that does not apply or fire for a set number of runs, or whose source is superseded, is retired.
+- **Safe promotion:** new items and agents start as candidates in shadow mode (observations only) and become active only after staying in scope and passing the synthetic-target regression. Every version and proposal is logged and reversible, staff can pin, disable or roll back, and a kill switch falls back to the baseline.
+- **Visible:** the report's methodology lists the dynamic items and agents used, with their source and date.
 
-Mechanics: messages go to `POST /runs/{id}/steer` → stored as events → an **orchestrator/steering agent** interprets free text into a structured *directive* (zod-validated) → agents read their inbox **between steps** (not mid-tool-call). Steering **can never widen scope** beyond the declared hosts or lift guardrails; ambiguous/invalid requests are answered in the chat with a clarification. Everything is logged and appears in the report's methodology section.
+Customer-written steering is not part of the design.
 
 ## 10. Report output
 
@@ -295,14 +293,14 @@ Mechanics: messages go to `POST /runs/{id}/steer` → stored as events → an **
 
 ### Scan depths
 
-A **tier is a scan depth: a named group of agents** from the 12-agent roster ([section 1](#what-the-marketing-site-simulation-tells-us-reviewed-from-its-js-bundle)). Each deeper tier runs every agent of the one before it, plus more, with more logins, a longer time allowance and (for the deepest two) live steering. Cost and price rise with depth. The customer picks a depth per scan, so one application can be covered by a light scan often and a deep one rarely, for example **Scout daily, Sweep weekly and Siege monthly**, or a one-off Siege before a launch.
+A **tier is a scan depth: a named group of agents** from the 12-agent roster ([section 1](#what-the-marketing-site-simulation-tells-us-reviewed-from-its-js-bundle)). Each deeper tier runs every agent of the one before it, plus more, with more logins, and a longer time allowance. Cost and price rise with depth. The customer picks a depth per scan, so one application can be covered by a light scan often and a deep one rarely, for example **Scout daily, Sweep weekly and Siege monthly**, or a one-off Siege before a launch.
 
-| Depth | Name | Agents (areas) | Logins | Time allowance | Steering | Model class | Good for |
-|---|---|---|---|---|---|---|---|
-| 1 | **Scout** (shallow) | `dns`, `surface`, `tls`, `cors` (recon + unauthenticated, passive) | 0 | 10 min | no | Haiku | Daily "is anything newly exposed?" checks |
-| 2 | **Sweep** | Scout + `bundle`, `zap`, `authn` (all passive checks plus a sign-in review) | 1 | 20 min | no | Haiku | Weekly regression checks |
-| 3 | **Probe** | Sweep + `session`, `authz`, `prompt`, `output` (authenticated testing across two roles, access control, LLM checks) | 2 | 40 min | yes | Sonnet | Monthly reviews |
-| 4 | **Siege** (deep) | Probe + `idor` (all 12 agents, business logic and privilege escalation, all four logins) | 4 | 60 min | yes | Sonnet | One-off full reports, yearly assessments |
+| Depth | Name | Agents (areas) | Logins | Time allowance | Model class | Good for |
+|---|---|---|---|---|---|---|
+| 1 | **Scout** (shallow) | `dns`, `surface`, `tls`, `cors` (recon + unauthenticated, passive) | 0 | 10 min | Haiku | Daily "is anything newly exposed?" checks |
+| 2 | **Sweep** | Scout + `bundle`, `zap`, `authn` (all passive checks plus a sign-in review) | 1 | 20 min | Haiku | Weekly regression checks |
+| 3 | **Probe** | Sweep + `session`, `authz`, `prompt`, `output` (authenticated testing across two roles, access control, LLM checks) | 2 | 40 min | Sonnet | Monthly reviews |
+| 4 | **Siege** (deep) | Probe + `idor` (all 12 agents, business logic and privilege escalation, all four logins) | 4 | 60 min | Sonnet | One-off full reports, yearly assessments |
 
 The suggestions in "Good for" are guidance only; any depth can be used with any schedule. Names and groupings are data (`src/shared/config/tiers.json`, validated by `tiersConfigSchema`: each tier must contain every agent of the shallower one, and logins and depth must not fall as depth rises), not code. Every depth produces the same report format; shallower ones list the areas they did not cover.
 
@@ -458,7 +456,7 @@ Design rule: **if no scan is running, nothing expensive is running.** Verified a
 | **M3** | Intake & saved scans | New-assessment form (URL, marketing URL, scan depth, schedule, notification email, 4 logins + descriptions), saved targets and scans with **Run again**, credit ledger (staff-granted credits until payments exist), ToS ack, "use staging credentials, not production" notice, run/scan/account delete |
 | **M4** | Walking skeleton backend | Step Functions + one Fargate agent (e.g., headers/TLS) + scope proxy + live events to the real UI + minimal HTML report + **`cost.json` metering** |
 | **M5** | Discovery + full swarm | Instruction modules, planner/`engagement.json`, all 12 agents, verifier, authenticated testing with the 4 roles, the four scan depths (Scout, Sweep, Probe, Siege) with their agent groups and caps, full report + PDF |
-| **M6** | Steering | Steering inbox, deep-dive/accept-risk/scope directives, partial-report on stop (Probe and Siege) |
+| **M6** | Learning loop | Dynamic instructions and agents in S3, post-run learning pass, source fetching, caps, shadow-then-promote lifecycle, versioning and rollback |
 | **M7** | Staff dashboard | `/staff` runs, run detail, cost analysis + pricing worksheet, user lookup, comp credits, controls |
 | **M8** | Hardening & private beta | Self-scan, abuse controls, synthetic-target regression suite, ToS/privacy review, decide on target verification |
 | **M9** | Payments | Stripe Checkout, credits per depth, GST, invoices; fill in TBD prices from measured costs |
