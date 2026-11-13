@@ -407,7 +407,7 @@ These have waiting time, so kick them off before the phases that need them:
 
 ## Phase 8 — Learning loop: dynamic instructions and agents (M6)
 
-**Goal:** the swarm stays current without code changes. The hard-coded `INSTRUCTION_MODULES` become a small, immutable **baseline**; a **dynamic layer** of instructions and agents lives in S3 and is revised by a short **learning pass after every run**, using current security sources (OWASP Top 10, OWASP LLM Top 10, CISA KEV, vendor advisories, best-practice sites). New risk categories can add checks and spawn agents, stale ones are retired, and the number of dynamic agents is capped so it can never run away. This replaces live customer steering: a run executes unattended in the background, so there is nowhere safe to take mid-run instructions from, and learning from outside sources and past runs gives the same adaptability for every customer. See [PLAN.md §9](./PLAN.md#9-the-learning-loop).
+**Goal:** the swarm stays current without code changes. The hard-coded `INSTRUCTION_MODULES` become a small, immutable **baseline**; a **dynamic layer** of instructions and agents lives in S3 and is revised by a short **learning pass after every run**, using current security sources (OWASP Top 10, OWASP LLM Top 10, CISA KEV, vendor advisories, best-practice sites). New risk categories can add checks and spawn agents, stale ones are retired, and the number of dynamic agents is capped so it can never run away. Runs execute unattended in the background, so the swarm adapts between runs rather than during one. See [PLAN.md §9](./PLAN.md#9-the-learning-loop).
 
 **Depends on:** Phase 7. Feeds Phase 9 (staff review and controls for the learning layer).
 
@@ -432,7 +432,7 @@ These have waiting time, so kick them off before the phases that need them:
 5. Source fetcher: allow-listed, cached, size and time limited, content-type checked, text extracted and delimited as untrusted.
 6. Learner and `applyLearning`: build the anonymised run summary, one model call (`record_learning`), clamp to the limits, apply, write the version and log; the `Learn` state in the state machine (a failure goes to `Done`, never fails the run).
 7. Promotion and retirement: shadow counters, the synthetic-target gate, scoring, retire-after-N, cap replacement.
-8. Remove live steering: `POST /api/runs/:id/steer`, the disabled steering box and panel in the web app, the `steering` field of `tiers.json` and its schema, and the steering references in the docs.
+8. Clean-up: remove the unused steering placeholders (the `steer` event type, the `steering` field of `tiers.json` and its schema, the disabled steering box in the web app) and their doc references.
 9. Ops: `swarm learn --dry-run | --apply [--run <id>]` (propose from a run and/or the sources and print the diff), `swarm learning status | versions | rollback <n> | disable`.
 10. Cost: record the learner's tokens and seconds in `cost.json` (own line, so Phase 9 can show it).
 
@@ -442,11 +442,10 @@ These have waiting time, so kick them off before the phases that need them:
 - Lifecycle tests: a candidate stays in shadow (no findings) until it passes the gate; one that errors or leaves scope is retired; an unused item is retired after `retireAfterRuns`; a concurrent second learner is refused by the lock; a timeout leaves the current version unchanged; rollback restores the earlier version.
 - Integration on the synthetic target (offline model, then live): after a run the learner adds an item for a category the baseline does not cover (a fixture source) and spawns one dynamic agent; the next run uses it in shadow, then active, and it finds a seeded issue added to the target for it; the Phase 7 results (19/19, 0 stray) are unchanged; Scout and Sweep runs run no dynamic agents.
 - Live check on the deployed stack: `swarm learn --dry-run` against the real sources fetches and summarises them within the time and spend caps, and a real run's `Learn` pass finishes inside 90 s with the version and log written.
-- Steering is gone: the endpoint no longer exists and `tiers.json` no longer has the field (`npm run typecheck` and `npm test`).
+- The steering placeholders are gone and `npm run typecheck` and `npm test` pass.
 
 **Exit criteria:** after a run, the system produces, validates and applies a bounded update to the dynamic layer on its own; a new risk category reaches a later run's agents without a code change or deploy; the number of dynamic agents never exceeds the cap; no proposal can widen scope, lift a guardrail or add a tool; every change is versioned, logged and reversible.
 
-**Not in this phase:** customer-written steering (live or saved). Accept-risk and per-scan exclusions may return later as saved-scan settings; they are not part of the learning loop.
 
 ---
 

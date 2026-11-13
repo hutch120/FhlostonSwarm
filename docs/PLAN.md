@@ -265,7 +265,7 @@ The existing [instructions/](./instructions/README.md) are a **baseline playbook
 
 ## 9. The learning loop
 
-Runs execute unattended in the background, so the swarm is not steered live. It adapts between runs instead: the hard-coded instruction modules are only a **baseline**, and a **dynamic layer** of instructions and agents, stored in S3, is revised by a short learning pass (about a minute) after every run. This keeps the swarm current as new risk categories and high-risk issues appear, without code changes.
+Runs execute unattended in the background, so the swarm adapts between runs rather than during one: the hard-coded instruction modules are only a **baseline**, and a **dynamic layer** of instructions and agents, stored in S3, is revised by a short learning pass (about a minute) after every run. This keeps the swarm current as new risk categories and high-risk issues appear, without code changes.
 
 - **Baseline (code, immutable):** guardrails, the typed-tool allow-list, the scope proxy, the 12-agent roster and the instruction modules of [section 8](#8-dynamic-instructions--discovery-phase). Nothing learned can remove, weaken or override them.
 - **Dynamic layer (S3, global, versioned):** *knowledge items* (a risk category or technique with the technologies it applies to, its source and date) and *dynamic agents* (declarative specs whose checks are built only from the existing read-only typed primitives, so they inherit the scope proxy and the run's caps). Planner and agents receive the relevant items next to the baseline modules, and each run records the `dynamicVersion` it used.
@@ -274,7 +274,6 @@ Runs execute unattended in the background, so the swarm is not steered live. It 
 - **Safe promotion:** new items and agents start as candidates in shadow mode (observations only) and become active only after staying in scope and passing the synthetic-target regression. Every version and proposal is logged and reversible, staff can pin, disable or roll back, and a kill switch falls back to the baseline.
 - **Visible:** the report's methodology lists the dynamic items and agents used, with their source and date.
 
-Customer-written steering is not part of the design.
 
 ## 10. Report output
 
