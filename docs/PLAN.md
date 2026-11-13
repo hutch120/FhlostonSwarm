@@ -224,7 +224,7 @@ Why Fargate (not Lambda): browser automation (Playwright), ZAP/nuclei/testssl-st
 ### Agent runtime
 
 - **Container image** with: Node/TS agent loop, Playwright + Chromium, a curated set of CLI tools (ZAP baseline, testssl, nuclei, dig/whois, subfinder-style CT lookups). Tools are exposed to the model as typed functions — the model never gets a raw shell on a shared box.
-- **Models (decided):** Claude via **Amazon Bedrock** in `ap-southeast-2`, using the **`au.` (Australia) cross-region inference profiles** so inference stays in Australian regions (avoid `global.` profiles; useful for the privacy story). **No Opus-class models** — they add cost without meaningful benefit for this work. Sonnet-class is the workhorse for the deeper scans, **Probe** and **Siege** (exploration, exploitation reasoning, verification, report writing); Haiku-class for the shallower **Scout** and **Sweep** scans and for high-volume/simple steps in any depth (recon, summarising tool output). Profiles seen `ACTIVE` in the swarm account (checked with `aws bedrock list-inference-profiles`):
+- **Models (decided):** Claude via **Amazon Bedrock** in `ap-southeast-2`, using the **`au.` (Australia) cross-region inference profiles** so inference stays in Australian regions (avoid `global.` profiles; useful for the privacy story). **No Opus-class models** for the scans themselves — they add cost without meaningful benefit for this work (the one exception is the post-run learning pass of [section 9](#9-the-learning-loop), which runs once per run on the most capable model available). Sonnet-class is the workhorse for the deeper scans, **Probe** and **Siege** (exploration, exploitation reasoning, verification, report writing); Haiku-class for the shallower **Scout** and **Sweep** scans and for high-volume/simple steps in any depth (recon, summarising tool output). Profiles seen `ACTIVE` in the swarm account (checked with `aws bedrock list-inference-profiles`):
 
   | Role | Initial default | Newer options also listed |
   |------|-----------------|---------------------------|
@@ -265,7 +265,7 @@ The existing [instructions/](./instructions/README.md) are a **baseline playbook
 
 ## 9. The learning loop
 
-Runs execute unattended in the background, so the swarm adapts between runs rather than during one: the hard-coded instruction modules are only a **baseline**, and a **dynamic layer** of instructions and agents, stored in S3, is revised by a short learning pass (about a minute) after every run. This keeps the swarm current as new risk categories and high-risk issues appear, without code changes.
+Runs execute unattended in the background, so the swarm adapts between runs rather than during one: the hard-coded instruction modules are only a **baseline**, and a **dynamic layer** of instructions and agents, stored in S3, is revised by a short learning pass after every run, run by the most capable model available, so the swarm stays current as new risk categories and high-risk issues appear, without code changes.
 
 - **Baseline (code, immutable):** guardrails, the typed-tool allow-list, the scope proxy, the 12-agent roster and the instruction modules of [section 8](#8-dynamic-instructions--discovery-phase). Nothing learned can remove, weaken or override them.
 - **Dynamic layer (S3, global, versioned):** *knowledge items* (a risk category or technique with the technologies it applies to, its source and date) and *dynamic agents* (declarative specs whose checks are built only from the existing read-only typed primitives, so they inherit the scope proxy and the run's caps). Planner and agents receive the relevant items next to the baseline modules, and each run records the `dynamicVersion` it used.
@@ -476,7 +476,7 @@ The riskiest unknowns (agent quality/cost, scope enforcement) should be hit by *
 | Report type | Automated only |
 | Legal / data | User can delete a run, a scan, or their account (removes all their data and stops their schedules). Only anonymised cost records are kept after deletion (accepted) |
 | Pricing | TBD, ordered by depth; staff dashboard measures cost per run to inform it |
-| Models | Bedrock Claude via **`au.` (Australia) inference profiles**; Sonnet-class for Probe and Siege, Haiku-class for Scout, Sweep and simple steps; no Opus. Initial IDs in [section 7](#agent-runtime) |
+| Models | Bedrock Claude via **`au.` (Australia) inference profiles**; Sonnet-class for Probe and Siege, Haiku-class for Scout, Sweep and simple steps; no Opus for scans (the post-run learning pass uses the most capable model available). Initial IDs in [section 7](#agent-runtime) |
 | DNS | Dedicated domain `fhlostonswarm.com` with its Route 53 hosted zone in the swarm account; no delegation or cross-account steps |
 | Staff access | All staff have `@fhlostonswarm.com` Google Workspace mailboxes; no allow-list needed for now |
 | Inbound email | Google Workspace on `fhlostonswarm.com` (MX etc. in the Route 53 zone) |
