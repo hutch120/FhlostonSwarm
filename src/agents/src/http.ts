@@ -205,9 +205,12 @@ export class ScopedHttp {
         s.once("error", reject);
       });
       details = describePeer(socket);
+      // Node ignores a bare `createConnection` option on `agent: false` and dials localhost:80 instead,
+      // so the already-secured socket is handed over through a one-shot agent.
+      const agent = new http.Agent({ keepAlive: false });
+      agent.createConnection = () => socket;
       options = {
-        agent: false,
-        createConnection: () => socket,
+        agent,
         method,
         path: url.pathname + url.search,
         headers,

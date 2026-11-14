@@ -69,6 +69,8 @@ const PUBLIC = "public";
 const PROFILE_RESERVE = 3;
 /** Paths that came back as not found; after this many, `open_path` is refused (no guessing). */
 const MAX_MISSES = 2;
+/** Failed sign-ins with one login, after which the tool stops letting the model retry it. */
+const MAX_SIGN_IN_FAILURES = 3;
 const VISITOR = /visitor|anonymous|guest|public|signed.?out|unauthenticated/i;
 
 const profileInput = appProfileSchema.omit({ coverage: true });
@@ -255,7 +257,11 @@ export class Explorer {
     ];
     const phaseDone = () => (finalPhase ? this.profileRecord !== null : this.phaseFinished);
     const logins = slots
-      .map((slot) => `- ${slot}: ${input.logins[slot as keyof typeof input.logins]?.description}`)
+      .map((slot) => {
+        const login = input.logins[slot as keyof typeof input.logins];
+        const notes = login?.notes.trim();
+        return `- ${slot}: ${login?.description}${notes ? `\n${untrusted(`how ${slot} signs in (from the owner)`, notes, 500)}` : ""}`;
+      })
       .join("\n");
     const base =
       kind === "public"
@@ -488,6 +494,12 @@ export class Explorer {
         if (this.logins.some((l) => l.slot === login && l.ok)) {
           return { text: "Already signed in with that login." };
         }
+        const failures = this.logins.filter((l) => l.slot === login && !l.ok).length;
+        if (failures >= MAX_SIGN_IN_FAILURES) {
+          return {
+            text: "Sign-in with that login has failed repeatedly. Do not try it again: carry on, and say in the profile that the signed-in side could not be seen.",
+          };
+        }
         this.signInUrl ??= this.current?.url ?? null;
         if (this.logins.some((l) => l.ok) && this.signInUrl) {
           // Each login starts from a signed-out browser, on the page that has the sign-in form.
@@ -504,6 +516,21 @@ export class Explorer {
           password: credentials.password,
         });
         this.count(driver);
+        // Diagnostics for the run's logs: where it landed and what the form offered, never a value.
+        console.log(
+          JSON.stringify({
+            msg: "sign_in_attempt",
+            slot: login,
+            ok: result.ok,
+            message: result.message,
+            from: this.signInUrl ? pathOf(this.signInUrl) : null,
+            landed: pathOf(result.landedUrl),
+            forms: (this.current?.forms ?? []).map((f) => ({
+              action: pathOf(f.action),
+              fields: f.fields.map((x) => x.type),
+            })),
+          }),
+        );
         const cookies = result.ok ? await driver.cookies() : [];
         this.logins.push({
           slot: login,

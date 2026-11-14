@@ -69,6 +69,8 @@ export function createProxy(options: ProxyOptions): ScopeProxy {
   let bytesOut = 0;
   let bytesIn = 0;
   let loginUsed = 0;
+  // Tunnels leave the HTTP server's own bookkeeping, so closing has to end them itself.
+  const tunnels = new Set<Duplex>();
 
   const record = (entry: Omit<ProxyLogEntry, "ts">) => {
     if (entries.length >= maxLog) {
@@ -192,6 +194,8 @@ export function createProxy(options: ProxyOptions): ScopeProxy {
   });
 
   server.on("connect", async (req, client: Duplex) => {
+    tunnels.add(client);
+    client.once("close", () => tunnels.delete(client));
     const [rawHost = "", rawPort = ""] = (req.url ?? "").split(/:(?=[^:]*$)/);
     const port = Number(rawPort);
     const target = { method: "CONNECT", host: rawHost, port, path: "" };
@@ -232,6 +236,7 @@ export function createProxy(options: ProxyOptions): ScopeProxy {
     close: () =>
       new Promise((resolveClose) => {
         server.closeAllConnections();
+        for (const tunnel of tunnels) tunnel.destroy();
         server.close(() => resolveClose());
       }),
     stats: () => ({

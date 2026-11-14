@@ -210,6 +210,26 @@ describe.skipIf(!browserAvailable)("hostile content", () => {
     expect(JSON.stringify(tools)).not.toMatch(/password|"host"|"url"/);
   });
 
+  it("stops retrying a sign-in that keeps failing, and tells the owner what would help", async () => {
+    const llm = new ScriptedLlm((turn, request) => {
+      const names = request.tools.map((t) => t.name);
+      if (turn === 0) return [call(turn, "open_path", { path: "/" })];
+      if (names.includes("finish_exploring")) {
+        return [call(turn, "finish_exploring", { summary: "Public pages seen." })];
+      }
+      if (/failed repeatedly/.test(lastResult(request))) {
+        return [call(turn, "record_profile", tinyProfile)];
+      }
+      // A page without a sign-in form: there is nothing for the login to be typed into.
+      if (turn === 2) return [call(turn, "open_path", { path: "/archive/1" })];
+      return [call(turn, "sign_in", { login: "admin" })];
+    });
+    const { result, gaps } = await runScout(llm, {}, "sweep");
+    expect(result.explorerLog!.signIns).toHaveLength(3);
+    expect(result.explorerLog!.signIns.every((s) => !s.ok)).toBe(true);
+    expect(gaps.some((g) => /No password field is visible.*test account/.test(g))).toBe(true);
+  });
+
   it("Scout does not sign in even if the model asks (no sign-in tool, and no login submissions)", async () => {
     const llm = new ScriptedLlm((turn) =>
       turn === 0

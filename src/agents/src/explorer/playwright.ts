@@ -185,7 +185,7 @@ export class PlaywrightDriver implements PageDriver {
     const password = page.locator("input[type=password]:visible").first();
     if ((await password.count()) === 0) {
       return fail(
-        "There is no password field on this page. Open the page with the sign-in form first.",
+        "No password field is visible on this page. It may not be the sign-in page, or the application may not use passwords at all (an emailed code, a magic link or single sign-on).",
       );
     }
     const form = password.locator("xpath=ancestor::form[1]");

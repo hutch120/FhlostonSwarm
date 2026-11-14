@@ -13,9 +13,12 @@ async function login(ctx: StepContext): Promise<StepResult> {
   const attempts = ctx.explorer.signIns;
   const worked = attempts.filter((a) => a.ok);
   if (worked.length === 0) {
+    const last = attempts.at(-1);
     return gap(
       result.reason ??
-        "The sign-in did not succeed with the supplied login, so the signed-in side was not explored.",
+        (last
+          ? `The sign-in did not succeed with the supplied login, so the signed-in side was not explored. ${last.message.replace(/\.?$/, ".")} To cover the signed-in side, supply a test account that signs in with a username and password, or describe how the sign-in works in the login's notes, and scan again.`
+          : "The explorer never tried the supplied login, so the signed-in side was not explored."),
     );
   }
 
