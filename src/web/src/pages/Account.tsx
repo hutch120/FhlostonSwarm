@@ -93,9 +93,10 @@ export function Account() {
         </h2>
         <p>
           Generate a passcode to sign in without waiting for an email, for example in automated
-          testing. Enter it where the sign-in page asks for the 6-digit code. It works as many times
-          as you like until it expires, and a new one replaces the old. Anyone who has it can sign
-          in as you, so keep it private.
+          testing. Enter it where the sign-in page asks for the 6-digit code, or give it as the
+          password of a test login when you set up a scan of this site. It works as many times as
+          you like until it expires, and a new one replaces the old. Anyone who has it can sign in
+          as you, so keep it private.
         </p>
         <div className="field">
           <label htmlFor="passcode-lifetime">Valid for</label>

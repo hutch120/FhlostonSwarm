@@ -83,7 +83,7 @@ utils/        Existing CLI (swarm login, later: swarm deploy / swarm run-local)
 
 ### Screens
 
-1. **Login** — email → 6-digit code → session. No passwords. A new account holds no credits until it buys some.
+1. **Login** — one page: email, "Email me a code", and a code field that also takes a test passcode (so a scan's browser can sign in without email). No passwords. A new account holds no credits until it buys some.
 2. **Dashboard** — past runs, status, report links, credits held per scan depth, "New assessment", per-run **Run again** and **Delete** actions.
 3. **New assessment (intake)** — creates a **saved scan** and starts its first run ([section 13](#13-saved-scans-schedules--notifications)):
    - Application URL (required) and marketing/landing page URL (optional). Their hostnames become the run's allowed scope.

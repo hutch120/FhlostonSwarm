@@ -382,7 +382,8 @@ function IntakeForm({
             <p className="muted" data-testid="login-limit">
               {tier.name} uses up to {plural(tier.logins, "login")}. Fill in the logins you have and
               tick the ones this scan signs in with. Saved passwords are never shown; leave one
-              blank to keep it.
+              blank to keep it. If the application signs in with an emailed code, use your email as
+              the username and a test passcode as the password.
             </p>
           )}
           <FieldError id="logins-error" message={errors["logins"]} />

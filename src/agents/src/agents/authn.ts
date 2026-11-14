@@ -17,7 +17,7 @@ async function login(ctx: StepContext): Promise<StepResult> {
     return gap(
       result.reason ??
         (last
-          ? `The sign-in did not succeed with the supplied login, so the signed-in side was not explored. ${last.message.replace(/\.?$/, ".")} To cover the signed-in side, supply a test account that signs in with a username and password, or describe how the sign-in works in the login's notes, and scan again.`
+          ? `The sign-in did not succeed with the supplied login, so the signed-in side was not explored. ${last.message.replace(/\.?$/, ".")} To cover the signed-in side, supply a test account that signs in with a username and password (or, for an emailed-code sign-in, an email and a test passcode), or describe how the sign-in works in the login's notes, and scan again.`
           : "The explorer never tried the supplied login, so the signed-in side was not explored."),
     );
   }

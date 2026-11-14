@@ -227,7 +227,9 @@ describe.skipIf(!browserAvailable)("hostile content", () => {
     const { result, gaps } = await runScout(llm, {}, "sweep");
     expect(result.explorerLog!.signIns).toHaveLength(3);
     expect(result.explorerLog!.signIns.every((s) => !s.ok)).toBe(true);
-    expect(gaps.some((g) => /No password field is visible.*test account/.test(g))).toBe(true);
+    expect(gaps.some((g) => /No password or passcode field is visible.*test account/.test(g))).toBe(
+      true,
+    );
   });
 
   it("Scout does not sign in even if the model asks (no sign-in tool, and no login submissions)", async () => {

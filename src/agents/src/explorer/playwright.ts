@@ -14,6 +14,9 @@ const NAVIGATION_TIMEOUT_MS = 15_000;
 const MAX_TEXT = 6000;
 const MAX_LINKS = 80;
 const MAX_BLOCKED_KEPT = 200;
+/** The field a login's secret goes in: a password, or a one-time code / test passcode box. */
+const SECRET_FIELD_BASE = "input[type=password], input[autocomplete=one-time-code]";
+const SECRET_FIELD = "input[type=password]:visible, input[autocomplete=one-time-code]:visible";
 
 /** Runs in the page: what the explorer is allowed to see. Form values are never read. */
 const EXTRACT = `(() => {
@@ -46,7 +49,7 @@ const EXTRACT = `(() => {
     forms,
     scripts: [...document.scripts].map((s) => s.src).filter(Boolean),
     inlineScripts: [...document.scripts].filter((s) => !s.src).map((s) => clip(s.textContent, 4000)).slice(0, 5),
-    hasPasswordField: !!document.querySelector("input[type=password]"),
+    hasPasswordField: !!document.querySelector(${JSON.stringify(SECRET_FIELD_BASE)}),
   };
 })()`;
 
@@ -182,16 +185,18 @@ export class PlaywrightDriver implements PageDriver {
       insecureTransport: false,
       snapshot,
     });
-    const password = page.locator("input[type=password]:visible").first();
+    const password = page.locator(SECRET_FIELD).first();
     if ((await password.count()) === 0) {
       return fail(
-        "No password field is visible on this page. It may not be the sign-in page, or the application may not use passwords at all (an emailed code, a magic link or single sign-on).",
+        "No password or passcode field is visible on this page. It may not be the sign-in page, or the application may sign in some other way (an emailed link or single sign-on).",
       );
     }
     const form = password.locator("xpath=ancestor::form[1]");
     const scope = (await form.count()) > 0 ? form : page.locator("body");
     const user = scope
-      .locator("input[type=email]:visible, input[type=text]:visible, input:not([type]):visible")
+      .locator(
+        "input[type=email]:visible, input[type=text]:visible, input:not([type]):visible:not([autocomplete=one-time-code])",
+      )
       .first();
     if ((await user.count()) === 0) return fail("The sign-in form has no username field.");
 
@@ -214,11 +219,7 @@ export class PlaywrightDriver implements PageDriver {
       for (let waited = 0; waited < 8000; waited += 250) {
         await page.waitForTimeout(250);
         try {
-          if (
-            page.url() !== before ||
-            (await page.locator("input[type=password]:visible").count()) === 0
-          )
-            break;
+          if (page.url() !== before || (await page.locator(SECRET_FIELD).count()) === 0) break;
         } catch {
           // The page is navigating; look again on the next pass.
         }
