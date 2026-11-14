@@ -24,6 +24,27 @@ const renderApp = (route: string, as: keyof typeof EMAILS | null = "customer") =
   return renderWithProviders(<App />, { route });
 };
 
+describe("Menu", () => {
+  it("keeps the navigation behind a toggle that opens, closes and follows a link", async () => {
+    renderApp("/dashboard");
+    const toggle = await screen.findByRole("button", { name: "Menu" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(document.getElementById("site-menu")).toHaveAttribute("data-open", "false");
+
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(document.getElementById("site-menu")).toHaveAttribute("data-open", "true");
+
+    await userEvent.keyboard("{Escape}");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    await userEvent.click(toggle);
+    await userEvent.click(screen.getByRole("link", { name: "Live demo" }));
+    expect(await screen.findByRole("heading", { name: "Live swarm view" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Menu" })).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
 describe("Landing", () => {
   it("introduces the service to a visitor, with the swarm animation and a way in", async () => {
     renderApp("/", null);

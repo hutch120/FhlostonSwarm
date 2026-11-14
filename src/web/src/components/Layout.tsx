@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { NavLink, Outlet, Link, useNavigate } from "react-router";
+import { useEffect, useState } from "react";
+import { NavLink, Outlet, Link, useLocation, useNavigate } from "react-router";
 import { api } from "../api/client.js";
 import { useSession } from "../state/session.js";
 
@@ -15,7 +16,19 @@ export function Layout() {
   const { email, role } = useSession();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
+  // On a narrow screen the nav and session controls sit behind a toggle. The menu is open for
+  // the page it was opened on, so following a link closes it.
+  const [openAt, setOpenAt] = useState<string | null>(null);
+  const menuOpen = openAt === location.pathname;
+  const setMenuOpen = (open: boolean) => setOpenAt(open ? location.pathname : null);
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpenAt(null);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
   // The server revokes the session; the page then forgets everything it cached for this user.
   const signOut = async () => {
     try {
@@ -38,33 +51,53 @@ export function Layout() {
           <img className="brand-mark" src="/favicon.svg" alt="" aria-hidden="true" />
           Swarm
         </Link>
-        <nav aria-label="Main">
-          <ul className="nav">
-            {NAV.map((item) => (
-              <li key={item.to}>
-                <NavLink to={item.to}>{item.label}</NavLink>
-              </li>
-            ))}
-            {role === "staff" && (
-              <li>
-                <NavLink to="/staff">Staff</NavLink>
-              </li>
+        <button
+          type="button"
+          className="btn btn-ghost menu-toggle"
+          aria-expanded={menuOpen}
+          aria-controls="site-menu"
+          onClick={() => setMenuOpen(!menuOpen)}
+        >
+          <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+            <path
+              d={menuOpen ? "M4 4l12 12M16 4L4 16" : "M3 5h14M3 10h14M3 15h14"}
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              fill="none"
+            />
+          </svg>
+          <span>Menu</span>
+        </button>
+        <div id="site-menu" className="menu" data-open={menuOpen}>
+          <nav aria-label="Main">
+            <ul className="nav">
+              {NAV.map((item) => (
+                <li key={item.to}>
+                  <NavLink to={item.to}>{item.label}</NavLink>
+                </li>
+              ))}
+              {role === "staff" && (
+                <li>
+                  <NavLink to="/staff">Staff</NavLink>
+                </li>
+              )}
+            </ul>
+          </nav>
+          <div className="session">
+            {email ? (
+              <>
+                <span className="muted session-email">{email}</span>
+                <button type="button" className="btn btn-ghost" onClick={signOut}>
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <Link to="/login" className="btn">
+                Sign in
+              </Link>
             )}
-          </ul>
-        </nav>
-        <div className="session">
-          {email ? (
-            <>
-              <span className="muted session-email">{email}</span>
-              <button type="button" className="btn btn-ghost" onClick={signOut}>
-                Sign out
-              </button>
-            </>
-          ) : (
-            <Link to="/login" className="btn">
-              Sign in
-            </Link>
-          )}
+          </div>
         </div>
       </header>
       <main id="main" className="main">
