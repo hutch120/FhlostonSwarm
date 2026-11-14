@@ -150,7 +150,7 @@ code {
   align-items: center;
   gap: 0.75rem 1.5rem;
 }
-.menu-toggle {
+.topbar .menu-toggle {
   display: none;
 }
 @media (max-width: 768px) {
@@ -158,7 +158,7 @@ code {
     justify-content: space-between;
     padding: 0.6rem 1rem;
   }
-  .menu-toggle {
+  .topbar .menu-toggle {
     display: inline-flex;
     min-height: 44px;
   }
