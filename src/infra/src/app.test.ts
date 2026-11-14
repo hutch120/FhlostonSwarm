@@ -222,6 +222,11 @@ describe("infrastructure app", () => {
     const actions = statements.flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
     expect(actions).toContain("s3:PutObject");
     expect(actions).toContain("ssm:GetParameters");
+    // Health reads SES and Bedrock metrics; nothing broader than reading them.
+    expect(actions).toContain("cloudwatch:GetMetricStatistics");
+    expect(actions.filter((a) => a.startsWith("cloudwatch:"))).toEqual([
+      "cloudwatch:GetMetricStatistics",
+    ]);
     expect(actions.filter((a) => a === "*" || a.endsWith(":*"))).toEqual([]);
     // Nothing outside the data prefixes, and no test data.
     const resources = JSON.stringify(statements.map((s) => s.Resource));
@@ -276,9 +281,37 @@ describe("infrastructure app", () => {
     const mentioned = JSON.stringify(bedrock).match(/inference-profile\/[\w.:-]+/g) ?? [];
     expect(mentioned.length).toBeGreaterThan(0);
     for (const m of mentioned) expect(allowed.has(m.replace("inference-profile/", ""))).toBe(true);
-    // The learning layer is a prefix of its own; the customer-facing API cannot reach it.
+    // The learning layer is a prefix of its own: only the learner, the task API (which pins a run to
+    // a version) and the staff dashboard (rollback, pin, disable) are given it.
     const resources = JSON.stringify(statements.map((s) => s.Resource));
     expect(resources).toContain("/learning/*");
+  });
+
+  it("API: the functions that act on staff controls and prices can read them", () => {
+    const t = template("SwarmApi");
+    const policies = Object.values(t.findResources("AWS::IAM::Policy")).map((p) => ({
+      roles: JSON.stringify(p.Properties.Roles),
+      resources: JSON.stringify(
+        (p.Properties.PolicyDocument.Statement as { Resource: unknown }[]).map((s) => s.Resource),
+      ),
+    }));
+    const settingsReaders = policies.filter(
+      (p) => p.resources.includes("/admin/settings/*") || p.resources.includes("/admin/*"),
+    );
+    const roleNames = ["ApiFunction", "InternalFunction", "PrepareFunction", "FinalizeFunction"];
+    for (const name of roleNames) {
+      expect(
+        settingsReaders.some((p) => p.roles.includes(name)),
+        name,
+      ).toBe(true);
+    }
+    // The day's spend is written by what closes a run.
+    expect(
+      policies
+        .filter((p) => p.resources.includes("/admin/spend/*"))
+        .map((p) => p.roles)
+        .join(),
+    ).toMatch(/FinalizeFunction/);
   });
 
   it("API: every function is deployed with every variable it reads at start-up", () => {

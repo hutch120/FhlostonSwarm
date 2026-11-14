@@ -39,6 +39,14 @@ export interface Mailer {
   sendNotifyConfirmation(email: NotifyConfirmEmail): Promise<void>;
   /** Tells a scan's confirmed notification address that a report is ready. */
   sendReportReady(email: ReportReadyEmail): Promise<void>;
+  /** An operational alert to staff (the daily spend alarm). */
+  sendStaffAlert(email: StaffAlertEmail): Promise<void>;
+}
+
+export interface StaffAlertEmail {
+  to: string;
+  subject: string;
+  text: string;
 }
 
 interface Rendered {
@@ -155,6 +163,10 @@ export class SesMailer implements Mailer {
   sendReportReady(email: ReportReadyEmail) {
     return this.send(email.to, renderReportReadyEmail(email));
   }
+  sendStaffAlert({ to, subject, text }: StaffAlertEmail) {
+    const html = `<p>${text.replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</p>`;
+    return this.send(to, { subject, text, html });
+  }
 }
 
 /** Collects mail in memory instead of sending it (unit tests and the local dev server). */
@@ -164,9 +176,13 @@ export class FakeMailer implements Mailer {
   readonly deleted: string[] = [];
   readonly confirmations: NotifyConfirmEmail[] = [];
   readonly reports: ReportReadyEmail[] = [];
+  readonly alerts: StaffAlertEmail[] = [];
 
   async sendReportReady(email: ReportReadyEmail): Promise<void> {
     this.reports.push(email);
+  }
+  async sendStaffAlert(email: StaffAlertEmail): Promise<void> {
+    this.alerts.push(email);
   }
 
   async sendLoginCode(email: LoginEmail): Promise<void> {

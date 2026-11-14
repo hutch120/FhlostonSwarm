@@ -17,6 +17,7 @@ import {
   type RunFile,
 } from "./runs.js";
 import type { Secrets } from "./sessions.js";
+import { effectiveLimits } from "./settings.js";
 import { ContentionError, putJson, updateJson } from "./storage/json.js";
 import { keys } from "./storage/keys.js";
 import type { ObjectStore } from "./storage/store.js";
@@ -141,7 +142,9 @@ export function internalApp(deps: InternalDeps) {
       c.get("run").test === true,
       deps.now(),
     );
-    return c.json(agentInputSchema.parse({ ...buildAgentInput(input), dynamic }));
+    // The depth's caps as staff have them now, so a change applies to the next run without a deploy.
+    const limits = await effectiveLimits(store, input.tier);
+    return c.json(agentInputSchema.parse({ ...buildAgentInput(input, limits), dynamic }));
   });
 
   app.post("/events", async (c) => {

@@ -21,6 +21,8 @@ import {
 } from "@swarm/agents/learning";
 import { z } from "zod";
 import { getRunFile, getRunInput } from "./runs.js";
+import type { Mailer } from "./mailer.js";
+import { addSpend } from "./spend.js";
 import { createJson, getJson, putJson } from "./storage/json.js";
 import { keys } from "./storage/keys.js";
 import type { ObjectStore } from "./storage/store.js";
@@ -112,6 +114,9 @@ export interface LearnDeps {
   fallbackLlm?: LlmClient | null;
   fetch: FetchLike;
   now: () => number;
+  /** For the daily spend alarm, which the learner's own cost can also trip. */
+  mailer?: Mailer;
+  alertTo?: string;
 }
 
 const indexRecordSchema = z.record(z.string(), z.unknown());
@@ -159,9 +164,21 @@ export async function learnFromRun(
       if (index) {
         await putJson(store, indexKey, {
           ...index.value,
-          learner: { modelId: learner.modelId, usd: learner.usd, seconds: learner.seconds },
+          learner: {
+            modelId: learner.modelId,
+            calls: learner.calls,
+            inputTokens: learner.inputTokens,
+            outputTokens: learner.outputTokens,
+            usd: learner.usd,
+            seconds: learner.seconds,
+          },
         });
       }
+      await addSpend(
+        { store, mailer: deps.mailer, alertTo: deps.alertTo },
+        deps.now(),
+        learner.usd,
+      );
     }
   }
   return result;

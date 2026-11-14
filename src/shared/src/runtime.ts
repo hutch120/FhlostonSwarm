@@ -99,6 +99,8 @@ export const runCostSchema = z.object({
   }),
   /** Zero when the run used no model. */
   bedrock: z.object({
+    /** The model the calls went to, so the run can be re-priced under another price table. */
+    modelId: z.string().min(1).optional(),
     calls: z.number().int().nonnegative(),
     inputTokens: z.number().int().nonnegative(),
     outputTokens: z.number().int().nonnegative(),
@@ -137,7 +139,13 @@ export interface CostInputs {
   bytesIn: number;
   requests: number;
   checks: number;
-  bedrock?: { calls: number; inputTokens: number; outputTokens: number; usd?: number };
+  bedrock?: {
+    modelId?: string;
+    calls: number;
+    inputTokens: number;
+    outputTokens: number;
+    usd?: number;
+  };
   /** Fargate size; defaults to the configured agent task. */
   task?: { vcpu: number; memoryGb: number };
 }
@@ -160,7 +168,11 @@ export function estimateCost(
     hours * (task.vcpu * table.fargate.vcpuPerHour + task.memoryGb * table.fargate.gbPerHour);
   const egressUsd = (inputs.bytesOut / 1024 ** 3) * table.egressPerGb;
   const bedrock = inputs.bedrock ?? { calls: 0, inputTokens: 0, outputTokens: 0 };
-  const bedrockUsd = bedrock.usd ?? 0;
+  // The price table in force prices the tokens; a model it does not list keeps the usage's own figure.
+  const modelUsd =
+    bedrock.modelId && table.bedrock[bedrock.modelId]
+      ? bedrockUsd(bedrock.modelId, bedrock, table)
+      : (bedrock.usd ?? 0);
   const orchestrationUsd = STATE_TRANSITIONS * table.stepFunctionsPerTransition;
   const durationSeconds = Math.max(
     0,
@@ -183,14 +195,93 @@ export function estimateCost(
     },
     egress: { bytesOut: inputs.bytesOut, bytesIn: inputs.bytesIn, usd: round(egressUsd) },
     bedrock: {
+      ...(bedrock.modelId ? { modelId: bedrock.modelId } : {}),
       calls: bedrock.calls,
       inputTokens: bedrock.inputTokens,
       outputTokens: bedrock.outputTokens,
-      usd: round(bedrockUsd),
+      usd: round(modelUsd),
     },
     orchestration: { stateTransitions: STATE_TRANSITIONS, usd: round(orchestrationUsd) },
     requests: inputs.requests,
     checks: inputs.checks,
-    totalUsd: round(fargateUsd + egressUsd + bedrockUsd + orchestrationUsd),
+    totalUsd: round(fargateUsd + egressUsd + modelUsd + orchestrationUsd),
+  };
+}
+
+/**
+ * What a run consumed, without any price: enough to cost it again under another price table. The
+ * anonymised run index keeps it (it holds no account, target or finding).
+ */
+export const costUsageSchema = z.object({
+  fargate: z.object({
+    taskSeconds: z.number().nonnegative(),
+    vcpu: z.number().positive(),
+    memoryGb: z.number().positive(),
+  }),
+  egress: z.object({ bytesOut: z.number().int().nonnegative() }),
+  bedrock: z.object({
+    modelId: z.string().min(1).optional(),
+    calls: z.number().int().nonnegative(),
+    inputTokens: z.number().int().nonnegative(),
+    outputTokens: z.number().int().nonnegative(),
+  }),
+  orchestration: z.object({ stateTransitions: z.number().int().nonnegative() }),
+});
+export type CostUsage = z.infer<typeof costUsageSchema>;
+
+export function usageOf(cost: RunCost): CostUsage {
+  return {
+    fargate: {
+      taskSeconds: cost.fargate.taskSeconds,
+      vcpu: cost.fargate.vcpu,
+      memoryGb: cost.fargate.memoryGb,
+    },
+    egress: { bytesOut: cost.egress.bytesOut },
+    bedrock: {
+      ...(cost.bedrock.modelId ? { modelId: cost.bedrock.modelId } : {}),
+      calls: cost.bedrock.calls,
+      inputTokens: cost.bedrock.inputTokens,
+      outputTokens: cost.bedrock.outputTokens,
+    },
+    orchestration: { stateTransitions: cost.orchestration.stateTransitions },
+  };
+}
+
+export interface RepricedUsage {
+  fargateUsd: number;
+  egressUsd: number;
+  bedrockUsd: number;
+  orchestrationUsd: number;
+  /** The run without its learning pass, as `RunCost.totalUsd` is defined for the index. */
+  totalUsd: number;
+}
+
+/**
+ * The cost of the consumption under a price table. A model the table does not list keeps the cost it
+ * was recorded with (`recordedBedrockUsd`), so a draft table can be previewed before it is complete.
+ */
+export function repriceUsage(
+  usage: CostUsage,
+  table: Pricing,
+  recordedBedrockUsd: number,
+): RepricedUsage {
+  const hours = usage.fargate.taskSeconds / 3600;
+  const fargateUsd =
+    hours *
+    (usage.fargate.vcpu * table.fargate.vcpuPerHour +
+      usage.fargate.memoryGb * table.fargate.gbPerHour);
+  const egressUsd = (usage.egress.bytesOut / 1024 ** 3) * table.egressPerGb;
+  const modelId = usage.bedrock.modelId;
+  const modelUsd =
+    modelId && table.bedrock[modelId]
+      ? bedrockUsd(modelId, usage.bedrock, table)
+      : recordedBedrockUsd;
+  const orchestrationUsd = usage.orchestration.stateTransitions * table.stepFunctionsPerTransition;
+  return {
+    fargateUsd: round(fargateUsd),
+    egressUsd: round(egressUsd),
+    bedrockUsd: round(modelUsd),
+    orchestrationUsd: round(orchestrationUsd),
+    totalUsd: round(fargateUsd + egressUsd + modelUsd + orchestrationUsd),
   };
 }

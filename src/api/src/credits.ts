@@ -27,6 +27,10 @@ const ledgerSchema = z.object({
   test: z.boolean().optional(),
   granted: z.object({ comp: tierCounts, purchase: tierCounts }),
   consumed: tierCounts,
+  /** Which source each consumed credit came from, so cost analysis can split comp from paid runs. */
+  consumedFrom: z
+    .object({ comp: tierCounts, purchase: tierCounts })
+    .default(() => ({ comp: tierCounts.parse({}), purchase: tierCounts.parse({}) })),
   grants: z.array(grantSchema),
   updatedAt: z.number(),
 });
@@ -46,8 +50,18 @@ const empty = (now: number, test?: true): Ledger =>
 const balance = (ledger: Ledger, tier: TierId) =>
   ledger.granted.comp[tier] + ledger.granted.purchase[tier] - ledger.consumed[tier];
 
+/** Complimentary credits go first, so a purchased credit is never used up while a free one is left. */
+const sourceToSpend = (ledger: Ledger, tier: TierId): CreditSource =>
+  ledger.granted.comp[tier] - ledger.consumedFrom.comp[tier] > 0 ? "comp" : "purchase";
+
 // Many runs can start at once from one account: allow a long compare-and-swap retry budget.
 const RETRIES = 60;
+
+/** The whole ledger, for the staff view of an account. */
+export async function getLedger(store: ObjectStore, emailHash: string): Promise<Ledger | null> {
+  const found = await store.get(keys.entitlements(emailHash));
+  return found ? ledgerSchema.parse(JSON.parse(found.body)) : null;
+}
 
 export async function getCredits(store: ObjectStore, emailHash: string): Promise<Credits> {
   const found = await store.get(keys.entitlements(emailHash));
@@ -91,27 +105,36 @@ export async function grantCredits(
 }
 
 /**
- * Takes one credit of the depth if the account has one. The compare-and-swap makes concurrent
- * spends serialise: with one credit and fifty callers, exactly one gets `true`.
+ * Takes one credit of the depth if the account has one and returns which source it came from
+ * (null when there is none). The compare-and-swap makes concurrent spends serialise: with one
+ * credit and fifty callers, exactly one gets a source back.
  */
 export async function spendCredit(
   store: ObjectStore,
   emailHash: string,
   tier: TierId,
   now: number,
-): Promise<boolean> {
-  let spent = false;
+): Promise<CreditSource | null> {
+  let spent: CreditSource | null = null;
   await updateJson(
     store,
     keys.entitlements(emailHash),
     ledgerSchema,
     (current) => {
-      spent = false;
+      spent = null;
       if (!current || balance(current, tier) <= 0) return undefined;
-      spent = true;
+      const source = sourceToSpend(current, tier);
+      spent = source;
       return {
         ...current,
         consumed: { ...current.consumed, [tier]: current.consumed[tier] + 1 },
+        consumedFrom: {
+          ...current.consumedFrom,
+          [source]: {
+            ...current.consumedFrom[source],
+            [tier]: current.consumedFrom[source][tier] + 1,
+          },
+        },
         updatedAt: now,
       };
     },
@@ -120,25 +143,36 @@ export async function spendCredit(
   return spent;
 }
 
-/** Gives a spent credit back (a run that could not be started). */
+/** Gives a spent credit back (a run that could not be started) to the source it came from. */
 export async function refundCredit(
   store: ObjectStore,
   emailHash: string,
   tier: TierId,
   now: number,
+  source?: CreditSource,
 ): Promise<void> {
   await updateJson(
     store,
     keys.entitlements(emailHash),
     ledgerSchema,
-    (current) =>
-      current && current.consumed[tier] > 0
-        ? {
-            ...current,
-            consumed: { ...current.consumed, [tier]: current.consumed[tier] - 1 },
-            updatedAt: now,
-          }
-        : undefined,
+    (current) => {
+      if (!current || current.consumed[tier] <= 0) return undefined;
+      const from = source && current.consumedFrom[source][tier] > 0 ? source : null;
+      return {
+        ...current,
+        consumed: { ...current.consumed, [tier]: current.consumed[tier] - 1 },
+        consumedFrom: from
+          ? {
+              ...current.consumedFrom,
+              [from]: {
+                ...current.consumedFrom[from],
+                [tier]: current.consumedFrom[from][tier] - 1,
+              },
+            }
+          : current.consumedFrom,
+        updatedAt: now,
+      };
+    },
     { retries: RETRIES },
   );
 }

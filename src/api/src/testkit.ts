@@ -21,6 +21,7 @@ export const failingMailer: Mailer = {
   sendAccountDeleted: down,
   sendNotifyConfirmation: down,
   sendReportReady: down,
+  sendStaffAlert: down,
 };
 
 export const testSecrets: Secrets = {

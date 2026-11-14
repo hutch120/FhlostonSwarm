@@ -1,0 +1,9 @@
+{
+  "dailySpendAlarmUsd": 25,
+  "scheduledScans": {
+    "maxActivePerAccount": 5,
+    "minSpacingHours": 24
+  },
+  "blockedHosts": [],
+  "blockedEmailDomains": []
+}

@@ -2,6 +2,7 @@ import { tiers, type TierId } from "@swarm/shared";
 import { limitsFor, runtimeConfig } from "@swarm/shared/server";
 import { z } from "zod";
 import { claimRun, getRunFile, runFileSchema } from "./runs.js";
+import { effectiveSettings } from "./settings.js";
 import { updateJson } from "./storage/json.js";
 import { keys } from "./storage/keys.js";
 import type { ObjectStore } from "./storage/store.js";
@@ -13,7 +14,7 @@ import type { ObjectStore } from "./storage/store.js";
  * S3 object per pool, updated with compare-and-swap; test runs have their own pool so a test can never
  * hold up a real customer.
  */
-const poolSchema = z.object({
+export const poolSchema = z.object({
   test: z.boolean().optional(),
   /** Run id -> when it took its slot (epoch ms). */
   active: z.record(z.string(), z.number()),
@@ -124,11 +125,15 @@ export async function acquireRun(
 ): Promise<AcquireResult> {
   const run = await getRunFile(store, ids.emailHash, ids.runId);
   if (!run) throw new Error("run_not_found");
+  const settings = await effectiveSettings(store);
+  // A run that had not started when the kill switch went on never starts: its credit goes back.
+  if (settings.killSwitch.on) throw new Error("kill_switch");
   const got = await acquireSlot(store, {
     tier: run.tier,
     runId: ids.runId,
     test: run.test,
     now,
+    limit: settings.concurrency[run.tier],
   });
   if (got.status === "acquired") {
     const claimed = await claimRun(store, ids.emailHash, ids.runId, now);

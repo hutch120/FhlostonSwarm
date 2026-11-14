@@ -171,8 +171,12 @@ auth/otp/{emailHash}.json                   current OTP challenge (hashed code, 
 auth/ratelimit/{emailHash|ipHash}/{window}.json  coarse counters
 auth/notify-confirm/{tokenHash}.json        pending confirmation of a notification address (section 13)
 suppression/{emailHash}.json                SES bounce/complaint suppression
-admin/run-index/{yyyy}/{mm}/{dd}/{runId}.json   anonymised per-run summary + cost for the staff dashboard
-admin/audit/{yyyy}/{mm}/{dd}/{id}.json     staff actions on accounts (credit grants): account hash, never the email; survives account deletion
+admin/run-index/{yyyy}/{mm}/{dd}/{runId}.json   anonymised per-run summary, cost and what the run consumed (so it can be costed again) for the staff dashboard
+admin/audit/{yyyy}/{mm}/{dd}/{id}.json     staff actions (credit grants, controls, price tables, deletions): account hash, never the customer's email; survives account deletion
+admin/settings/controls.json                the controls staff edit: kill switch, concurrency, depth caps, spend alarm, scheduled-scan limits, block lists (section 12)
+admin/pricing/{current.json,versions/<version>.json}   the price table in force and every saved version (section 12)
+admin/spend/{yyyy-mm-dd}.json               the day's estimated spend so far, for the daily spend alarm
+admin/pools/…                               per-depth concurrency pools (section 11)
 ```
 
 How each requirement maps onto S3:
@@ -345,8 +349,8 @@ A `/staff` area in the same app, only for sessions with `role: staff` (derived f
 
 | Cost component | Captured from | Notes |
 |----------------|---------------|-------|
-| Bedrock tokens | Converse `usage` per call: input, output, cache read/write tokens, per model, per agent | Dominant cost expected |
-| Fargate compute | Task start/stop × vCPU/GB, per agent | |
+| Bedrock tokens | Converse `usage` per call: input, output, cache read/write tokens, per model | Dominant cost expected. One meter serves the explorer and the planner (the only model callers), so it is per run and model, not per agent |
+| Fargate compute | Task start/stop × vCPU/GB | One task runs every agent, so it is per run, not per agent |
 | Egress data | Bytes via the proxy (public internet data transfer out) | Likely small |
 | S3, AppSync, SES, Step Functions | Object/event/email counts | Likely negligible; estimated |
 | **Estimated total** | Computed from a **price table** in config (`pricing.json`, values **TBD**/to be verified against current AWS prices) | Table versioned so old runs keep the prices used |
@@ -356,10 +360,10 @@ Optionally reconcile estimates against Cost Explorer using a `run` / `tier` cost
 **Dashboard views:**
 
 1. **Runs** — table (time, depth/tier, trigger manual|scheduled, entitlement source purchase|comp|subscription|staff, status, duration, findings count, estimated cost); filter by date/depth/status/trigger/entitlement source.
-2. **Run detail** — cost breakdown by agent and model, token counts, steps, budget used vs cap, gaps/budget-exhausted agents, event log, link to report. Useful for tuning budgets and diagnosing bad runs.
-3. **Cost analysis** — avg/median/p95 cost per run by depth; total spend by day; cost of staff-granted (`comp`) vs paid runs; **annualised cost of each recurring cadence** (for example a daily Scout is 365 runs a year); cost per finding; most expensive agents. Includes a **pricing worksheet**: input a margin → suggested price per depth, vs the **TBD** placeholders.
+2. **Run detail** — cost breakdown by component and model, token counts, steps, budget used vs cap, per-agent activity (checks, requests, findings, gaps), gaps/budget-exhausted agents, event log. Useful for tuning budgets and diagnosing bad runs.
+3. **Cost analysis** — avg/median/p95 cost per run by depth; total spend by day; cost of staff-granted (`comp`) vs paid runs; **annualised cost of each recurring cadence** (for example a daily Scout is 365 runs a year); cost per finding; the most expensive runs and where the cost goes (model, compute, data out, orchestration, learning passes). Includes a **pricing worksheet**: input a margin and a floor → suggested price per depth, vs the **TBD** placeholders, and a versioned **price-table editor** that previews its effect on past runs before it is saved.
 4. **Users / support** — look up a user by email (hash computed server-side), see their runs, saved scans and credit ledger, grant a `comp` credit (reason required, audit-logged), resend a report-ready email, pause a scan, stop a running job, and delete a user's run or account on request (audit-logged).
-5. **Controls** — global kill switch, per-depth concurrency caps, a global daily spend alarm, per-account scheduled-scan limits, depth budget caps (edit the tier config), block list of hosts and email domains.
+5. **Controls** — global kill switch, per-depth concurrency caps, a global daily spend alarm, per-account scheduled-scan limits, depth budget caps (pages, model calls, checks, requests, tokens, model spend; a depth's agent group and time limit stay in `tiers.json`, since the state machine's timeouts come from it), block list of hosts and email domains, and the learning layer (rollback, pin, disable, kill switch).
 6. **Health** — SES bounce/complaint rate, stuck runs, Bedrock throttling.
 
 **Anonymised cost history survives deletion:** when a customer deletes a run/account, `users/{emailHash}/…` is removed, but the anonymised `admin/run-index` record (tier, timings, token counts, cost, no email/hash/target/findings) is kept for cost analysis. This is stated in the privacy notice.

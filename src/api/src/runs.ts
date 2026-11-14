@@ -8,13 +8,14 @@ import {
   type RunListItem,
   type Summary,
 } from "@swarm/shared";
-import { limitsFor, scopePorts, type AgentInput } from "@swarm/shared/server";
+import { limitsFor, scopePorts, type AgentInput, type TierLimits } from "@swarm/shared/server";
 import { z } from "zod";
-import { refundCredit, spendCredit } from "./credits.js";
+import { creditSourceSchema, refundCredit, spendCredit } from "./credits.js";
 import { reject } from "./http.js";
 import { newId } from "./ids.js";
 import { testMarkerFor, type Role } from "./identity.js";
 import type { StoredScan } from "./scans.js";
+import { effectiveSettings } from "./settings.js";
 import { deletePrefix } from "./storage/delete.js";
 import { createJson, getJson, putJson, updateJson } from "./storage/json.js";
 import { keys } from "./storage/keys.js";
@@ -29,6 +30,8 @@ export const runFileSchema = summarySchema.extend({
   trigger: runTriggerSchema,
   /** `staff` runs are internal and need no credit; they are flagged so cost analysis can split them. */
   entitlement: z.enum(["credit", "staff"]),
+  /** Which kind of credit paid for the run (absent for staff runs). */
+  creditSource: creditSourceSchema.optional(),
   /** Why a run ended other than normally (customer-safe wording). */
   reason: z.string().optional(),
 });
@@ -85,6 +88,8 @@ export async function startRun(
   const runId = newId("run", now);
   const staff = owner.role === "staff";
   const marker = testMarkerFor(owner.email);
+  // The kill switch stops every new run, staff's included.
+  if ((await effectiveSettings(store)).killSwitch.on) return reject(503, "service_paused");
 
   // The marker is created first and only once per run id; the ledger's compare-and-swap then
   // makes sure a credit can back at most one run, however many starts race.
@@ -97,9 +102,15 @@ export async function startRun(
     }))
   )
     return reject(409, "run_exists");
-  if (!staff && !(await spendCredit(store, owner.emailHash, scan.tier, now))) {
+  const source = staff ? null : await spendCredit(store, owner.emailHash, scan.tier, now);
+  if (!staff && !source) {
     await store.delete(keys.runCredit(owner.emailHash, runId));
     return reject(402, "no_credit");
+  }
+  if (source) {
+    await updateJson(store, keys.runCredit(owner.emailHash, runId), creditMarkerSchema, (m) =>
+      m ? { ...m, source } : undefined,
+    );
   }
 
   try {
@@ -155,11 +166,12 @@ export async function startRun(
       scanId: scan.id,
       trigger: "manual",
       entitlement: staff ? "staff" : "credit",
+      ...(source ? { creditSource: source } : {}),
     };
     await putJson(store, keys.runSummary(owner.emailHash, runId), summary);
   } catch (err) {
     await deletePrefix(store, keys.runPrefix(owner.emailHash, runId));
-    if (!staff) await refundCredit(store, owner.emailHash, scan.tier, now);
+    if (!staff) await refundCredit(store, owner.emailHash, scan.tier, now, source ?? undefined);
     throw err;
   }
   return runId;
@@ -193,9 +205,11 @@ export async function getRunInput(
 }
 
 /** What an agent task needs to know, resolved from the run's snapshot and the tier config. */
-export function buildAgentInput(input: RunInput): AgentInput {
+export function buildAgentInput(
+  input: RunInput,
+  limits: TierLimits = limitsFor(input.tier),
+): AgentInput {
   const tier = tiers[input.tier];
-  const limits = limitsFor(input.tier);
   return {
     runId: input.runId,
     tier: input.tier,
@@ -269,6 +283,7 @@ export async function releaseRun(store: ObjectStore, emailHash: string, runId: s
 const creditMarkerSchema = z.looseObject({
   tier: tierIdSchema,
   entitlement: z.enum(["credit", "staff"]),
+  source: creditSourceSchema.optional(),
   refundedAt: z.number().optional(),
 });
 
@@ -287,7 +302,8 @@ export async function refundRunCredit(
     return { ...current, refundedAt: now };
   });
   if (!refund) return false;
-  await refundCredit(store, emailHash, (refund as z.infer<typeof creditMarkerSchema>).tier, now);
+  const marker = refund as z.infer<typeof creditMarkerSchema>;
+  await refundCredit(store, emailHash, marker.tier, now, marker.source);
   return true;
 }
 

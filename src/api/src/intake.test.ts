@@ -801,7 +801,11 @@ describe("notification address", () => {
     const { h, owner } = ctx;
     const id = await newTarget(owner);
     for (let i = 0; i < 12; i++)
-      await newScan(owner, id, { name: `Scan ${i}`, notifyEmail: `team${i}@example.org` });
+      await newScan(owner, id, {
+        name: `Scan ${i}`,
+        frequency: "once",
+        notifyEmail: `team${i}@example.org`,
+      });
     expect(h.mailer.confirmations).toHaveLength(10);
   });
 

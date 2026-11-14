@@ -71,7 +71,7 @@ export function App() {
           <Route path="scans/:scanId/edit" element={<Intake />} />
           <Route path="account" element={<Account />} />
         </Route>
-        <Route path="staff" element={<Staff />} />
+        <Route path="staff/*" element={<Staff />} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

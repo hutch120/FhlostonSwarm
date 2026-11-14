@@ -1,20 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
+import { Suspense, lazy } from "react";
 import { Link } from "react-router";
 import { api } from "../api/client.js";
 import { useSession } from "../state/session.js";
 
-const VIEWS = [
-  "Runs",
-  "Run detail",
-  "Cost analysis",
-  "Users and support",
-  "Controls",
-  "Health",
-] as const;
+// A separate chunk: it carries dollars and caps, so it is only fetched once the server has said yes.
+const StaffScreens = lazy(() => import("./staff/StaffScreens.js"));
 
 /**
  * Staff area. The role here only decides what to show: the server re-checks it on every request, and
- * this page asks it (/api/staff/whoami) before showing anything.
+ * this page asks it (/api/staff/whoami) before loading anything.
  */
 export function Staff() {
   const { status, role } = useSession();
@@ -50,20 +45,22 @@ export function Staff() {
       <div className="page-head">
         <h1>Staff</h1>
       </div>
-      <section className="card" aria-labelledby="views-title" data-testid="staff-home">
-        <h2 id="views-title" className="card-title">
-          Planned views
-        </h2>
+      <div data-testid="staff-home">
         <p className="muted" data-testid="staff-verified">
           {whoami.data ? `The server confirmed you as staff (${whoami.data.email}).` : "Checking…"}
         </p>
-        <p className="muted">Placeholder. These arrive with the staff dashboard phase.</p>
-        <ul>
-          {VIEWS.map((v) => (
-            <li key={v}>{v}</li>
-          ))}
-        </ul>
-      </section>
+        {whoami.data && (
+          <Suspense
+            fallback={
+              <p className="muted" role="status">
+                Loading…
+              </p>
+            }
+          >
+            <StaffScreens />
+          </Suspense>
+        )}
+      </div>
     </>
   );
 }

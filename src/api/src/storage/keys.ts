@@ -54,4 +54,14 @@ export const keys = {
   /** Anonymised per-run summary and cost for the staff dashboard; survives deletion. */
   runIndex: (at: Date, runId: string) =>
     `admin/run-index/${at.getUTCFullYear()}/${String(at.getUTCMonth() + 1).padStart(2, "0")}/${String(at.getUTCDate()).padStart(2, "0")}/${runId}.json`,
+  runIndexPrefix: "admin/run-index/",
+  auditPrefix: "admin/audit/",
+  /** The operational controls staff edit (kill switch, concurrency, caps, block lists). */
+  settings: "admin/settings/controls.json",
+  /** The price table in force: a pointer to one of the immutable versions. */
+  pricingCurrent: "admin/pricing/current.json",
+  pricingVersion: (version: string) => `admin/pricing/versions/${version}.json`,
+  pricingVersionsPrefix: "admin/pricing/versions/",
+  /** What the day's runs cost so far (UTC date), for the daily spend alarm. */
+  spend: (day: string) => `admin/spend/${day}.json`,
 } as const;

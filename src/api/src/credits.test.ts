@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getCredits, grantCredits, refundCredit, spendCredit } from "./credits.js";
+import { getCredits, getLedger, grantCredits, refundCredit, spendCredit } from "./credits.js";
 import { MemoryStore } from "./storage/memory.js";
 
 const HASH = "a".repeat(64);
@@ -31,14 +31,31 @@ describe("credit ledger", () => {
   it("spends a credit of the right depth only", async () => {
     const store = new MemoryStore();
     await grant(store, "scout", 3);
-    expect(await spendCredit(store, HASH, "siege", 2000)).toBe(false);
-    expect(await spendCredit(store, HASH, "scout", 2000)).toBe(true);
+    expect(await spendCredit(store, HASH, "siege", 2000)).toBeNull();
+    expect(await spendCredit(store, HASH, "scout", 2000)).toBe("comp");
     expect((await getCredits(store, HASH)).scout).toBe(2);
+  });
+
+  it("spends complimentary credits before purchased ones and returns a refund to its source", async () => {
+    const store = new MemoryStore();
+    await grant(store, "scout", 1);
+    await grantCredits(
+      store,
+      HASH,
+      { tier: "scout", count: 2, source: "purchase", reason: "order", by: "stripe" },
+      1000,
+    );
+    expect(await spendCredit(store, HASH, "scout", 2000)).toBe("comp");
+    expect(await spendCredit(store, HASH, "scout", 2000)).toBe("purchase");
+    await refundCredit(store, HASH, "scout", 3000, "purchase");
+    expect(await spendCredit(store, HASH, "scout", 4000)).toBe("purchase");
+    const ledger = await getLedger(store, HASH);
+    expect(ledger!.consumedFrom).toMatchObject({ comp: { scout: 1 }, purchase: { scout: 1 } });
   });
 
   it("spends nothing for an account with no ledger", async () => {
     const store = new MemoryStore();
-    expect(await spendCredit(store, HASH, "scout", 2000)).toBe(false);
+    expect(await spendCredit(store, HASH, "scout", 2000)).toBeNull();
     expect(await store.list("users/")).toEqual([]);
   });
 

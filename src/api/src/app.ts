@@ -14,6 +14,9 @@ import { hit } from "./ratelimit.js";
 import type { RunLauncher } from "./launcher.js";
 import type { EventPublisher } from "./publisher.js";
 import { dataRoutes, type DataDeps, type StreamEndpoints } from "./routes.js";
+import { effectiveSettings, isBlockedDomain } from "./settings.js";
+import type { MetricsReader } from "./staff/health.js";
+import { staffRoutes } from "./staff/routes.js";
 import {
   authenticate,
   createSession,
@@ -54,6 +57,8 @@ export interface AppDeps {
   presign: DataDeps["presign"];
   /** Where browsers connect for live events. Absent = no live channel. */
   stream?: StreamEndpoints;
+  /** Reads CloudWatch for the Health view (SES and Bedrock). Absent = those lines show as unavailable. */
+  metrics?: MetricsReader | null;
 }
 
 const requestBody = z.object({
@@ -214,6 +219,7 @@ export function createApp(deps: AppDeps) {
     const hash = emailHash(secrets.pepper, parsed);
     const allowed =
       !isDisposable(parsed.domain, config) &&
+      !isBlockedDomain(parsed.domain, (await effectiveSettings(store)).blockedEmailDomains) &&
       !(await isSuppressed(store, hash)) &&
       (await hit(store, `email-${hash}-request`, config.rateLimits.requestPerEmailPerHour, now()));
     if (allowed) {
@@ -386,7 +392,23 @@ export function createApp(deps: AppDeps) {
 
   // Staff routes re-check the role from the server-side session on every call.
   app.use("/staff/*", requireAuth, requireCsrf, requireStaff);
-  app.get("/staff/whoami", (c) => c.json({ email: c.get("auth").email, role: "staff" }));
+  app.route(
+    "/staff",
+    staffRoutes({
+      store,
+      secrets: deps.secrets,
+      control: {
+        store,
+        launcher: deps.launcher,
+        mailer,
+        publisher: deps.publisher,
+        now,
+        siteOrigin: allowedOrigin,
+      },
+      metrics: deps.metrics ?? null,
+      now,
+    }),
+  );
 
   return app;
 }

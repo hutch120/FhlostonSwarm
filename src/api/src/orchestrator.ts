@@ -50,6 +50,7 @@ function services() {
       }),
       now: Date.now,
       siteOrigin: env.SITE_ORIGIN,
+      alertTo: env.MAIL_REPLY_TO,
     },
   };
   return cached;
@@ -105,13 +106,16 @@ export const finalizeInput = taskInput.extend({
   error: z.unknown().optional(),
 });
 
-/** A wait that ran out is a decline (the credit goes back); any other error is a failure on our side. */
-const outcomeOf = (error: unknown): Outcome =>
-  error === undefined || error === null
-    ? { kind: "finished" }
-    : JSON.stringify(error).includes("queue_timeout")
-      ? { kind: "declined" }
-      : { kind: "failed" };
+/**
+ * A wait that ran out is a decline and a run caught by the kill switch before it started is
+ * cancelled (the credit goes back in both); any other error is a failure on our side.
+ */
+const outcomeOf = (error: unknown): Outcome => {
+  if (error === undefined || error === null) return { kind: "finished" };
+  const text = JSON.stringify(error);
+  if (text.includes("queue_timeout")) return { kind: "declined" };
+  return text.includes("kill_switch") ? { kind: "cancelled" } : { kind: "failed" };
+};
 
 /** State machine last step: closes the run (report, cost, index, notice). */
 export async function finalize(event: unknown) {
@@ -144,6 +148,8 @@ export async function learn(event: unknown) {
       }),
       fetch: globalThis.fetch,
       now: deps.now,
+      mailer: deps.mailer,
+      alertTo: deps.alertTo,
     },
     { emailHash: input.owner, runId: input.runId },
   );

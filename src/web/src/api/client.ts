@@ -2,6 +2,7 @@ import { DEMO_RUN_ID, replayEvents } from "@swarm/shared";
 import type { Role } from "../state/session.js";
 import { ApiError, createHttpApi, type ApiClient } from "./http.js";
 import { MOCK_ACCOUNT, MOCK_RUNS, MOCK_SCANS, MOCK_TARGETS, type AccountInfo } from "./mock.js";
+import { createMockStaffApi } from "./staff-mock.js";
 
 export type { AccountInfo } from "./mock.js";
 export { ApiError, fieldForError, messageFor } from "./http.js";
@@ -35,6 +36,7 @@ export function createMockApi(): ApiClient {
     getSession: async () => ({ authenticated: false }),
     logout: async () => undefined,
     staffWhoami: async () => ({ email: "staff@fhlostonswarm.com", role: "staff" }),
+    staff: createMockStaffApi(),
     getAccount: async () => account,
 
     listRuns: async () => runs,

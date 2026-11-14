@@ -11,10 +11,12 @@ import {
   estimateCost,
   llmUsageSchema,
   proxyStatsSchema,
+  usageOf,
 } from "@swarm/shared/server";
 import { appendEvents, getSequencer, readAllEvents, type DraftEvent } from "./events.js";
 import type { Mailer } from "./mailer.js";
 import { releaseSlot } from "./pool.js";
+import { getActivePricing } from "./pricing-store.js";
 import type { EventPublisher } from "./publisher.js";
 import { renderReportHtml } from "./report-html.js";
 import {
@@ -25,6 +27,7 @@ import {
   runFileSchema,
   type RunFile,
 } from "./runs.js";
+import { addSpend } from "./spend.js";
 import { getJson, putJson, updateJson } from "./storage/json.js";
 import { keys } from "./storage/keys.js";
 import type { ObjectStore } from "./storage/store.js";
@@ -36,6 +39,8 @@ export interface FinalizeDeps {
   now: () => number;
   /** https://fhlostonswarm.com, for the link in the notification. */
   siteOrigin: string;
+  /** Where the daily spend alarm is mailed. */
+  alertTo?: string;
 }
 
 /**
@@ -174,19 +179,23 @@ export async function finalizeRun(
   const taskSeconds =
     seconds(task.pullStartedAt ?? task.startedAt, task.stoppedAt) ??
     (proxy?.uptimeSeconds !== undefined ? proxy.uptimeSeconds + 20 : 0);
-  const cost = estimateCost({
-    runId,
-    tier: file.tier,
-    test: file.test,
-    startedAt: file.startedAt,
-    finishedAt,
-    taskSeconds,
-    bytesOut: proxy?.bytesOut ?? 0,
-    bytesIn: proxy?.bytesIn ?? 0,
-    requests: summary.requests,
-    checks: summary.checks,
-    ...(usage ? { bedrock: usage } : {}),
-  });
+  // New runs are costed with the price table in force now; the record names the version it used.
+  const cost = estimateCost(
+    {
+      runId,
+      tier: file.tier,
+      test: file.test,
+      startedAt: file.startedAt,
+      finishedAt,
+      taskSeconds,
+      bytesOut: proxy?.bytesOut ?? 0,
+      bytesIn: proxy?.bytesIn ?? 0,
+      requests: summary.requests,
+      checks: summary.checks,
+      ...(usage ? { bedrock: usage } : {}),
+    },
+    await getActivePricing(store),
+  );
   await putJson(store, keys.runCost(emailHash, runId), cost);
 
   // Anonymised: no account, no target, no findings content. Kept after the run or account is deleted.
@@ -196,6 +205,7 @@ export async function finalizeRun(
     tier: file.tier,
     trigger: file.trigger,
     entitlement: file.entitlement,
+    ...(file.creditSource ? { creditSource: file.creditSource } : {}),
     status,
     startedAt: file.startedAt,
     finishedAt,
@@ -213,9 +223,11 @@ export async function finalizeRun(
       pricingVersion: cost.pricingVersion,
       fargateUsd: cost.fargate.usd,
       egressUsd: cost.egress.usd,
+      orchestrationUsd: cost.orchestration.usd,
       bedrock: cost.bedrock,
       totalUsd: cost.totalUsd,
     },
+    usage: usageOf(cost),
   });
 
   let won = false;
@@ -242,6 +254,12 @@ export async function finalizeRun(
   );
   await releaseSlot(store, slot);
   if (!settled) return null;
+  // Only the call that closed the run counts its cost, so a stop and the state machine do not both add it.
+  if (won) {
+    await addSpend({ store, mailer: deps.mailer, alertTo: deps.alertTo }, at, cost.totalUsd, {
+      run: true,
+    });
+  }
 
   if (status === "failed" || outcome.kind === "cancelled") {
     await refundRunCredit(store, emailHash, runId, at);

@@ -4,6 +4,7 @@ import type { RunLauncher } from "./launcher.js";
 import type { EventPublisher } from "./publisher.js";
 import { finalizeRun } from "./finalize.js";
 import { getRunFile, listRunFiles, type RunFile } from "./runs.js";
+import { effectiveSettings } from "./settings.js";
 import { createJson } from "./storage/json.js";
 import { keys } from "./storage/keys.js";
 import type { ObjectStore } from "./storage/store.js";
@@ -30,6 +31,7 @@ export async function startExecution(
   const run = await getRunFile(deps.store, emailHash, runId);
   if (!run) return reject(404, "not_found");
   if (run.status !== "queued") return reject(409, "already_started");
+  if ((await effectiveSettings(deps.store)).killSwitch.on) return reject(503, "service_paused");
   try {
     await deps.launcher.start(emailHash, runId);
   } catch (err) {

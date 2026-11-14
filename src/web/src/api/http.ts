@@ -12,6 +12,7 @@ import type {
 import { toScanInput, toTargetInput, type IntakeValues } from "../intake.js";
 import { useSession, type SessionUser } from "../state/session.js";
 import type { AccountInfo } from "./mock.js";
+import { createStaffApi, type StaffApi } from "./staff.js";
 
 export class ApiError extends Error {
   constructor(
@@ -49,6 +50,8 @@ export interface ApiClient {
   logout(): Promise<void>;
   getAccount(): Promise<AccountInfo>;
   staffWhoami(): Promise<{ email: string; role: "staff" }>;
+  /** The staff dashboard's calls. The server refuses every one of them for anyone but staff. */
+  staff: StaffApi;
 
   listRuns(): Promise<RunListItem[]>;
   getRun(runId: string): Promise<RunListItem>;
@@ -131,6 +134,17 @@ const MESSAGES: Record<string, string> = {
   login_missing: "That scan uses a login the target does not have.",
   not_found: "That no longer exists.",
   busy: "The service is busy. Try again in a moment.",
+  service_paused: "New scans are paused for the moment. Please try again later.",
+  scheduled_limit: "You have reached the limit for scheduled scans. Pause or delete one first.",
+  schedule_too_frequent: "That schedule is more frequent than we allow. Choose a longer interval.",
+  notify_email_blocked: "We cannot send notices to that address.",
+  version_exists: "A price table with that version already exists. Use a new version name.",
+  invalid_controls: "Those controls are not valid. Spend caps must still rise with depth.",
+  layer_off: "The learning layer is switched off.",
+  notify_unconfirmed: "The scan's notification address has not been confirmed.",
+  not_finished: "That run has not finished.",
+  mail_failed: "The email could not be sent. Try again in a moment.",
+  unknown_pricing_version: "There is no price table with that version.",
   ...Object.fromEntries(
     Object.entries(URL_PROBLEMS).flatMap(([problem, text]) => [
       [`app_url_${problem}`, text],
@@ -218,6 +232,7 @@ export function createHttpApi(fetchFn: FetchLike = (input, init) => fetch(input,
       return { credits: me.entitlements.credits, unmetered: me.entitlements.unmetered };
     },
     staffWhoami: () => call("GET", "/api/staff/whoami"),
+    staff: createStaffApi(call),
 
     listRuns: () => call("GET", "/api/runs"),
     getRun: (runId) => call("GET", `/api/runs/${id(runId)}`),

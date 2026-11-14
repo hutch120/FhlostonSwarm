@@ -50,6 +50,10 @@ const POOL_PREFIX = "admin/pools";
 const LEARNING_PREFIX = "learning";
 /** The anonymised run index, which the learning pass adds its own cost line to. */
 const RUN_INDEX_PREFIX = "admin/run-index";
+/** What staff change in the dashboard and every function reads when it acts on it: controls and the price table. */
+const OPS_READ_PREFIXES = ["admin/settings", "admin/pricing"] as const;
+/** The day's spend, added to by every function that closes a run, for the daily spend alarm. */
+const SPEND_PREFIX = "admin/spend";
 
 /**
  * The API: Hono on Lambda behind an HTTP API, the IAM-protected internal API the agent tasks call,
@@ -270,8 +274,13 @@ export class ApiStack extends Stack {
     for (const statement of [
       ...readSecrets,
       ...bucketAccess(API_PREFIXES, ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]),
-      ...bucketAccess(ADMIN_WRITE_PREFIXES, ["s3:PutObject"]),
-      ...bucketAccess([POOL_PREFIX], ["s3:GetObject", "s3:PutObject"]),
+      // The staff dashboard reads the run index, audit log, controls and price tables, and writes
+      // the controls, price versions and audit records; closing a run writes the index.
+      ...bucketAccess(ADMIN_WRITE_PREFIXES, ["s3:GetObject", "s3:PutObject"]),
+      // Staff roll back, pin and disable entries of the learning layer from the dashboard.
+      ...bucketAccess([LEARNING_PREFIX], ["s3:GetObject", "s3:PutObject"]),
+      // Health reads the SES and Bedrock metrics (CloudWatch metric reads have no resource scope).
+      new PolicyStatement({ actions: ["cloudwatch:GetMetricStatistics"], resources: ["*"] }),
       sendMail,
       new PolicyStatement({ actions: ["states:StartExecution"], resources: [stateMachineArn] }),
       new PolicyStatement({ actions: ["states:StopExecution"], resources: [executionArn] }),
@@ -303,6 +312,8 @@ export class ApiStack extends Stack {
     for (const statement of [
       ...readSecrets,
       ...bucketAccess(["users"], ["s3:GetObject", "s3:PutObject"]),
+      // The depth's caps as staff have them now.
+      ...bucketAccess(OPS_READ_PREFIXES, ["s3:GetObject"]),
       // Pins the run to a version of the dynamic layer (and creates the first one on first use).
       ...bucketAccess([LEARNING_PREFIX], ["s3:GetObject", "s3:PutObject"]),
     ]) {
@@ -371,7 +382,14 @@ export class ApiStack extends Stack {
         ...readSecrets,
         ...bucketAccess(["users"], ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]),
         ...bucketAccess([POOL_PREFIX], ["s3:GetObject", "s3:PutObject"]),
+        // The kill switch, concurrency and the price table in force.
+        ...bucketAccess(OPS_READ_PREFIXES, ["s3:GetObject"]),
       ]) {
+        fn.addToRolePolicy(statement);
+      }
+    }
+    for (const fn of [finalize, reaper, learn]) {
+      for (const statement of bucketAccess([SPEND_PREFIX], ["s3:GetObject", "s3:PutObject"])) {
         fn.addToRolePolicy(statement);
       }
     }
@@ -505,6 +523,8 @@ export class ApiStack extends Stack {
           POOL_PREFIX,
           LEARNING_PREFIX,
           RUN_INDEX_PREFIX,
+          SPEND_PREFIX,
+          ...OPS_READ_PREFIXES,
         ].map((p) => `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:s3:::${bucketName}/${p}/*]`),
         `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:ses:${this.region}:${this.account}:identity/*]`,
         `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:ecs:${this.region}:${this.account}:task/${RUN_CLUSTER}/*]`,

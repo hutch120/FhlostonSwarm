@@ -1,5 +1,6 @@
 import {
   TERMS_VERSION,
+  isRecurring,
   reportFormatSchema,
   runIdSchema,
   runReportSchema,
@@ -8,6 +9,8 @@ import {
   scanStatusSchema,
   targetIdSchema,
   targetInputSchema,
+  type Frequency,
+  type ScanStatus,
 } from "@swarm/shared";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
@@ -17,7 +20,7 @@ import { startExecution, stopRun, stopRunningRuns, type ControlDeps } from "./co
 import { readEvents } from "./events.js";
 import { clientIp, readJson, reject, type Vars } from "./http.js";
 import { newId } from "./ids.js";
-import { ipHash, testMarkerFor } from "./identity.js";
+import { ipHash, parseEmail, testMarkerFor } from "./identity.js";
 import type { RunLauncher } from "./launcher.js";
 import { issueChallenge, verifyChallenge } from "./otp.js";
 import { issueTestPasscode, testPasscodeLifetimeSchema } from "./testpass.js";
@@ -30,6 +33,7 @@ import {
 } from "./notify.js";
 import { channelFor, type EventPublisher } from "./publisher.js";
 import { hit } from "./ratelimit.js";
+import { effectiveSettings, HOURS_BETWEEN, isBlockedDomain } from "./settings.js";
 import {
   deleteRun,
   getRunFile,
@@ -105,6 +109,40 @@ export function dataRoutes(deps: DataDeps) {
   };
   const count = async (prefix: string) =>
     (await store.list(prefix)).filter((key) => key.endsWith(".json")).length;
+  /** The intake config with the hosts staff blocked added to the configured block list. */
+  const currentIntake = async () => {
+    const { blockedHosts } = await effectiveSettings(store);
+    return blockedHosts.length === 0
+      ? intake
+      : {
+          ...intake,
+          blockedHosts: {
+            ...intake.blockedHosts,
+            domains: [...intake.blockedHosts.domains, ...blockedHosts],
+          },
+        };
+  };
+  /** The limits on repeating scans (staff change them in Controls): how many, and how often. */
+  const checkSchedule = async (
+    emailHash: string,
+    frequency: Frequency,
+    status: ScanStatus,
+    exceptScanId?: string,
+  ) => {
+    if (frequency === "once" || status !== "active") return;
+    const { scheduledScans } = await effectiveSettings(store);
+    if (HOURS_BETWEEN[frequency] < scheduledScans.minSpacingHours)
+      reject(409, "schedule_too_frequent");
+    const active = (await listScans(store, emailHash)).filter(
+      (s) => s.id !== exceptScanId && s.status === "active" && isRecurring(s.schedule.frequency),
+    );
+    if (active.length >= scheduledScans.maxActivePerAccount) reject(409, "scheduled_limit");
+  };
+  const checkNotifyDomain = async (address: string) => {
+    const domain = parseEmail(address)?.domain;
+    if (domain && isBlockedDomain(domain, (await effectiveSettings(store)).blockedEmailDomains))
+      reject(400, "notify_email_blocked");
+  };
 
   // Targets ---------------------------------------------------------------------------------
 
@@ -129,7 +167,7 @@ export function dataRoutes(deps: DataDeps) {
   app.post("/targets", async (c) => {
     const user = owner(c);
     const body = await readJson(c, targetInputSchema);
-    const hosts = scopeHosts(body, intake, user.role === "staff");
+    const hosts = scopeHosts(body, await currentIntake(), user.role === "staff");
     if ((await count(keys.targetsPrefix(user.emailHash))) >= intake.quotas.maxTargets)
       reject(409, "quota_exceeded");
     const at = now();
@@ -154,7 +192,7 @@ export function dataRoutes(deps: DataDeps) {
     const id = idParam(c, targetIdSchema);
     const existing = (await getTarget(store, user.emailHash, id)) ?? reject(404, "not_found");
     const body = await readJson(c, targetInputSchema);
-    const hosts = scopeHosts(body, intake, user.role === "staff");
+    const hosts = scopeHosts(body, await currentIntake(), user.role === "staff");
     const logins = mergeLogins(existing.logins, body.logins);
     const scans = (await listScans(store, user.emailHash)).filter((s) => s.targetId === id);
     // A login that a scan signs in with cannot be removed from under it.
@@ -265,6 +303,8 @@ export function dataRoutes(deps: DataDeps) {
     const target =
       (await getTarget(store, user.emailHash, input.targetId)) ?? reject(404, "target_not_found");
     checkLoginsExist(input, target);
+    await checkNotifyDomain(input.notifyEmail);
+    await checkSchedule(user.emailHash, input.frequency, "active");
     if ((await count(keys.scansPrefix(user.emailHash))) >= intake.quotas.maxScans)
       reject(409, "quota_exceeded");
     const scan = await settleNotification(deps, user, buildScan(null, input, user), null);
@@ -287,6 +327,8 @@ export function dataRoutes(deps: DataDeps) {
     const target =
       (await getTarget(store, user.emailHash, input.targetId)) ?? reject(404, "target_not_found");
     checkLoginsExist(input, target);
+    await checkNotifyDomain(input.notifyEmail);
+    await checkSchedule(user.emailHash, input.frequency, existing.status, existing.id);
     const scan = await settleNotification(deps, user, buildScan(existing, input, user), existing);
     await putJson(store, keys.scan(user.emailHash, scan.id), scan);
     return c.json(await viewOne(user.emailHash, scan));
@@ -296,6 +338,8 @@ export function dataRoutes(deps: DataDeps) {
     const user = owner(c);
     const id = idParam(c, scanIdSchema);
     const { status } = await readJson(c, statusBody);
+    const current = (await getScan(store, user.emailHash, id)) ?? reject(404, "not_found");
+    await checkSchedule(user.emailHash, current.schedule.frequency, status, id);
     const updated = await updateJson(
       store,
       keys.scan(user.emailHash, id),
