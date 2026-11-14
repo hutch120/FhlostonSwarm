@@ -41,7 +41,7 @@ export const terms: LegalDocument = {
     {
       heading: "What you get",
       paragraphs: [
-        "Swarm is automated and AI-assisted. A report lists what the agents found and which areas they could not cover. It is not a certification, it is not a guarantee that no other issue exists, and it does not replace a manual penetration test.",
+        "Swarm is automated and AI-assisted. A report lists what the agents found and which areas they could not cover. It is not a guarantee that no other issue exists.",
         "The service is provided as is, with no warranty, during a private beta. Findings can be wrong or incomplete: check them before you act on them.",
       ],
     },

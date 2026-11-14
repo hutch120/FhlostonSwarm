@@ -24,7 +24,7 @@ import type { RunState } from "./reducer.js";
 import { tiers } from "./tiers.js";
 
 export const REPORT_DISCLAIMER =
-  "This is an automated, AI-assisted security assessment. It has had no human review, is not a certification, and is not a substitute for a full manual penetration test. It covers only the checks listed as performed, and only what was reachable when it ran.";
+  "This is an automated, AI-assisted security assessment. It has had no human review. It covers only the checks listed as performed, and only what was reachable when it ran.";
 
 /** The AI/LLM agents (phase 4 of the methodology). */
 const AI_AGENTS = ["prompt", "output"];

@@ -64,9 +64,9 @@ export function renderReportReadyEmail(email: ReportReadyEmail): Rendered {
     "",
     `Sign in to read the report: ${link}`,
     "",
-    "This is an automated, AI-assisted assessment and is not a substitute for a manual penetration test.",
+    "This is an automated, AI-assisted assessment.",
   ].join("\n");
-  const html = `<p>Your <strong>${tierName}</strong> scan of <strong>${target}</strong> has finished with ${counts}.</p><p><a href="${link}">Sign in to read the report</a>.</p><p style="color:#666">This is an automated, AI-assisted assessment and is not a substitute for a manual penetration test.</p>`;
+  const html = `<p>Your <strong>${tierName}</strong> scan of <strong>${target}</strong> has finished with ${counts}.</p><p><a href="${link}">Sign in to read the report</a>.</p><p style="color:#666">This is an automated, AI-assisted assessment.</p>`;
   return { subject, text, html };
 }
 

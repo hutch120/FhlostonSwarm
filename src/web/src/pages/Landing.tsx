@@ -42,7 +42,7 @@ const SAFEGUARDS = [
   },
   {
     title: "Honest about limits",
-    body: "Every report says what was covered and what was not. It is an automated assessment, not a certification or a substitute for a manual penetration test.",
+    body: "Every report says what was covered and what was not, so you always know what the assessment did and did not look at.",
   },
 ];
 

@@ -291,7 +291,7 @@ Runs execute unattended in the background, so the swarm adapts between runs rath
 - Redaction pass: test passwords, tokens, cookies, PII and verbatim jailbreak output are scrubbed from customer-facing output (per [phase-6-reporting.md](./instructions/phase-6-reporting.md)); raw evidence stays in the private run prefix.
 - **Every depth gets the full report format.** Depth changes *what is tested*, not what is shown: a Scout report is complete for the checks it ran and lists the areas it did not cover ("not included at this depth") so the customer can see what a deeper scan would add.
 - Delivery: presigned S3 URLs behind an authenticated API call. Reports are kept until the customer deletes the run or their account (no automatic expiry yet).
-- Clear disclaimer: **automated**, AI-assisted assessment (no human review); not a certification or a substitute for a full manual penetration test (positioning vs. a human-led engagement). Shallower depths say plainly which areas they did not cover.
+- Clear disclaimer: **automated**, AI-assisted assessment (no human review); the report states what it covered. Shallower depths say plainly which areas they did not cover. We do not position the report against, or as a substitute for, any other kind of engagement; that is the customer's call.
 
 ## 11. Scan depths (tiers), entitlements & payments
 

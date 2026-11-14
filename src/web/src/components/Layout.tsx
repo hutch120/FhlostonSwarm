@@ -105,10 +105,7 @@ export function Layout() {
       </main>
       <footer className="footer">
         <span>Swarm, a Fhloston Advisory product.</span>
-        <span>
-          Automated, AI-assisted assessment. Not a certification and not a substitute for a manual
-          penetration test.
-        </span>
+        <span>Automated, AI-assisted assessment.</span>
         <span>
           <Link to="/terms">Terms</Link> · <Link to="/privacy">Privacy</Link>
         </span>
