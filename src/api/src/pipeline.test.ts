@@ -1,13 +1,20 @@
 import type { AddressInfo } from "node:net";
 import type http from "node:http";
 import { PlaywrightDriver, chromiumAvailable, createOfflineLlm, renderPdf } from "@swarm/agents";
+import type { FetchLike, LlmClient } from "@swarm/agents/learning";
 import { runEventsPageSchema, runReportSchema, TERMS_VERSION, tiers } from "@swarm/shared";
-import { engagementSchema, INSTRUCTIONS_VERSION, limitsFor } from "@swarm/shared/server";
+import {
+  engagementSchema,
+  INSTRUCTIONS_VERSION,
+  learningConfig,
+  limitsFor,
+} from "@swarm/shared/server";
 import expected from "@swarm/synthetic-target/expected.json" with { type: "json" };
 import { createTarget, USERS } from "@swarm/synthetic-target";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getCredits, grantCredits } from "./credits.js";
 import { emailHash, parseEmail } from "./identity.js";
+import { learnFromRun } from "./learning.js";
 import { LocalLauncher } from "./local-launcher.js";
 import { acquireSlot, releaseSlot } from "./pool.js";
 import { keys } from "./storage/keys.js";
@@ -40,6 +47,34 @@ afterAll(async () => {
 
 const DEEP_SLOTS = ["admin", "user1", "user2"] as const;
 
+/** The learner's model: it proposes nothing, so these tests see the pass's bookkeeping and cost only. */
+const learnerModel = (): LlmClient => ({
+  modelId: learningConfig.learnerModelId,
+  async converse() {
+    return {
+      message: {
+        role: "assistant",
+        content: [{ type: "toolUse", id: "learn1", name: "record_learning", input: {} }],
+      },
+      stopReason: "tool_use",
+      usage: { inputTokens: 5000, outputTokens: 200 },
+    };
+  },
+});
+
+/** The allow-listed sources, served from memory. */
+const sourceStub: FetchLike = async (url) => {
+  const kev = url.includes("known_exploited");
+  const res = new Response(
+    kev
+      ? JSON.stringify({ vulnerabilities: [] })
+      : "<html><body><p>Risk categories.</p></body></html>",
+    { status: 200, headers: { "content-type": kev ? "application/json" : "text/html" } },
+  );
+  Object.defineProperty(res, "url", { value: url });
+  return res;
+};
+
 async function setup(
   tier: "scout" | "sweep" | "probe" | "siege",
   appUrl = () => `http://127.0.0.1:${port}/`,
@@ -60,6 +95,11 @@ async function setup(
     llm: () => createOfflineLlm(),
     driverFactory: (options) => PlaywrightDriver.launch(options),
     renderPdf,
+    learn: (ids) =>
+      learnFromRun(
+        { store: h.store, llm: learnerModel(), fetch: sourceStub, now: h.clock.now },
+        ids,
+      ),
     pollMs: 20,
     now: h.clock.now,
     finalize: {
@@ -359,8 +399,46 @@ describe.skipIf(!browserAvailable)("a Siege run, end to end", () => {
     )!;
     expect(JSON.parse((await h.store.get(indexKey))!.body)).toMatchObject({
       instructionsVersion: INSTRUCTIONS_VERSION,
+      dynamicVersion: 1,
       verification: { verified: report.counts.verified, unconfirmed: 0 },
     });
+
+    // The run was pinned to a version of the learned layer when its task asked for its input (the
+    // test account's own layer, so no customer run depends on a test), and the report names it.
+    expect(plan.dynamic.version).toBe(1);
+    expect(report.dynamic).toMatchObject({ version: 1 });
+    const pin = JSON.parse((await h.store.get(keys.runDynamic(owner, runId)))!.body);
+    expect(pin).toMatchObject({ test: true, layer: { version: 1 } });
+    expect(await h.store.get("learning/current.json")).toBeNull();
+    expect(JSON.parse((await h.store.get("learning/test/current.json"))!.body)).toMatchObject({
+      version: 1,
+      enabled: true,
+    });
+
+    // The learning pass reviewed the closed run: its tokens and seconds are their own line in the
+    // run's cost (and in the total), and in the anonymised index.
+    const costed = JSON.parse((await h.store.get(keys.runCost(owner, runId)))!.body);
+    expect(costed.learner).toMatchObject({
+      modelId: learningConfig.learnerModelId,
+      calls: 1,
+      inputTokens: 5000,
+      outputTokens: 200,
+    });
+    expect(costed.learner.usd).toBeCloseTo(0.03, 5);
+    expect(costed.totalUsd).toBeGreaterThanOrEqual(costed.learner.usd);
+    expect(JSON.parse((await h.store.get(indexKey))!.body).learner).toMatchObject({
+      modelId: learningConfig.learnerModelId,
+      usd: costed.learner.usd,
+    });
+    // Nothing of the customer's run is in the global layer.
+    const layer = (await h.store.list("learning/")).join("\n");
+    expect(layer).toContain("learning/test/versions/1.json");
+    for (const key of await h.store.list("learning/")) {
+      const body = (await h.store.get(key))!.body;
+      expect(body).not.toContain(runId);
+      expect(body).not.toContain("127.0.0.1");
+      for (const user of USERS) expect(body).not.toContain(user.password);
+    }
 
     // No login password is anywhere in what the customer can download.
     const html = (await h.store.get(keys.runReportHtml(owner, runId)))!.body;

@@ -93,9 +93,17 @@ export const privacy: LegalDocument = {
       ],
     },
     {
+      heading: "How the service learns from scans",
+      paragraphs: [
+        "After a scan finishes, an automated learning step reviews its results, together with public security sources such as the OWASP lists and the CISA exploited-vulnerabilities catalogue, to keep our checks current. It looks at what the scan found, did not cover or could not confirm, and may add or retire generic risk categories and read-only checks.",
+        "Only generic, non-identifying learnings are kept: a technique, a technology and version, a general check. Nothing that names your hosts, paths, logins, evidence or the wording of your application is kept, and a proposed learning that contains any of it is discarded. What is learned is shared across all scans and is not part of your data, so it stays when you delete a run or your account.",
+      ],
+    },
+    {
       heading: "What we keep after deletion",
       paragraphs: [
         "Anonymised cost records: scan depth, timings, counts of tokens and requests, and cost. They contain no email address, no target, no findings and no link back to you.",
+        "The generic learnings described above, which contain nothing about you or your application.",
         "A staff-granted credit is recorded in an audit log that holds a one-way hash of your email address (not the address itself), the depth, the amount, the reason and who granted it.",
         "If an address bounces or reports one of our emails as spam, a one-way hash of that address is kept so we stop emailing it. Payment records that tax law requires will be kept once payments exist.",
       ],

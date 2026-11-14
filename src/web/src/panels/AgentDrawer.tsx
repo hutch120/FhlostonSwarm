@@ -1,5 +1,4 @@
-import { TIERS, tiers, type RunState } from "@swarm/shared";
-import { useId } from "react";
+import type { RunState } from "@swarm/shared";
 import { capitalise } from "../format.js";
 
 interface Props {
@@ -10,18 +9,11 @@ interface Props {
 
 const OUTCOME_LABEL = { clear: "clear", info: "info", finding: "finding", gap: "gap" } as const;
 
-const joinNames = (names: string[]) =>
-  names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : (names[0] ?? "");
-const steeredTiers = joinNames(TIERS.filter((t) => t.steering).map((t) => t.name));
-const watchOnlyTiers = joinNames(TIERS.filter((t) => !t.steering).map((t) => t.name));
-
-/** Detail for the selected agent, with the steering box present but disabled until Phase 8. */
+/** Detail for the selected agent. */
 export function AgentDrawer({ state, agentId, onClose }: Props) {
-  const steerId = useId();
   const agent = agentId ? state.agents[agentId] : undefined;
   if (!agent) return null;
   const area = state.areas.find((a) => a.id === agent.spec.area);
-  const steering = tiers[state.tier].steering;
   const recent = agent.history.slice(-6).reverse();
 
   return (
@@ -82,27 +74,6 @@ export function AgentDrawer({ state, agentId, onClose }: Props) {
           ))}
         </ol>
       )}
-
-      <form className="steer" onSubmit={(e) => e.preventDefault()}>
-        <label htmlFor={steerId} className="drawer-sub">
-          Steer this agent
-        </label>
-        <textarea
-          id={steerId}
-          rows={3}
-          disabled
-          placeholder="e.g. Look harder at the file upload"
-          aria-describedby={`${steerId}-hint`}
-        />
-        <p id={`${steerId}-hint`} className="muted">
-          {steering
-            ? "Steering arrives in a later release; it is switched off in this preview."
-            : `Steering is available on ${steeredTiers} scans. ${watchOnlyTiers} scans are watch-only.`}
-        </p>
-        <button type="submit" className="btn" disabled>
-          Send
-        </button>
-      </form>
     </aside>
   );
 }

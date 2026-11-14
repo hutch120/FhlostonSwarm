@@ -78,7 +78,14 @@ export class InternalApi implements EventSink {
   }
 
   async postEvidence(
-    name: "proxy-log" | "proxy-stats" | "app-profile" | "usage" | "explorer-log" | "engagement",
+    name:
+      | "proxy-log"
+      | "proxy-stats"
+      | "app-profile"
+      | "usage"
+      | "explorer-log"
+      | "engagement"
+      | "dynamic-results",
     body: object,
   ): Promise<void> {
     await this.call("POST", "/evidence", { name, body });

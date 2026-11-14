@@ -54,6 +54,7 @@ async function main(): Promise<void> {
   await post("usage", result.usage);
   await post("explorer-log", result.explorerLog);
   await post("engagement", result.engagement);
+  await post("dynamic-results", result.dynamic);
 
   console.log(
     JSON.stringify({

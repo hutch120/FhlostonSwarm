@@ -149,7 +149,11 @@ export const dispatchEventSchema = z.object({
   ...baseEvent,
   type: z.literal("dispatch"),
   agent: agentIdSchema,
-  payload: z.object({ task: z.string().min(1) }),
+  payload: z.object({
+    task: z.string().min(1),
+    /** Sent with the first dispatch of an agent that is not in the depth's roster (a dynamic agent). */
+    spec: agentSpecSchema.optional(),
+  }),
 });
 
 export const startEventSchema = z.object({
@@ -192,14 +196,6 @@ export const completeEventSchema = z.object({
   payload: z.object({ summary: summarySchema }),
 });
 
-export const steerEventSchema = z.object({
-  ...baseEvent,
-  type: z.literal("steer"),
-  /** The agent the message is aimed at; null is addressed to the whole swarm. */
-  agent: agentIdSchema.nullable(),
-  payload: z.object({ message: z.string().min(1), directive: z.string().min(1).optional() }),
-});
-
 /** A scope limitation: something the swarm could not test, reported as such. */
 export const gapEventSchema = z.object({
   ...baseEvent,
@@ -215,7 +211,6 @@ export const runEventSchema = z.discriminatedUnion("type", [
   verifyEventSchema,
   agentDoneEventSchema,
   completeEventSchema,
-  steerEventSchema,
   gapEventSchema,
 ]);
 export type RunEvent = z.infer<typeof runEventSchema>;
@@ -224,8 +219,7 @@ export type EventOf<T extends RunEventType> = Extract<RunEvent, { type: T }>;
 
 /**
  * What an agent task emits. It has no `seq`: the events API is the single sequencer for a run, so
- * several agents can write at once. `complete` (and steering) come from the platform, never from an
- * agent task.
+ * several agents can write at once. `complete` comes from the platform, never from an agent task.
  */
 export const agentEventSchema = z.discriminatedUnion("type", [
   dispatchEventSchema.omit({ seq: true }),

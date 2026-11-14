@@ -60,6 +60,7 @@ export interface RunsStackProps extends StackProps {
   internalInvokeArn: string;
   prepareFunction: IFunction;
   finalizeFunction: IFunction;
+  learnFunction: IFunction;
 }
 
 const AGENTS_DIR = fileURLToPath(new URL("../../../agents/", import.meta.url));
@@ -302,8 +303,17 @@ export class RunsStack extends Stack {
       resultPath: JsonPath.DISCARD,
     });
     const done = new Succeed(this, "Done");
-    renderPdf.addCatch(done, { resultPath: JsonPath.DISCARD });
-    renderPdf.next(done);
+    // The learning pass (PLAN.md section 9) reviews the closed run. Best effort: a failure here, like
+    // one of the PDF, never changes the run.
+    const learn = new LambdaInvoke(this, "Learn", {
+      lambdaFunction: props.learnFunction,
+      payloadResponseOnly: true,
+      resultPath: JsonPath.DISCARD,
+    });
+    learn.addCatch(done, { resultPath: JsonPath.DISCARD });
+    learn.next(done);
+    renderPdf.addCatch(learn, { resultPath: JsonPath.DISCARD });
+    renderPdf.next(learn);
     // A run that never got a token never ran a task (declined in the queue, or failed to prepare).
     finalize.next(
       new Choice(this, "ReportReady")
@@ -340,6 +350,7 @@ export class RunsStack extends Stack {
       "AwsSolutions-IAM5[Resource::*]",
       "AwsSolutions-IAM5[Resource::SwarmApi:ExportsOutputFnGetAttFinalizeFunction2E2E0FC2Arn7153F5BA:*]",
       "AwsSolutions-IAM5[Resource::SwarmApi:ExportsOutputFnGetAttPrepareFunction8FAA640BArn81F3460A:*]",
+      "AwsSolutions-IAM5[Resource::SwarmApi:ExportsOutputFnGetAttLearnFunction4F2B4C8DArn93083EDD:*]",
       'AwsSolutions-IAM5[Resource::arn:{"Fn::Select":[1,{"Fn::Split":[":",{"Ref":"AgentTask285670E7"}]}]}:{"Fn::Select":[2,{"Fn::Split":[":",{"Ref":"AgentTask285670E7"}]}]}:{"Fn::Select":[3,{"Fn::Split":[":",{"Ref":"AgentTask285670E7"}]}]}:{"Fn::Select":[4,{"Fn::Split":[":",{"Ref":"AgentTask285670E7"}]}]}:{"Fn::Select":[0,{"Fn::Split":["/",{"Fn::Select":[5,{"Fn::Split":[":",{"Ref":"AgentTask285670E7"}]}]}]}]}/{"Fn::Select":[1,{"Fn::Split":["/",{"Fn::Select":[5,{"Fn::Split":[":",{"Ref":"AgentTask285670E7"}]}]}]}]}:*]',
     ]) {
       Validations.of(this.stateMachine).acknowledge({

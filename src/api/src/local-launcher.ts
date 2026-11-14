@@ -33,6 +33,8 @@ export interface LocalLauncherDeps {
   pollMs?: number;
   /** Renders a closed run's report to PDF (a headless browser); without it no PDF is made. */
   renderPdf?: (html: string) => Promise<Uint8Array>;
+  /** The learning pass over a closed run (the state machine's `Learn` step); without it none runs. */
+  learn?: (ids: { emailHash: string; runId: string }) => Promise<unknown>;
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -133,6 +135,7 @@ export class LocalLauncher implements RunLauncher {
       if (result.usage) await api.postEvidence("usage", result.usage);
       if (result.explorerLog) await api.postEvidence("explorer-log", result.explorerLog);
       if (result.engagement) await api.postEvidence("engagement", result.engagement);
+      if (result.dynamic) await api.postEvidence("dynamic-results", result.dynamic);
     } catch (err) {
       console.error(JSON.stringify({ msg: "local_agent_failed", error: (err as Error).message }));
       await finalizeRun(this.deps.finalize, { emailHash: owner, runId }, { kind: "failed" });
@@ -144,6 +147,17 @@ export class LocalLauncher implements RunLauncher {
       state.aborted ? { kind: "stopped" } : { kind: "finished" },
     );
     await this.renderPdf(owner, runId);
+    await this.learn(owner, runId);
+  }
+
+  /** The `Learn` step of the state machine, in process. Best effort, like the cloud step. */
+  private async learn(owner: string, runId: string): Promise<void> {
+    if (!this.deps.learn) return;
+    try {
+      await this.deps.learn({ emailHash: owner, runId });
+    } catch (err) {
+      console.error(JSON.stringify({ msg: "local_learn_failed", error: (err as Error).message }));
+    }
   }
 
   /** What the PDF step does in the cloud, in process: render the closed run's report. Best effort. */

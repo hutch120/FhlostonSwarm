@@ -2,12 +2,16 @@ import { ACCOUNT_ID, REGION, aws, awsJson } from "./aws.js";
 
 export const DATA_BUCKET = `swarm-data-${ACCOUNT_ID}`;
 export const TEST_PREFIX = "_test/";
+/** The learning layer test accounts' runs use, so a test never changes what a customer's run uses. */
+export const TEST_LAYER_PREFIX = "learning/test/";
 export const TEST_NAME_PREFIX = "swarm-test-";
 const MAX_RECORD_BYTES = 1024 * 1024;
 
 export interface TestItems {
   /** Keys under `_test/` in the data bucket. */
   prefixKeys: string[];
+  /** Keys of the test accounts' own learning layer (`learning/test/`). */
+  layerKeys: string[];
   /** Keys elsewhere in the data bucket whose JSON carries `"test": true`. */
   recordKeys: string[];
   /** `swarm-test-*` S3 buckets. */
@@ -78,6 +82,7 @@ async function readJson(key: string): Promise<unknown> {
 /** Finds everything that matches the test-data markers; reads nothing else and prints no contents. */
 export async function findTestItems(): Promise<TestItems> {
   const prefixKeys = await listKeys("Contents[].Key", TEST_PREFIX);
+  const layerKeys = await listKeys("Contents[].Key", TEST_LAYER_PREFIX);
 
   const candidates = await listKeys(
     `Contents[?ends_with(Key, '.json') && Size <= \`${MAX_RECORD_BYTES}\` && !starts_with(Key, '${TEST_PREFIX}')].Key`,
@@ -116,6 +121,7 @@ export async function findTestItems(): Promise<TestItems> {
 
   return {
     prefixKeys,
+    layerKeys,
     recordKeys,
     buckets: bucketNames ?? [],
     stacks: stackNames ?? [],
@@ -181,6 +187,19 @@ async function deleteItems(items: TestItems): Promise<void> {
       TEST_PREFIX,
     );
   }
+  if (items.layerKeys.length > 0) {
+    check(
+      await aws([
+        "s3",
+        "rm",
+        `s3://${DATA_BUCKET}/${TEST_LAYER_PREFIX}`,
+        "--recursive",
+        "--profile",
+        "swarm",
+      ]),
+      TEST_LAYER_PREFIX,
+    );
+  }
   for (const key of items.recordKeys) {
     check(
       await aws([
@@ -239,6 +258,7 @@ export async function testCleanup(opts: { delete?: boolean }): Promise<void> {
   const items = await findTestItems();
   const sections: [string, string[]][] = [
     [`Objects under s3://${DATA_BUCKET}/${TEST_PREFIX}`, items.prefixKeys],
+    [`Test learning layer under s3://${DATA_BUCKET}/${TEST_LAYER_PREFIX}`, items.layerKeys],
     [`Records marked "test": true in s3://${DATA_BUCKET}`, items.recordKeys],
     [`${TEST_NAME_PREFIX}* S3 buckets`, items.buckets],
     [`${TEST_NAME_PREFIX}* CloudFormation stacks`, items.stacks],

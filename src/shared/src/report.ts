@@ -12,7 +12,12 @@ import {
   type Summary,
 } from "./events.js";
 import { appProfileSchema, type AppProfile } from "./app-profile.js";
-import { INSTRUCTIONS_VERSION, roleKindSchema, type Engagement } from "./engagement.js";
+import {
+  INSTRUCTIONS_VERSION,
+  dynamicUseSchema,
+  roleKindSchema,
+  type Engagement,
+} from "./engagement.js";
 import { AGENTS, AREAS } from "./fixtures/roster.js";
 import { redactDeep, redactText, type RedactOptions } from "./redact.js";
 import type { RunState } from "./reducer.js";
@@ -44,6 +49,8 @@ export const runReportSchema = z.object({
   summary: summarySchema,
   /** The instruction modules this run was planned and tested with. */
   instructionsVersion: z.string().min(1),
+  /** The learned items and agents the run used (deep depths), with their sources; null when none. */
+  dynamic: dynamicUseSchema.nullable(),
   findings: z.array(reportFindingSchema),
   /** Counts computed from the findings. */
   counts: z.object({
@@ -236,7 +243,7 @@ export function buildReport(input: ReportInput): RunReport {
     return hit?.reason ?? null;
   };
 
-  const phases: RunReport["phases"] = AREAS.flatMap((area) => {
+  const rosterPhases: RunReport["phases"] = AREAS.flatMap((area) => {
     const agents = AGENTS.filter((a) => a.area === area.id && group.includes(a.id));
     if (agents.length === 0) return [];
     return [
@@ -263,6 +270,37 @@ export function buildReport(input: ReportInput): RunReport {
       },
     ];
   });
+
+  const phases: RunReport["phases"] = [...rosterPhases];
+  for (const id of state.agentOrder) {
+    const agent = state.agents[id]!;
+    if (agentNames.has(id)) continue;
+    // A dynamic agent: its checks sit in the phase of its area, like any other agent's.
+    let phase = phases.find((p) => p.area === agent.spec.area);
+    if (!phase) {
+      const area = AREAS.find((a) => a.id === agent.spec.area)!;
+      phase = {
+        phase: area.phase,
+        area: area.id,
+        name: area.name,
+        summary: area.summary,
+        checks: [],
+      };
+      phases.push(phase);
+      phases.sort((a, b) => a.phase - b.phase);
+    }
+    for (const step of agent.spec.steps) {
+      const seen = outcomes.get(`${id}/${step.id}`);
+      phase.checks.push({
+        agent: id,
+        agentName: agent.spec.name,
+        stepId: step.id,
+        label: step.label,
+        outcome: seen?.outcome ?? "not-run",
+        ...(seen?.detail ? { detail: seen.detail } : {}),
+      });
+    }
+  }
 
   const findings: ReportFinding[] = state.findings.map((f) => {
     const verdict = verdicts.get(f.id);
@@ -332,6 +370,10 @@ export function buildReport(input: ReportInput): RunReport {
     status: summary.status,
     summary,
     instructionsVersion: input.engagement?.instructionsVersion ?? INSTRUCTIONS_VERSION,
+    dynamic:
+      input.engagement && input.engagement.dynamic.version !== null
+        ? input.engagement.dynamic
+        : null,
     findings,
     counts: {
       total: findings.length,

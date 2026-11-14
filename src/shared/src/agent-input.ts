@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { agentIdSchema, tierIdSchema } from "./events.js";
 import { loginInputSchema, loginSlotIdSchema } from "./scans.js";
+import { pinnedLayerSchema } from "./learning/schema.js";
 
 /**
  * What an agent task is told about its run: the scope the proxy enforces, the budgets, and the
@@ -46,6 +47,8 @@ export const agentInputSchema = z.object({
   ),
   scopeNotes: z.string(),
   userAgent: z.string().min(1),
+  /** The dynamic layer pinned for this run (PLAN.md section 9); absent or null when it is off. */
+  dynamic: pinnedLayerSchema.nullable().optional(),
 });
 export type AgentInput = z.infer<typeof agentInputSchema>;
 

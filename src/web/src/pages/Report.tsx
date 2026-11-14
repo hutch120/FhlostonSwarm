@@ -342,6 +342,36 @@ function ReportView({ report, demo = false }: { report: RunReport; demo?: boolea
             Instruction modules {report.instructionsVersion}.
           </p>
         )}
+        {report.dynamic && report.dynamic.items.length + report.dynamic.agents.length > 0 && (
+          <div data-testid="report-learned">
+            <h3>Learned knowledge used</h3>
+            <p className="muted small">
+              The methodology also draws on items and checks that earlier scans and public sources
+              added (version {report.dynamic.version}). Entries observing only ran in shadow and
+              raised nothing.
+            </p>
+            <ul className="small">
+              {report.dynamic.items.map((i) => (
+                <li key={i.id}>
+                  <strong>{i.title}</strong>{" "}
+                  <span className="muted">
+                    (item{i.mode === "shadow" ? ", observing only" : ""}; {i.source.name},{" "}
+                    {i.source.date})
+                  </span>
+                </li>
+              ))}
+              {report.dynamic.agents.map((a) => (
+                <li key={a.id}>
+                  <strong>{a.title}</strong>{" "}
+                  <span className="muted">
+                    (check{a.mode === "shadow" ? ", observing only" : ""}; {a.source.name},{" "}
+                    {a.source.date})
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {report.phases.map((phase) => (
           <div key={phase.phase}>
             <h3>

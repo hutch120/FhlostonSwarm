@@ -35,7 +35,7 @@ describe("event schema", () => {
   it("covers every event type and outcome", () => {
     const types = new Set(replayEvents.map((e) => e.type));
     expect([...types].sort()).toEqual(
-      ["agent-done", "complete", "dispatch", "finish", "gap", "start", "steer", "verify"].sort(),
+      ["agent-done", "complete", "dispatch", "finish", "gap", "start", "verify"].sort(),
     );
     const outcomes = new Set(
       replayEvents.flatMap((e) => (e.type === "finish" ? [e.payload.outcome] : [])),
@@ -133,9 +133,7 @@ describe("tier config", () => {
     expect(TIERS.map((t) => t.id)).toEqual(["scout", "sweep", "probe", "siege"]);
     expect(TIERS.map((t) => t.depth)).toEqual([1, 2, 3, 4]);
     expect(tiers.scout.logins).toBe(0);
-    expect(tiers.scout.steering).toBe(false);
     expect(tiers.siege.logins).toBe(4);
-    expect(tiers.siege.steering).toBe(true);
     expect(tiers.siege.agents).toHaveLength(AGENTS.length);
   });
 

@@ -1,5 +1,5 @@
 {
-  "version": "2026-11-11",
+  "version": "2026-11-14",
   "verified": false,
   "currency": "USD",
   "fargate": { "vcpuPerHour": 0.0506, "gbPerHour": 0.0056 },
@@ -9,6 +9,7 @@
     "au.anthropic.claude-haiku-4-5-20251001-v1:0": { "inputPerMTok": 1, "outputPerMTok": 5 },
     "au.anthropic.claude-sonnet-4-6": { "inputPerMTok": 3, "outputPerMTok": 15 },
     "au.anthropic.claude-sonnet-5": { "inputPerMTok": 2, "outputPerMTok": 10 },
-    "au.anthropic.claude-sonnet-5-5": { "inputPerMTok": 2, "outputPerMTok": 10 }
+    "au.anthropic.claude-sonnet-5-5": { "inputPerMTok": 2, "outputPerMTok": 10 },
+    "au.anthropic.claude-opus-4-6-v1": { "inputPerMTok": 5, "outputPerMTok": 25 }
   }
 }

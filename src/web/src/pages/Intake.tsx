@@ -76,7 +76,6 @@ function TierCard({
             {tier.logins === 0 ? "No logins needed" : `Up to ${plural(tier.logins, "login")}`}, up
             to {tier.wallClockMinutes} minutes
           </li>
-          <li>{tier.steering ? "Steer the agents while they work" : "Watch only (no steering)"}</li>
         </ul>
       </div>
     </div>

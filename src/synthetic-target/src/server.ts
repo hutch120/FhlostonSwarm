@@ -374,6 +374,15 @@ ${reply}`,
       if (path === "/.git/HEAD") return send(res, 200, "ref: refs/heads/main\n");
       if (path === "/.git/config") return send(res, 200, GIT_CONFIG);
 
+      // Weakness only a learned check looks for (the learning-loop tests): runtime variables are served.
+      if (path === "/debug/vars") {
+        return send(
+          res,
+          200,
+          JSON.stringify({ cmdline: ["./app", "--port=8080"], memstats: { Alloc: 1048576 } }),
+          { "content-type": "application/json" },
+        );
+      }
       if (path === "/api/login" && req.method === "POST") {
         let body = "";
         for await (const chunk of req) body += chunk;

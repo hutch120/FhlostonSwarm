@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { agentIdSchema, tierIdSchema } from "./events.js";
+import { agentIdSchema, areaIdSchema, tierIdSchema } from "./events.js";
 import { loginSlotIdSchema } from "./scans.js";
 
 /**
@@ -72,11 +72,46 @@ export const aiFeatureSchema = z.object({
 });
 export type AiFeature = z.infer<typeof aiFeatureSchema>;
 
+const dynamicSourceSchema = z.object({
+  name: z.string(),
+  url: z.string(),
+  date: z.string(),
+});
+
+/**
+ * The dynamic layer a run used (PLAN.md section 9), copied into the plan when the run starts so the
+ * run is reproducible: the version, and which learned items and agents applied, in shadow or active.
+ * `version` is null when the layer was off. Generic text only; nothing here comes from the customer.
+ */
+export const dynamicUseSchema = z.object({
+  version: z.number().int().positive().nullable(),
+  items: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      source: dynamicSourceSchema,
+      mode: z.enum(["active", "shadow"]),
+    }),
+  ),
+  agents: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      area: areaIdSchema,
+      source: dynamicSourceSchema,
+      mode: z.enum(["active", "shadow"]),
+    }),
+  ),
+});
+export type DynamicUse = z.infer<typeof dynamicUseSchema>;
+
 export const engagementSchema = z.object({
   version: z.literal(1),
   runId: z.string().min(1),
   tier: tierIdSchema,
   instructionsVersion: z.string().min(1),
+  /** The version of the dynamic layer this run used, with the entries that applied. */
+  dynamic: dynamicUseSchema,
   /** Always every guardrail. */
   guardrails: z
     .array(guardrailIdSchema)

@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { tiers } from "@swarm/shared";
+import expected from "../src/synthetic-target/expected.json" with { type: "json" };
 import { getCredits } from "../src/api/src/credits.js";
 import { emailHash, parseEmail } from "../src/api/src/identity.js";
 import { MemoryStore } from "../src/api/src/storage/memory.js";
 import { cdkArgs } from "./deploy.js";
 import { grantComp, type GrantDeps } from "./grant-credit.js";
+import { evaluateGate } from "./learning.js";
 import { secretParameterNames } from "./secrets.js";
 import { parseNetwork, runTaskArgs } from "./synthetic-target.js";
 import {
@@ -198,5 +201,71 @@ describe("synthetic target helpers", () => {
     );
     expect(args.join(" ")).toContain("assignPublicIp=ENABLED");
     expect(args.join(" ")).toContain("securityGroups=[sg-1]");
+  });
+});
+
+describe("the regression gate", () => {
+  const finding = (agent: string, title: string) => ({ agent, title });
+  const report = (findings: { agent: string; title: string }[]) => ({
+    tier: "probe" as const,
+    findings: findings as never,
+  });
+  const seeded = expected.findings
+    .filter((f) => tiers.probe.agents.includes(f.agent))
+    .map((f) => finding(f.agent, f.titleIncludes));
+  const learnedTitle = expected.learned[0]!.titleIncludes;
+
+  it("passes when every seeded issue the depth can reach was found and nothing else was", () => {
+    expect(evaluateGate({ report: report(seeded), logins: 2, results: null })).toEqual({
+      found: seeded.length,
+      expected: seeded.length,
+      stray: 0,
+    });
+  });
+
+  it("counts a missing seeded issue and a stray finding, but not the learned issue the target seeds on purpose", () => {
+    const missing = evaluateGate({ report: report(seeded.slice(1)), logins: 2, results: null });
+    expect(missing.found).toBe(seeded.length - 1);
+    const stray = evaluateGate({
+      report: report([...seeded, finding("zap", "Something nobody seeded")]),
+      logins: 2,
+      results: null,
+    });
+    expect(stray.stray).toBe(1);
+    const learned = evaluateGate({
+      report: report([...seeded, finding("dyn-debug-vars", learnedTitle)]),
+      logins: 2,
+      results: null,
+    });
+    expect(learned.stray).toBe(0);
+    // The same finding from an agent that is not a learned one is stray.
+    expect(
+      evaluateGate({
+        report: report([...seeded, finding("zap", learnedTitle)]),
+        logins: 2,
+        results: null,
+      }).stray,
+    ).toBe(1);
+  });
+
+  it("counts what a candidate in shadow says it would raise: the seeded learned issue is fine, anything else is stray", () => {
+    const results = (title: string) => ({
+      version: 2,
+      items: [],
+      agents: [],
+      wouldRaise: [{ agent: "dyn-x", check: "c", title, component: "GET /x" }],
+    });
+    expect(
+      evaluateGate({ report: report(seeded), logins: 2, results: results(learnedTitle) }).stray,
+    ).toBe(0);
+    expect(
+      evaluateGate({ report: report(seeded), logins: 2, results: results("A false alarm") }).stray,
+    ).toBe(1);
+  });
+
+  it("does not expect what needs more logins than the run had", () => {
+    const one = evaluateGate({ report: report([]), logins: 1, results: null });
+    const two = evaluateGate({ report: report([]), logins: 2, results: null });
+    expect(one.expected).toBeLessThan(two.expected);
   });
 });

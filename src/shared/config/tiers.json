@@ -6,7 +6,6 @@
     "description": "Shallow scan. Passive, unauthenticated checks of DNS, the public surface, TLS and CORS. Quick and light, built for frequent runs.",
     "logins": 0,
     "wallClockMinutes": 10,
-    "steering": false,
     "deep": false,
     "agents": ["dns", "surface", "tls", "cors"]
   },
@@ -17,7 +16,6 @@
     "description": "Light scan. Every passive check plus a review of how sign-in works, using one login.",
     "logins": 1,
     "wallClockMinutes": 20,
-    "steering": false,
     "deep": false,
     "agents": ["dns", "surface", "bundle", "tls", "zap", "cors", "authn"]
   },
@@ -28,7 +26,6 @@
     "description": "Medium scan. Authenticated testing across two roles, with session, access-control and AI/LLM checks.",
     "logins": 2,
     "wallClockMinutes": 40,
-    "steering": true,
     "deep": true,
     "agents": [
       "dns",
@@ -51,7 +48,6 @@
     "description": "Deep scan. Every agent and all four logins, including business-logic and privilege-escalation testing, with the fullest report.",
     "logins": 4,
     "wallClockMinutes": 60,
-    "steering": true,
     "deep": true,
     "agents": [
       "dns",

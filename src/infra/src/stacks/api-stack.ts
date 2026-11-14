@@ -9,7 +9,7 @@ import {
   type StackProps,
   Validations,
 } from "aws-cdk-lib";
-import { runtimeConfig } from "@swarm/shared/server";
+import { learningConfig, runtimeConfig } from "@swarm/shared/server";
 import { Rule, Schedule } from "aws-cdk-lib/aws-events";
 import { LambdaFunction } from "aws-cdk-lib/aws-events-targets";
 import { HttpApi, HttpMethod, HttpStage, CfnStage } from "aws-cdk-lib/aws-apigatewayv2";
@@ -46,6 +46,10 @@ const API_PREFIXES = ["users", "auth", "suppression"] as const;
 const ADMIN_WRITE_PREFIXES = ["admin"] as const;
 /** Concurrency pool state (read and written with compare-and-swap by every function that starts or ends a run). */
 const POOL_PREFIX = "admin/pools";
+/** The dynamic layer (learned items and agents): global, kept apart from every customer's data. */
+const LEARNING_PREFIX = "learning";
+/** The anonymised run index, which the learning pass adds its own cost line to. */
+const RUN_INDEX_PREFIX = "admin/run-index";
 
 /**
  * The API: Hono on Lambda behind an HTTP API, the IAM-protected internal API the agent tasks call,
@@ -62,6 +66,7 @@ export class ApiStack extends Stack {
   readonly internalInvokeArn: string;
   readonly prepareFunction: IFunction;
   readonly finalizeFunction: IFunction;
+  readonly learnFunction: IFunction;
   readonly reaperFunction: IFunction;
   readonly eventApi: EventApi;
   readonly runsNamespace: ChannelNamespace;
@@ -164,6 +169,24 @@ export class ApiStack extends Stack {
         conditions: { StringLike: { "s3:prefix": prefixes.map((p) => `${p}/*`) } },
       }),
     ];
+    /** Invoking `au.` inference profiles by id, in either Australian region, and only through the profile. */
+    const bedrockInvoke = (profileIds: readonly string[]) => {
+      const profiles = profileIds.map(
+        (id) =>
+          `arn:${this.partition}:bedrock:${this.region}:${this.account}:inference-profile/${id}`,
+      );
+      return [
+        new PolicyStatement({ actions: ["bedrock:InvokeModel"], resources: profiles }),
+        new PolicyStatement({
+          actions: ["bedrock:InvokeModel"],
+          resources: profileIds.map(
+            (id) =>
+              `arn:${this.partition}:bedrock:*::foundation-model/${id.replace(/^[a-z]+\./, "")}`,
+          ),
+          conditions: { StringLike: { "bedrock:InferenceProfileArn": profiles } },
+        }),
+      ];
+    };
     const sendMail = new PolicyStatement({
       actions: ["ses:SendEmail"],
       // In the SES sandbox the recipient's identity is authorised too, hence identity/*.
@@ -280,6 +303,8 @@ export class ApiStack extends Stack {
     for (const statement of [
       ...readSecrets,
       ...bucketAccess(["users"], ["s3:GetObject", "s3:PutObject"]),
+      // Pins the run to a version of the dynamic layer (and creates the first one on first use).
+      ...bucketAccess([LEARNING_PREFIX], ["s3:GetObject", "s3:PutObject"]),
     ]) {
       internalFunction.addToRolePolicy(statement);
     }
@@ -326,10 +351,22 @@ export class ApiStack extends Stack {
       { memorySize: 1024, timeout: Duration.minutes(3), environment: orchestratorEnvironment },
       "Stops tasks and executions that outlived their run, and closes their runs",
     );
+    const learn = orchestrator(
+      "LearnFunction",
+      "learn",
+      {
+        memorySize: 1024,
+        // The pass has its own hard limit (learning.json); this only has to be longer.
+        timeout: Duration.seconds(learningConfig.learner.timeoutSeconds + 30),
+        environment: orchestratorEnvironment,
+      },
+      "Run step after the PDF: the learning pass reviews the closed run and may publish a new version of the dynamic layer",
+    );
     this.prepareFunction = prepare;
     this.finalizeFunction = finalize;
+    this.learnFunction = learn;
     this.reaperFunction = reaper;
-    for (const fn of [prepare, finalize, reaper]) {
+    for (const fn of [prepare, finalize, reaper, learn]) {
       for (const statement of [
         ...readSecrets,
         ...bucketAccess(["users"], ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]),
@@ -337,6 +374,15 @@ export class ApiStack extends Stack {
       ]) {
         fn.addToRolePolicy(statement);
       }
+    }
+    // The learner: reads the closed run and the layer, writes versions, counters, log and cached
+    // sources, adds its cost line to the run index, and invokes only the configured models.
+    for (const statement of [
+      ...bucketAccess([LEARNING_PREFIX], ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]),
+      ...bucketAccess([RUN_INDEX_PREFIX], ["s3:GetObject", "s3:PutObject"]),
+      ...bedrockInvoke([learningConfig.learnerModelId, learningConfig.fallbackModelId]),
+    ]) {
+      learn.addToRolePolicy(statement);
     }
     for (const fn of [finalize, reaper]) {
       for (const statement of [...bucketAccess(ADMIN_WRITE_PREFIXES, ["s3:PutObject"]), sendMail]) {
@@ -444,6 +490,7 @@ export class ApiStack extends Stack {
       prepare,
       finalize,
       reaper,
+      learn,
     ];
     for (const fn of functions) {
       Validations.of(fn).acknowledge({
@@ -452,9 +499,13 @@ export class ApiStack extends Stack {
       });
       for (const id of [
         "AwsSolutions-IAM5[Resource::*]",
-        ...[...API_PREFIXES, ...ADMIN_WRITE_PREFIXES, POOL_PREFIX].map(
-          (p) => `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:s3:::${bucketName}/${p}/*]`,
-        ),
+        ...[
+          ...API_PREFIXES,
+          ...ADMIN_WRITE_PREFIXES,
+          POOL_PREFIX,
+          LEARNING_PREFIX,
+          RUN_INDEX_PREFIX,
+        ].map((p) => `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:s3:::${bucketName}/${p}/*]`),
         `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:ses:${this.region}:${this.account}:identity/*]`,
         `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:ecs:${this.region}:${this.account}:task/${RUN_CLUSTER}/*]`,
         `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:states:${this.region}:${this.account}:execution:${RUN_STATE_MACHINE}:*]`,
@@ -462,6 +513,13 @@ export class ApiStack extends Stack {
       ]) {
         Validations.of(fn).acknowledge({ id, reason });
       }
+    }
+    for (const id of [learningConfig.learnerModelId, learningConfig.fallbackModelId]) {
+      Validations.of(learn).acknowledge({
+        id: `AwsSolutions-IAM5[Resource::arn:<AWS::Partition>:bedrock:*::foundation-model/${id.replace(/^[a-z]+\./, "")}]`,
+        reason:
+          "An au. inference profile routes to the model in either Australian region, so the foundation model ARN needs a region wildcard; it is usable only through the profile (condition).",
+      });
     }
     Validations.of(this.httpApi).acknowledge({
       id: "AwsSolutions-APIG4",

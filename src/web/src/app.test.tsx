@@ -198,7 +198,7 @@ describe("Live swarm view", () => {
     renderApp("/demo?autoplay=0");
     await userEvent.click(await screen.findByRole("button", { name: /^IDOR/ }));
     expect(await screen.findByTestId("agent-drawer")).toBeInTheDocument();
-    expect(screen.getByLabelText(/steer this agent/i)).toBeDisabled();
+    expect(screen.queryByLabelText(/steer this agent/i)).toBeNull();
   });
 
   it("exposes the motion mode on the canvas", async () => {

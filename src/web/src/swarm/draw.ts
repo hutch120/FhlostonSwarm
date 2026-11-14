@@ -148,10 +148,9 @@ function drawEffect(
     }
     case "clear":
     case "gap":
-    case "steer":
     case "verify": {
       if (!at) break;
-      if (e.kind === "gap" || e.kind === "steer") ctx.setLineDash([4, 4]);
+      if (e.kind === "gap") ctx.setLineDash([4, 4]);
       withGlow(ctx, scene.motion === "full", colour, 10);
       ctx.beginPath();
       ctx.arc(at.x, at.y, 18 + k * 20, 0, TAU);

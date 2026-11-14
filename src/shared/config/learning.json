@@ -1,0 +1,63 @@
+{
+  "enabled": true,
+  "learnerModelId": "au.anthropic.claude-opus-4-6-v1",
+  "fallbackModelId": "au.anthropic.claude-sonnet-4-6",
+  "learner": {
+    "timeoutSeconds": 150,
+    "maxCalls": 3,
+    "maxInputTokens": 60000,
+    "maxOutputTokens": 8000,
+    "maxTokensPerCall": 3000,
+    "spendCapUsd": 1.5,
+    "maxDigestChars": 9000,
+    "maxSourceChars": 5000
+  },
+  "limits": {
+    "maxActiveItems": 40,
+    "maxDynamicAgents": 8,
+    "maxChecksPerAgent": 4,
+    "maxPathsPerCheck": 6,
+    "maxChangesPerRun": 4,
+    "retireAfterRuns": 30,
+    "shadowRuns": 3,
+    "maxRetained": 40,
+    "maxItemChars": 600,
+    "itemsPerPrompt": 12,
+    "maxSeverity": "medium"
+  },
+  "dynamicAgentsPerRun": { "scout": 0, "sweep": 0, "probe": 2, "siege": 3 },
+  "sources": [
+    {
+      "id": "owasp-top10",
+      "name": "OWASP Top 10",
+      "url": "https://top10.owasp.org/2025/",
+      "kind": "html",
+      "refreshHours": 24,
+      "maxBytes": 600000
+    },
+    {
+      "id": "owasp-llm-top10",
+      "name": "OWASP Top 10 for LLM Applications",
+      "url": "https://genai.owasp.org/llm-top-10/",
+      "kind": "html",
+      "refreshHours": 24,
+      "maxBytes": 2000000
+    },
+    {
+      "id": "cisa-kev",
+      "name": "CISA Known Exploited Vulnerabilities",
+      "url": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+      "kind": "cisa-kev",
+      "refreshHours": 24,
+      "maxBytes": 3000000
+    },
+    {
+      "id": "owasp-cheatsheets",
+      "name": "OWASP Cheat Sheet Series",
+      "url": "https://cheatsheetseries.owasp.org/IndexTopTen.html",
+      "kind": "html",
+      "refreshHours": 72,
+      "maxBytes": 400000
+    }
+  ]
+}

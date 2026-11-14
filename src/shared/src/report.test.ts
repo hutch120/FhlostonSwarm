@@ -50,6 +50,7 @@ const engagement = (overrides: Partial<Engagement> = {}): Engagement => ({
   runId: DEMO_RUN_ID,
   tier: "siege",
   instructionsVersion: INSTRUCTIONS_VERSION,
+  dynamic: { version: null, items: [], agents: [] },
   guardrails: [...GUARDRAIL_IDS],
   scope: { hosts: ["portal.example"], readOnly: true },
   agents: tierRoster("siege").agents.map((a) => ({ id: a.id, enabled: true })),

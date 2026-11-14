@@ -28,6 +28,7 @@ export function buildApp(config: SwarmConfig, app = new App()): App {
     internalInvokeArn: api.internalInvokeArn,
     prepareFunction: api.prepareFunction,
     finalizeFunction: api.finalizeFunction,
+    learnFunction: api.learnFunction,
   });
   const edge = new EdgeStack(app, "SwarmEdge", {
     env,

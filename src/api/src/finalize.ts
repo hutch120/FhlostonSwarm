@@ -206,6 +206,7 @@ export async function finalizeRun(
     gaps: summary.gaps,
     findings: { total: summary.findings.total, bySeverity: summary.findings.bySeverity },
     instructionsVersion: report.instructionsVersion,
+    dynamicVersion: report.dynamic?.version ?? null,
     verification: { verified: report.counts.verified, unconfirmed: report.counts.unconfirmed },
     agents: summary.agents,
     cost: {

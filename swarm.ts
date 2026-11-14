@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { cdk, type CdkAction } from "./utils/deploy.js";
 import { grantCredit } from "./utils/grant-credit.js";
+import { gate, learn, rollback, setEnabled, status, versions } from "./utils/learning.js";
 import { login } from "./utils/login.js";
 import { requireSwarmAccount } from "./utils/aws.js";
 import { initSecrets } from "./utils/secrets.js";
@@ -103,6 +104,70 @@ program
       process.exitCode = 1;
     }
   });
+
+const guarded =
+  <A extends unknown[]>(fn: (...args: A) => Promise<void>) =>
+  async (...args: A): Promise<void> => {
+    try {
+      await requireSwarmAccount();
+      await fn(...args);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exitCode = 1;
+    }
+  };
+
+program
+  .command("learn")
+  .description(
+    "Run a learning pass: propose changes to the dynamic layer (learned items and agents) from a closed run and/or the allow-listed sources, and print the diff",
+  )
+  .option("--dry-run", "Work out the proposal and print it; write nothing")
+  .option("--apply", "Validate, apply and publish the change as a new version")
+  .option("--run <id>", "Review this closed run (default: the sources alone)")
+  .option("--force", "Ask the model even when neither the run nor the sources call for a change")
+  .action(guarded(learn));
+
+const learning = program
+  .command("learning")
+  .description(
+    "The dynamic layer: status, versions, rollback, kill switch and the regression gate",
+  );
+learning
+  .command("status")
+  .description(
+    "The active version, counts, the regression gate, the last passes and whether the learner model can be invoked",
+  )
+  .option("--test", "The test accounts' layer (learning/test/)")
+  .action(guarded(status));
+learning
+  .command("versions")
+  .description("Every version of the layer, newest last; * marks the one runs use")
+  .option("--test", "The test accounts' layer")
+  .action(guarded(versions));
+learning
+  .command("rollback")
+  .description("Point runs at an earlier version (nothing is deleted)")
+  .argument("<version>", "the version number")
+  .option("--test", "The test accounts' layer")
+  .action(guarded((version: string, opts: { test?: boolean }) => rollback(Number(version), opts)));
+learning
+  .command("disable")
+  .description("Kill switch: runs use the baseline only and nothing is learned")
+  .option("--test", "The test accounts' layer")
+  .action(guarded((opts: { test?: boolean }) => setEnabled(false, opts)));
+learning
+  .command("enable")
+  .description("Switch the layer back on")
+  .option("--test", "The test accounts' layer")
+  .action(guarded((opts: { test?: boolean }) => setEnabled(true, opts)));
+learning
+  .command("gate")
+  .description(
+    "Record the synthetic-target regression a candidate needs before it is promoted, from a finished run of the synthetic target",
+  )
+  .requiredOption("--run <id>", "the run of the synthetic target")
+  .action(guarded((opts: { run: string }) => gate(opts.run)));
 
 const syntheticTarget = program
   .command("synthetic-target")

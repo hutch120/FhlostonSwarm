@@ -1,6 +1,6 @@
 import type { RunEvent, RunState, Severity } from "@swarm/shared";
 
-export type Tone = "neutral" | "clear" | "info" | "finding" | "gap" | "verified" | "steer" | "done";
+export type Tone = "neutral" | "clear" | "info" | "finding" | "gap" | "verified" | "done";
 
 export interface LogLine {
   seq: number;
@@ -50,8 +50,6 @@ export function describeEvent(state: Pick<RunState, "agents">, e: RunEvent): Log
       return line(`done: ${e.payload.summary}`, "done");
     case "gap":
       return line(`scope gap: ${e.payload.reason}`, "gap");
-    case "steer":
-      return line(`steering: ${e.payload.message}`, "steer");
     case "complete":
       return line("run complete, report assembled", "done");
   }

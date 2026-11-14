@@ -5,6 +5,7 @@ import { HTTPException } from "hono/http-exception";
 import { ZodError, z } from "zod";
 import { appendEvents } from "./events.js";
 import { reject } from "./http.js";
+import { pinDynamic } from "./learning.js";
 import type { EventPublisher } from "./publisher.js";
 import { checkRunToken } from "./runtoken.js";
 import {
@@ -41,6 +42,7 @@ const EVIDENCE_NAMES = [
   "usage",
   "explorer-log",
   "engagement",
+  "dynamic-results",
 ] as const;
 const evidenceBody = z.object({
   name: z.enum(EVIDENCE_NAMES),
@@ -132,7 +134,14 @@ export function internalApp(deps: InternalDeps) {
   app.get("/input", async (c) => {
     const input = await getRunInput(store, c.get("emailHash"), c.get("runId"));
     if (!input) return c.json({ error: "not_found" }, 404);
-    return c.json(agentInputSchema.parse(buildAgentInput(input)));
+    const dynamic = await pinDynamic(
+      store,
+      c.get("emailHash"),
+      c.get("runId"),
+      c.get("run").test === true,
+      deps.now(),
+    );
+    return c.json(agentInputSchema.parse({ ...buildAgentInput(input), dynamic }));
   });
 
   app.post("/events", async (c) => {

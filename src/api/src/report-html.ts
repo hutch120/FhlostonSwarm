@@ -122,6 +122,22 @@ ${report.plan.notApplicable.length ? `<h4>Not applicable</h4>${list(report.plan.
 ${report.plan.notes.length ? list(report.plan.notes.map((n) => `<li>${e(n)}</li>`)) : ""}`
     : "";
 
+  const learned =
+    report.dynamic && report.dynamic.items.length + report.dynamic.agents.length > 0
+      ? `<h4>Learned knowledge used</h4>
+<p class="muted">The methodology also draws on items and checks that earlier scans and public sources added (version ${report.dynamic.version}). Entries marked as observing only were run in shadow and raised nothing.</p>
+${list([
+  ...report.dynamic.items.map(
+    (i) =>
+      `<li><strong>${e(i.title)}</strong> <span class="muted">(${i.mode === "active" ? "item" : "item, observing only"}; ${e(i.source.name)}, ${e(i.source.date)})</span></li>`,
+  ),
+  ...report.dynamic.agents.map(
+    (a) =>
+      `<li><strong>${e(a.title)}</strong> <span class="muted">(${a.mode === "active" ? "check" : "check, observing only"}; ${e(a.source.name)}, ${e(a.source.date)})</span></li>`,
+  ),
+])}`
+      : "";
+
   const phases = report.phases
     .map(
       (p) => `<h3>Phase ${p.phase} &mdash; ${e(p.name)}</h3>
@@ -198,6 +214,7 @@ ${
 <h2 id="scope">3. Scope and methodology</h2>
 <p>Target <code>${e(report.target)}</code>, scan depth <strong>${e(tier.name)}</strong>: ${e(tier.description)} All requests went through a scope guard that only allows the declared hosts, refuses private and metadata addresses, and was read-only for this run: only the sign-in submissions changed any state.</p>
 ${plan}
+${learned}
 <h4>Severity ratings</h4>
 <p class="muted">Critical: exploitable now with severe impact. High: serious weakness with a realistic attack. Medium: weakness that needs another condition. Low: hardening gap. Info: observation.</p>
 <h4>What we understood about the application</h4>

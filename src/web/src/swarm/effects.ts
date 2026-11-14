@@ -1,8 +1,7 @@
 import type { RunEvent } from "@swarm/shared";
 import { theme } from "../theme.js";
 
-export type EffectKind =
-  "dispatch" | "probe" | "clear" | "finding" | "gap" | "verify" | "steer" | "complete";
+export type EffectKind = "dispatch" | "probe" | "clear" | "finding" | "gap" | "verify" | "complete";
 
 export interface Effect {
   kind: EffectKind;
@@ -21,7 +20,6 @@ const TTL: Record<EffectKind, number> = {
   finding: 1.6,
   gap: 1.2,
   verify: 1.2,
-  steer: 1.4,
   complete: 2.2,
 };
 
@@ -50,8 +48,6 @@ export function effectFor(event: RunEvent, now: number): Effect | null {
       }
     case "verify":
       return make("verify", event.payload.verified ? theme.colour.success : theme.colour.warning);
-    case "steer":
-      return make("steer", theme.colour.accent);
     case "complete":
       return make("complete", theme.colour.success);
     default:
@@ -60,9 +56,4 @@ export function effectFor(event: RunEvent, now: number): Effect | null {
 }
 
 /** Visuals worth drawing in low-power mode; the rest is skipped to save battery. */
-export const LOW_POWER_KINDS: ReadonlySet<EffectKind> = new Set([
-  "finding",
-  "verify",
-  "steer",
-  "complete",
-]);
+export const LOW_POWER_KINDS: ReadonlySet<EffectKind> = new Set(["finding", "verify", "complete"]);

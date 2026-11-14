@@ -35,12 +35,12 @@ test.describe("replay smoke test", () => {
     expect(errors).toEqual([]);
   });
 
-  test("opens an agent drawer with a disabled steering box", async ({ page }) => {
+  test("opens an agent drawer", async ({ page }) => {
     await page.goto("/demo?speed=16");
     await page.getByRole("button", { name: /^IDOR/ }).click();
     const drawer = page.getByTestId("agent-drawer");
     await expect(drawer).toBeVisible();
-    await expect(drawer.getByLabel("Steer this agent")).toBeDisabled();
+    await expect(drawer.getByLabel("Steer this agent")).toHaveCount(0);
   });
 
   test("replay controls restart the run", async ({ page }) => {

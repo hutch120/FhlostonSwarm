@@ -5,3 +5,7 @@ export * from "./agent-input.js";
 export * from "./sigv4.js";
 export * from "./net.js";
 export * from "./engagement.js";
+export * from "./learning/schema.js";
+export * from "./learning/rules.js";
+export * from "./learning/layer.js";
+export * from "./learning/memory.js";

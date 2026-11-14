@@ -11,7 +11,7 @@ import { AGENTS, AREAS, DEMO_RUN_ID } from "./roster.js";
 
 /**
  * The scripted run that the replay player feeds through the reducer. It is data: a per-agent
- * plan (timing and outcome of every step) plus cross-checks, gaps and a steering message.
+ * plan (timing and outcome of every step) plus cross-checks and gaps.
  * `buildReplayEvents` turns it into schema-valid, seq-numbered RunEvents.
  */
 
@@ -389,13 +389,6 @@ const RUN_LEVEL_GAP = {
   reason: "Login slot 'other' was not provided, so read-only and support role checks were skipped.",
 };
 
-const STEER = {
-  at: 30500,
-  agent: "authz",
-  message: "Look harder at the admin endpoints, especially anything under /api/admin.",
-  directive: "Deep dive on F-01 with extra request budget for authz.",
-};
-
 const BASE_MS = Date.parse("2026-11-08T01:00:00.000Z");
 const iso = (offsetMs: number) => new Date(BASE_MS + offsetMs).toISOString();
 
@@ -502,14 +495,6 @@ export function buildReplayEvents(runId: string = DEMO_RUN_ID): RunEvent[] {
       type: "gap",
       agent: null,
       payload: { reason: RUN_LEVEL_GAP.reason, area: RUN_LEVEL_GAP.area },
-    },
-  });
-  timed.push({
-    at: STEER.at,
-    draft: {
-      type: "steer",
-      agent: STEER.agent,
-      payload: { message: STEER.message, directive: STEER.directive },
     },
   });
 

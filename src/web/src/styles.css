@@ -782,9 +782,6 @@ td.actions {
 .log-line[data-tone="gap"] .log-text {
   color: var(--warning);
 }
-.log-line[data-tone="steer"] .log-text {
-  color: var(--accent);
-}
 .drawer-head {
   display: flex;
   justify-content: space-between;
@@ -823,9 +820,6 @@ td.actions {
 }
 .steps [data-outcome="gap"] .step-outcome {
   color: var(--warning);
-}
-.steer textarea {
-  resize: vertical;
 }
 
 /* Report */

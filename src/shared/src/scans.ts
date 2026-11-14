@@ -3,7 +3,7 @@ import { runEventSchema, runStatusSchema, summarySchema, tierIdSchema } from "./
 import { tiers } from "./tiers.js";
 
 /** Bump when the terms or privacy text changes; stored with each acknowledgement. */
-export const TERMS_VERSION = "2026-11-10";
+export const TERMS_VERSION = "2026-11-14";
 
 /**
  * Saved scans (PLAN.md section 13). A scan is a saved configuration: which application (target and

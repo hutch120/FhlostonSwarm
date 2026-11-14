@@ -18,13 +18,70 @@ const fresh = () =>
 const finalState = () => applyEvents(fresh(), replayEvents);
 
 describe("applyEvent over the scripted run", () => {
+  it("adds a dynamic agent to the swarm when its first dispatch carries its spec, and only then", () => {
+    const spec = {
+      id: "dyn-debug-vars",
+      name: "Debug variables",
+      area: "unauth" as const,
+      colour: "#a3e635",
+      face: "hex" as const,
+      steps: [{ id: "vars", label: "Runtime variables endpoint" }],
+    };
+    const base = createRunState({
+      runId: DEMO_RUN_ID,
+      tier: "probe",
+      areas: AREAS.filter((a) => a.id === "recon"),
+      agents: AGENTS.filter((a) => a.area === "recon"),
+    });
+    const at = { ts: "2026-11-14T00:00:00.000Z", runId: DEMO_RUN_ID };
+    const dispatch = (seq: number, payload: { task: string; spec?: typeof spec }): RunEvent => ({
+      ...at,
+      seq,
+      type: "dispatch",
+      agent: spec.id,
+      payload,
+    });
+    // Without a spec an unknown agent is ignored, as before.
+    expect(applyEvent(base, dispatch(1, { task: "Look" })).agents[spec.id]).toBeUndefined();
+
+    let state = applyEvent(base, dispatch(1, { task: "Look", spec }));
+    expect(state.agentOrder.at(-1)).toBe(spec.id);
+    expect(state.agents[spec.id]).toMatchObject({ status: "dispatched", task: "Look", spec });
+    // Its area joins the areas panel when the depth did not already have it.
+    expect(state.areas.map((a) => a.id)).toEqual(["recon", "unauth"]);
+
+    state = applyEvents(state, [
+      {
+        ...at,
+        seq: 2,
+        type: "start",
+        agent: spec.id,
+        payload: { stepId: "vars", label: spec.steps[0]!.label },
+      },
+      {
+        ...at,
+        seq: 3,
+        type: "finish",
+        agent: spec.id,
+        payload: { outcome: "clear", stepId: "vars", label: spec.steps[0]!.label, requests: 1 },
+      },
+      { ...at, seq: 4, type: "agent-done", agent: spec.id, payload: { summary: "Done" } },
+    ]);
+    expect(state.agents[spec.id]).toMatchObject({ status: "done", progress: 1, stepsDone: 1 });
+    // A second dispatch with the spec again does not add it twice.
+    expect(
+      applyEvent(state, dispatch(5, { task: "Again", spec })).agentOrder.filter(
+        (id) => id === spec.id,
+      ),
+    ).toHaveLength(1);
+  });
+
   it("reaches the expected final state", () => {
     const state = finalState();
     expect(state.status).toBe("complete");
     expect(state.lastSeq).toBe(replayEvents.length);
     expect(state.checks).toBe(41);
     expect(state.gaps).toHaveLength(3);
-    expect(state.steering).toHaveLength(1);
     expect(state.findings).toHaveLength(11);
     expect(Object.values(state.agents).every((a) => a.status === "done" && a.progress === 1)).toBe(
       true,

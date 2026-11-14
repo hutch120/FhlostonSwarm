@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
-import { runtimeConfig, tierLimits } from "@swarm/shared/server";
+import { learningConfig, runtimeConfig, tierLimits } from "@swarm/shared/server";
 import { afterAll, describe, expect, it } from "vitest";
 import { lambdaEnvSchemas } from "../../api/src/env.js";
 import { buildApp } from "./app.js";
@@ -206,7 +206,7 @@ describe("infrastructure app", () => {
         }),
       },
     });
-    t.resourceCountIs("AWS::Lambda::Function", 7);
+    t.resourceCountIs("AWS::Lambda::Function", 8);
     t.hasResourceProperties("AWS::ApiGatewayV2::Stage", {
       StageName: "$default",
       DefaultRouteSettings: { ThrottlingRateLimit: 20, ThrottlingBurstLimit: 40 },
@@ -256,9 +256,29 @@ describe("infrastructure app", () => {
   it("API: the reaper runs on a short schedule and the run functions exist", () => {
     const t = template("SwarmApi");
     t.hasResourceProperties("AWS::Events::Rule", { ScheduleExpression: "rate(5 minutes)" });
-    for (const handler of ["prepare", "finalize", "reaper"]) {
+    for (const handler of ["prepare", "finalize", "reaper", "learn"]) {
       t.hasResourceProperties("AWS::Lambda::Function", { Handler: `index.${handler}` });
     }
+  });
+
+  it("API: the learner has its own function with a hard limit, and may invoke only the configured models", () => {
+    const t = template("SwarmApi");
+    t.hasResourceProperties("AWS::Lambda::Function", {
+      Handler: "index.learn",
+      Timeout: learningConfig.learner.timeoutSeconds + 30,
+    });
+    const statements = Object.values(t.findResources("AWS::IAM::Policy")).flatMap(
+      (p) =>
+        p.Properties.PolicyDocument.Statement as { Action: string | string[]; Resource: unknown }[],
+    );
+    const bedrock = statements.filter((s) => JSON.stringify(s.Action).includes("bedrock:"));
+    const allowed = new Set([learningConfig.learnerModelId, learningConfig.fallbackModelId]);
+    const mentioned = JSON.stringify(bedrock).match(/inference-profile\/[\w.:-]+/g) ?? [];
+    expect(mentioned.length).toBeGreaterThan(0);
+    for (const m of mentioned) expect(allowed.has(m.replace("inference-profile/", ""))).toBe(true);
+    // The learning layer is a prefix of its own; the customer-facing API cannot reach it.
+    const resources = JSON.stringify(statements.map((s) => s.Resource));
+    expect(resources).toContain("/learning/*");
   });
 
   it("API: every function is deployed with every variable it reads at start-up", () => {
@@ -281,6 +301,7 @@ describe("infrastructure app", () => {
       ["Authorizes browsers", required(lambdaEnvSchemas.streamAuth)],
       ["Run step 1", required(lambdaEnvSchemas.orchestrator)],
       ["Run last step", required(lambdaEnvSchemas.orchestrator)],
+      ["Run step after the PDF", required(lambdaEnvSchemas.orchestrator)],
       ["Stops tasks and executions", required(lambdaEnvSchemas.orchestrator)],
     ];
     for (const [description, keys] of expectations) {
@@ -467,7 +488,9 @@ describe("infrastructure app", () => {
       expect(definition).toContain("RenderPdf");
       expect(definition).toContain("pdf.mjs");
       expect(definition).toContain("$.prepared.token");
-      expect(definition).toMatch(/RenderPdf[\s\S]*States\.ALL[\s\S]*Done/);
+      expect(definition).toMatch(/RenderPdf[\s\S]*States\.ALL[\s\S]*Learn/);
+      // Then the learning pass reviews the closed run: best effort, a failure goes to Done.
+      expect(definition).toMatch(/Learn[\s\S]*States\.ALL[\s\S]*Done/);
       t.hasResourceProperties("AWS::StepFunctions::StateMachine", {
         LoggingConfiguration: Match.objectLike({ Level: "ERROR", IncludeExecutionData: false }),
       });

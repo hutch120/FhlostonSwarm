@@ -72,6 +72,10 @@ export const llmUsageSchema = z.object({
 });
 export type LlmUsage = z.infer<typeof llmUsageSchema>;
 
+/** What the post-run learning pass used: tokens and seconds, priced like any other model call. */
+export const learnerCostSchema = llmUsageSchema.extend({ seconds: z.number().nonnegative() });
+export type LearnerCost = z.infer<typeof learnerCostSchema>;
+
 /** What one run consumed and what we estimate it cost. Staff only: never part of a customer response. */
 export const runCostSchema = z.object({
   test: z.boolean().optional(),
@@ -106,9 +110,21 @@ export const runCostSchema = z.object({
   }),
   requests: z.number().int().nonnegative(),
   checks: z.number().int().nonnegative(),
+  /** The learning pass that reviewed the run, added once it has finished (its own line for staff). */
+  learner: learnerCostSchema.optional(),
   totalUsd: z.number().nonnegative(),
 });
 export type RunCost = z.infer<typeof runCostSchema>;
+
+/** Adds the learner's own line to a run's cost, and to its total. */
+export function withLearnerCost(cost: RunCost, learner: LearnerCost): RunCost {
+  const had = cost.learner?.usd ?? 0;
+  return {
+    ...cost,
+    learner,
+    totalUsd: Math.round((cost.totalUsd - had + learner.usd) * 1e6) / 1e6,
+  };
+}
 
 export interface CostInputs {
   runId: string;

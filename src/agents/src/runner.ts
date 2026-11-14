@@ -1,5 +1,17 @@
-import { AGENTS, findingSchema, redactDeep, tiers, type Finding } from "@swarm/shared";
-import { PLAN_DEPENDENT_AGENTS, type AgentInput, type Engagement } from "@swarm/shared/server";
+import {
+  AGENTS,
+  findingSchema,
+  redactDeep,
+  tiers,
+  type AgentSpec,
+  type Finding,
+} from "@swarm/shared";
+import {
+  PLAN_DEPENDENT_AGENTS,
+  type AgentInput,
+  type DynamicResults,
+  type Engagement,
+} from "@swarm/shared/server";
 import { authnAgent } from "./agents/authn.js";
 import { authzAgent } from "./agents/authz.js";
 import { bundleAgent } from "./agents/bundle.js";
@@ -17,9 +29,16 @@ import { Budget, BudgetExhausted } from "./budget.js";
 import type { Emitter } from "./emitter.js";
 import type { Explorer } from "./explorer/explorer.js";
 import { RequestFailed, type HttpResult, type ScopedHttp } from "./http.js";
+import { DynamicRuntime } from "./learning/dynamic.js";
 import type { LlmMeter } from "./llm/meter.js";
 import type { LlmClient } from "./llm/types.js";
-import { agentEnabled, planEngagement, stepSkipped } from "./planner.js";
+import {
+  DYNAMIC_SELECTION,
+  agentEnabled,
+  planEngagement,
+  stepSkipped,
+  type DynamicSelection,
+} from "./planner.js";
 import type { AgentModule, DnsClient, StepContext, StepResult } from "./types.js";
 import { verifyCandidates, type Candidate } from "./verifier.js";
 
@@ -70,6 +89,8 @@ export interface RunnerResult {
   engagement: Engagement | null;
   /** What the verifier concluded (deep depths); null when it did not run. */
   verification: { confirmed: number; unconfirmed: number; notChecked: number } | null;
+  /** What the run did with the dynamic layer; null when no layer was in use. */
+  dynamic: DynamicResults | null;
 }
 
 /** The verifier is not a roster agent; its events carry this id. */
@@ -162,8 +183,11 @@ async function runPlanned(deps: RunnerDeps): Promise<RunnerResult> {
     stoppedBy: null,
     engagement: null,
     verification: null,
+    dynamic: null,
   };
   const candidates: Candidate[] = [];
+  const dyn: { runtime: DynamicRuntime | null } = { runtime: null };
+  const dynamicSpecs = new Map<string, AgentSpec>();
 
   for (const spec of planned) {
     if (MODULES[spec.id]) continue;
@@ -192,131 +216,160 @@ async function runPlanned(deps: RunnerDeps): Promise<RunnerResult> {
     result.engagement = ctx.plan;
   };
 
-  /** The agents in roster order. Returns true when the run was cut short and nothing more should run. */
-  const runAgentLoop = async (): Promise<boolean> => {
-    for (const spec of planned) {
-      const module = MODULES[spec.id];
-      if (!module) continue;
-      if (deep && !ctx.plan && (PLAN_DEPENDENT_AGENTS as readonly string[]).includes(spec.id)) {
-        await planOnce();
-      }
-
-      result.agentsRun.push(spec.id);
-      emitter.dispatch(spec.id, module.task);
-      if (!agentEnabled(ctx.plan, spec.id)) {
-        const reason = ctx.plan?.agents.find((a) => a.id === spec.id)?.reason;
-        emitter.agentDone(spec.id, `Not applicable: ${reason ?? "nothing to test."}`);
-        continue;
-      }
-
-      let agentChecks = 0;
-      let agentFindings = 0;
-      let agentGaps = 0;
-
-      for (const step of spec.steps) {
-        if (deps.aborted?.()) {
-          result.stoppedBy = "aborted";
-          return true;
-        }
-        if (stepSkipped(ctx.plan, spec.id, step.id)) continue;
-        const implementation = module.steps[step.id];
-        if (!implementation) throw new Error(`agent ${spec.id} has no step ${step.id}`);
-
-        try {
-          budget.useStep();
-        } catch (err) {
-          if (!(err instanceof BudgetExhausted)) throw err;
-          emitter.gap(spec.id, err.reason, spec.area);
-          result.gaps += 1;
-          result.stoppedBy = err.kind;
-          return true;
-        }
-
-        emitter.start(spec.id, step.id, step.label);
-        const requestsBefore = budget.requests;
-        let outcome: StepResult;
-        let exhausted: BudgetExhausted | null = null;
-        try {
-          outcome = await implementation(ctx);
-        } catch (err) {
-          if (err instanceof BudgetExhausted) {
-            exhausted = err;
-            outcome = { outcome: "gap", reason: err.reason };
-          } else if (err instanceof RequestFailed) {
-            outcome = {
-              outcome: "gap",
-              reason: err.blocked
-                ? `The scope guard refused a request this check needed (${err.reason}).`
-                : `The target did not answer this check (${err.reason}).`,
-            };
-          } else {
-            console.error(JSON.stringify({ msg: "step_failed", agent: spec.id, step: step.id }));
-            outcome = { outcome: "gap", reason: "This check failed unexpectedly and was skipped." };
-          }
-        }
-
-        const requests = budget.requests - requestsBefore;
-        switch (outcome.outcome) {
-          case "finding": {
-            const { replay, ...draft } = outcome.finding;
-            const finding = findingSchema.parse({
-              id: idOf(result.findings.length + 1),
-              ...redactDeep(draft, { secrets: secrets() }),
-              area: spec.area,
-              agent: spec.id,
-              verified: false,
-              status: "unverified",
-            });
-            result.findings.push(finding);
-            candidates.push({ finding, stepId: step.id, replay });
-            agentFindings += 1;
-            emitter.finish(spec.id, step.id, step.label, requests, { outcome: "finding", finding });
-            break;
-          }
-          case "gap":
-            emitter.finish(spec.id, step.id, step.label, requests, outcome);
-            emitter.gap(spec.id, outcome.reason, spec.area);
-            result.gaps += 1;
-            agentGaps += 1;
-            break;
-          default:
-            emitter.finish(spec.id, step.id, step.label, requests, outcome);
-            if (outcome.outcome === "info") {
-              for (const reason of outcome.gaps ?? []) {
-                emitter.gap(spec.id, reason, spec.area);
-                result.gaps += 1;
-                agentGaps += 1;
-              }
-            }
-        }
-        if (outcome.outcome !== "gap") {
-          result.checks += 1;
-          agentChecks += 1;
-        }
-
-        if (exhausted) {
-          result.stoppedBy = exhausted.kind;
-          return true;
-        }
-      }
-
-      emitter.agentDone(
-        spec.id,
-        module.doneSummary({ checks: agentChecks, findings: agentFindings, gaps: agentGaps }),
-      );
+  /** Runs one agent's checks under the plan. Returns true when the run was cut short and nothing more should run. */
+  const runSpec = async (spec: AgentSpec, module: AgentModule): Promise<boolean> => {
+    if (deep && !ctx.plan && (PLAN_DEPENDENT_AGENTS as readonly string[]).includes(spec.id)) {
+      await planOnce();
     }
+
+    result.agentsRun.push(spec.id);
+    emitter.dispatch(spec.id, module.task, dynamicSpecs.get(spec.id));
+    if (!agentEnabled(ctx.plan, spec.id)) {
+      const reason = ctx.plan?.agents.find((a) => a.id === spec.id)?.reason;
+      emitter.agentDone(spec.id, `Not applicable: ${reason ?? "nothing to test."}`);
+      return false;
+    }
+
+    let agentChecks = 0;
+    let agentFindings = 0;
+    let agentGaps = 0;
+
+    for (const step of spec.steps) {
+      if (deps.aborted?.()) {
+        result.stoppedBy = "aborted";
+        return true;
+      }
+      if (stepSkipped(ctx.plan, spec.id, step.id)) continue;
+      const implementation = module.steps[step.id];
+      if (!implementation) throw new Error(`agent ${spec.id} has no step ${step.id}`);
+
+      try {
+        budget.useStep();
+      } catch (err) {
+        if (!(err instanceof BudgetExhausted)) throw err;
+        emitter.gap(spec.id, err.reason, spec.area);
+        result.gaps += 1;
+        result.stoppedBy = err.kind;
+        return true;
+      }
+
+      emitter.start(spec.id, step.id, step.label);
+      const requestsBefore = budget.requests;
+      let outcome: StepResult;
+      let exhausted: BudgetExhausted | null = null;
+      try {
+        outcome = await implementation(ctx);
+      } catch (err) {
+        if (err instanceof BudgetExhausted) {
+          exhausted = err;
+          outcome = { outcome: "gap", reason: err.reason };
+        } else if (err instanceof RequestFailed) {
+          outcome = {
+            outcome: "gap",
+            reason: err.blocked
+              ? `The scope guard refused a request this check needed (${err.reason}).`
+              : `The target did not answer this check (${err.reason}).`,
+          };
+        } else {
+          console.error(JSON.stringify({ msg: "step_failed", agent: spec.id, step: step.id }));
+          outcome = { outcome: "gap", reason: "This check failed unexpectedly and was skipped." };
+        }
+      }
+
+      const requests = budget.requests - requestsBefore;
+      switch (outcome.outcome) {
+        case "finding": {
+          const { replay, ...draft } = outcome.finding;
+          const finding = findingSchema.parse({
+            id: idOf(result.findings.length + 1),
+            ...redactDeep(draft, { secrets: secrets() }),
+            area: spec.area,
+            agent: spec.id,
+            verified: false,
+            status: "unverified",
+          });
+          result.findings.push(finding);
+          candidates.push({ finding, stepId: step.id, replay });
+          agentFindings += 1;
+          emitter.finish(spec.id, step.id, step.label, requests, { outcome: "finding", finding });
+          break;
+        }
+        case "gap":
+          emitter.finish(spec.id, step.id, step.label, requests, outcome);
+          emitter.gap(spec.id, outcome.reason, spec.area);
+          result.gaps += 1;
+          agentGaps += 1;
+          break;
+        default:
+          emitter.finish(spec.id, step.id, step.label, requests, outcome);
+          if (outcome.outcome === "info") {
+            for (const reason of outcome.gaps ?? []) {
+              emitter.gap(spec.id, reason, spec.area);
+              result.gaps += 1;
+              agentGaps += 1;
+            }
+          }
+      }
+      if (outcome.outcome !== "gap") {
+        result.checks += 1;
+        agentChecks += 1;
+      }
+
+      if (exhausted) {
+        result.stoppedBy = exhausted.kind;
+        return true;
+      }
+    }
+
+    emitter.agentDone(
+      spec.id,
+      module.doneSummary({ checks: agentChecks, findings: agentFindings, gaps: agentGaps }),
+    );
     return false;
   };
 
+  /** The agents in roster order, then the learned ones. Returns true when the run was cut short. */
+  const runAgentLoop = async (): Promise<boolean> => {
+    for (const spec of planned) {
+      const module = MODULES[spec.id];
+      if (module && (await runSpec(spec, module))) return true;
+    }
+    if (!deep) return false;
+
+    // The dynamic layer (PLAN.md section 9): promoted agents run like any other; candidates only observe.
+    await planOnce();
+    const selection = ctx.shared.get(DYNAMIC_SELECTION) as DynamicSelection | undefined;
+    const dynamic = new DynamicRuntime(
+      input.dynamic?.version ?? null,
+      selection?.items ?? [],
+      selection?.agents ?? [],
+    );
+    dyn.runtime = dynamic;
+    for (const { spec, module } of dynamic.active()) {
+      dynamicSpecs.set(spec.id, spec);
+      if (await runSpec(spec, module)) return true;
+    }
+    await dynamic.runShadow(ctx, {
+      useStep: () => budget.useStep(),
+      aborted: deps.aborted,
+    });
+    return false;
+  };
+
+  const finish = (): RunnerResult => {
+    result.dynamic = dyn.runtime?.results() ?? null;
+    return result;
+  };
+
   const stopped = await runAgentLoop();
-  if (stopped) return result;
+  if (stopped) return finish();
 
   // Verification: every candidate of a deep depth is re-tested independently.
   if (deep && candidates.length > 0 && !deps.aborted?.()) {
     result.verification = await verifyCandidates(candidates, {
       emitter,
       verifier: VERIFIER,
-      modules: MODULES,
+      modules: { ...MODULES, ...(dyn.runtime?.verifierModules() ?? {}) },
       freshContext: () => stepContext({ ...deps }),
       redact: (text) => redactDeep(text, { secrets: secrets() }),
       aborted: deps.aborted,
@@ -325,6 +378,7 @@ async function runPlanned(deps: RunnerDeps): Promise<RunnerResult> {
         if (found) {
           found.verified = verified;
           found.status = verified ? "open" : "unconfirmed";
+          if (!verified) dyn.runtime?.noteUnconfirmed(found.agent);
         }
       },
     });
@@ -336,5 +390,5 @@ async function runPlanned(deps: RunnerDeps): Promise<RunnerResult> {
       result.gaps += 1;
     }
   }
-  return result;
+  return finish();
 }

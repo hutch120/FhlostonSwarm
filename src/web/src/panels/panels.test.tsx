@@ -152,21 +152,6 @@ describe("AgentDrawer", () => {
     expect(screen.getByText(/MFA enforcement/)).toBeInTheDocument();
   });
 
-  it("has a steering box that is disabled", () => {
-    render(<AgentDrawer state={finished()} agentId="authz" onClose={() => {}} />);
-    expect(screen.getByLabelText(/steer this agent/i)).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
-  });
-
-  it("explains which scan depths can be steered", () => {
-    render(<AgentDrawer state={fresh("scout")} agentId="dns" onClose={() => {}} />);
-    expect(
-      screen.getByText(
-        /steering is available on probe and siege scans\. scout and sweep scans are watch-only/i,
-      ),
-    ).toBeInTheDocument();
-  });
-
   it("closes", async () => {
     const onClose = vi.fn();
     render(<AgentDrawer state={fresh()} agentId="dns" onClose={onClose} />);

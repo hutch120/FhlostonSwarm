@@ -34,6 +34,7 @@ function engagement(): Engagement {
     runId: DEMO_RUN_ID,
     tier: "siege",
     instructionsVersion: INSTRUCTIONS_VERSION,
+    dynamic: { version: null, items: [], agents: [] },
     guardrails: [...GUARDRAIL_IDS],
     scope: { hosts: ["portal.example"], readOnly: true },
     agents: tierRoster("siege").agents.map((a) => ({ id: a.id, enabled: true })),
@@ -167,6 +168,48 @@ describe("the HTML report", () => {
   it("marks verified and unconfirmed findings differently", () => {
     expect(html).toContain('<span class="tag tag-ok">verified</span>');
     expect(html).toContain('<span class="tag tag-warn">unconfirmed</span>');
+  });
+
+  it("lists the learned items and agents the run used, with their source and date, and escapes them", () => {
+    const source = {
+      name: "OWASP Top 10",
+      url: "https://top10.owasp.org/2025/",
+      date: "2026-11-14",
+    };
+    const withLayer = buildReport({
+      state: applyEvents(
+        createRunState({ runId: DEMO_RUN_ID, tier: "siege", ...tierRoster("siege") }),
+        replayEvents,
+      ),
+      events: replayEvents,
+      summary: summarise(
+        applyEvents(
+          createRunState({ runId: DEMO_RUN_ID, tier: "siege", ...tierRoster("siege") }),
+          replayEvents,
+        ),
+      ),
+      target: "portal.example",
+      generatedAt: replayEvents.at(-1)!.ts,
+      engagement: {
+        ...engagement(),
+        dynamic: {
+          version: 3,
+          items: [{ id: "k-one", title: "Exposed <b>debug</b> endpoints", source, mode: "active" }],
+          agents: [
+            { id: "dyn-one", title: "Debug variables", area: "unauth", source, mode: "shadow" },
+          ],
+        },
+      },
+    });
+    expect(withLayer.dynamic).toMatchObject({ version: 3 });
+    const page = renderReportHtml(withLayer);
+    expect(page).toContain("Learned knowledge used");
+    expect(page).toContain("Exposed &lt;b&gt;debug&lt;/b&gt; endpoints");
+    expect(page).toContain("OWASP Top 10, 2026-11-14");
+    expect(page).toContain("check, observing only");
+    // A run that used no layer says nothing about it.
+    expect(html).not.toContain("Learned knowledge used");
+    expect(report.dynamic).toBeNull();
   });
 
   it("is self-contained, escapes everything and never carries a planted secret", () => {

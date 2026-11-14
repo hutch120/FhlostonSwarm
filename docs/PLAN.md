@@ -218,6 +218,7 @@ A self-serve tool that attacks customer-supplied URLs can be misused. **Decision
 4. **Verification** — for each candidate finding, an *independent* verifier agent reproduces it and attaches evidence; unverifiable candidates are downgraded/marked "unconfirmed" (matches the site's "cross-checked by independent agents" step).
 5. **Report assembly** — merge findings, de-duplicate across phases, render outputs.
 6. **Notify** — SES email "your report is ready"; update run status; expire resources.
+7. **Learn** — after the PDF, a short learning pass reviews the closed run and may publish a new version of the dynamic layer ([section 9](#9-the-learning-loop)); best effort, it never changes the run.
 
 Why Fargate (not Lambda): browser automation (Playwright), ZAP/nuclei/testssl-style tooling and long LLM tool loops exceed Lambda's 15-minute limit and need a real filesystem/binaries. Alternatives to evaluate: **Bedrock AgentCore Runtime** (managed agent hosting/isolation) once its fit and regional availability are confirmed.
 

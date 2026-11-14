@@ -12,6 +12,7 @@ import {
   type Summary,
   type TierId,
 } from "./events.js";
+import { AREAS } from "./fixtures/roster.js";
 
 export type AgentStatus = "idle" | "dispatched" | "working" | "done";
 
@@ -44,14 +45,6 @@ export interface GapRecord {
   reason: string;
 }
 
-export interface SteerRecord {
-  seq: number;
-  ts: string;
-  agent: string | null;
-  message: string;
-  directive: string | null;
-}
-
 export interface RunState {
   runId: string;
   tier: TierId;
@@ -67,7 +60,6 @@ export interface RunState {
   /** Always sorted by severity (worst first), then id. */
   findings: Finding[];
   gaps: GapRecord[];
-  steering: SteerRecord[];
   log: RunEvent[];
   checks: number;
   requests: number;
@@ -82,22 +74,22 @@ export interface RunStateInit {
   agents: readonly AgentSpec[];
 }
 
+const newAgent = (spec: AgentSpec): AgentState => ({
+  spec,
+  status: "idle",
+  task: null,
+  currentStep: null,
+  lastOutcome: null,
+  stepsDone: 0,
+  progress: 0,
+  findings: 0,
+  history: [],
+  doneSummary: null,
+});
+
 export function createRunState(init: RunStateInit): RunState {
   const agents: Record<string, AgentState> = {};
-  for (const spec of init.agents) {
-    agents[spec.id] = {
-      spec,
-      status: "idle",
-      task: null,
-      currentStep: null,
-      lastOutcome: null,
-      stepsDone: 0,
-      progress: 0,
-      findings: 0,
-      history: [],
-      doneSummary: null,
-    };
-  }
+  for (const spec of init.agents) agents[spec.id] = newAgent(spec);
   return {
     runId: init.runId,
     tier: init.tier,
@@ -111,7 +103,6 @@ export function createRunState(init: RunStateInit): RunState {
     agents,
     findings: [],
     gaps: [],
-    steering: [],
     log: [],
     checks: 0,
     requests: 0,
@@ -154,15 +145,28 @@ export function applyEvent(state: RunState, event: RunEvent): RunState {
   };
 
   switch (event.type) {
-    case "dispatch":
+    case "dispatch": {
+      const spec = event.payload.spec;
+      const joined =
+        !base.agents[event.agent] && spec
+          ? {
+              ...base,
+              areas: base.areas.some((a) => a.id === spec.area)
+                ? base.areas
+                : [...base.areas, ...AREAS.filter((a) => a.id === spec.area)],
+              agentOrder: [...base.agentOrder, event.agent],
+              agents: { ...base.agents, [event.agent]: newAgent(spec) },
+            }
+          : base;
       return {
-        ...base,
-        agents: withAgent(base, event.agent, (a) => ({
+        ...joined,
+        agents: withAgent(joined, event.agent, (a) => ({
           ...a,
           status: "dispatched",
           task: event.payload.task,
         })),
       };
+    }
 
     case "start":
       return {
@@ -245,21 +249,6 @@ export function applyEvent(state: RunState, event: RunEvent): RunState {
             agent: event.agent,
             area: event.payload.area ?? null,
             reason: event.payload.reason,
-          },
-        ],
-      };
-
-    case "steer":
-      return {
-        ...base,
-        steering: [
-          ...base.steering,
-          {
-            seq: event.seq,
-            ts: event.ts,
-            agent: event.agent,
-            message: event.payload.message,
-            directive: event.payload.directive ?? null,
           },
         ],
       };

@@ -7,10 +7,12 @@ import {
   type ExecutionStatus,
 } from "@aws-sdk/client-sfn";
 import { tiers } from "@swarm/shared";
-import { runtimeConfig } from "@swarm/shared/server";
+import { learningConfig, runtimeConfig } from "@swarm/shared/server";
+import { BedrockLlm } from "@swarm/agents/learning";
 import { z } from "zod";
 import { orchestratorEnvSchema } from "./env.js";
 import { finalizeRun, type FinalizeDeps, type Outcome, type TaskTimes } from "./finalize.js";
+import { learnFromRun } from "./learning.js";
 import { describeRunningTasks, stopTask, taskEnv, taskRunId } from "./launcher.js";
 import { SesMailer } from "./mailer.js";
 import { acquireRun } from "./pool.js";
@@ -122,6 +124,38 @@ export async function finalize(event: unknown) {
     (input.task ?? {}) as TaskTimes,
   );
   return { runId: input.runId, status: run?.status ?? "missing" };
+}
+
+/**
+ * State machine step after the report PDF: the learning pass (PLAN.md section 9) reviews the closed
+ * run and may publish a new version of the dynamic layer. It is best effort: the state machine
+ * sends a failure to `Done`, and the pass itself never throws for its own problems.
+ */
+export async function learn(event: unknown) {
+  const input = taskInput.parse(event);
+  const { deps, env } = services();
+  const result = await learnFromRun(
+    {
+      store: deps.store,
+      llm: new BedrockLlm({ modelId: learningConfig.learnerModelId, region: env.AWS_REGION }),
+      fallbackLlm: new BedrockLlm({
+        modelId: learningConfig.fallbackModelId,
+        region: env.AWS_REGION,
+      }),
+      fetch: globalThis.fetch,
+      now: deps.now,
+    },
+    { emailHash: input.owner, runId: input.runId },
+  );
+  console.log(
+    JSON.stringify({
+      msg: "learning_pass",
+      runId: input.runId,
+      outcome: result.outcome,
+      version: "version" in result ? result.version : null,
+    }),
+  );
+  return { runId: input.runId, outcome: result.outcome };
 }
 
 const reaperInput = z.object({ maxRuntimeSeconds: z.number().positive().optional() }).optional();

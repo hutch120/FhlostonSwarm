@@ -123,6 +123,13 @@
       "minLogins": 3
     }
   ],
+  "learned": [
+    {
+      "description": "A weakness no roster agent looks for. A dynamic agent that the learning loop adds (a check for runtime variables served by an application) finds it; it is deliberately outside the findings above, whose count the deep scans are measured against.",
+      "path": "/debug/vars",
+      "titleIncludes": "Runtime debug variables are publicly readable"
+    }
+  ],
   "app": {
     "description": "What the explorer should understand about the synthetic target (rubric for the app-profile checks).",
     "publicAreas": ["about", "pricing", "help", "community"],

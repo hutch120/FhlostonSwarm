@@ -2,6 +2,7 @@ import {
   agentEventSchema,
   eventBatchSchema,
   type AgentEvent,
+  type AgentSpec,
   type EventBatch,
   type Finding,
 } from "@swarm/shared";
@@ -78,8 +79,13 @@ export class Emitter {
     else this.timer ??= setTimeout(() => void this.flush(), this.flushMs);
   }
 
-  dispatch(agent: string, task: string): void {
-    this.push({ ...this.base(), type: "dispatch", agent, payload: { task } });
+  dispatch(agent: string, task: string, spec?: AgentSpec): void {
+    this.push({
+      ...this.base(),
+      type: "dispatch",
+      agent,
+      payload: spec ? { task, spec } : { task },
+    });
   }
 
   start(agent: string, stepId: string, label: string): void {
