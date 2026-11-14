@@ -20,6 +20,26 @@ describe.skipIf(!browserAvailable)("sign-in with a one-time code field", () => {
   });
 
   it("fills the email and the code, and signs in", async () => {
+    const { driver, posted, port } = await start(303);
+    const form = await driver.open(`http://app.test:${port}/`);
+    expect(form.hasPasswordField).toBe(true);
+    const result = await driver.signIn({ username: "me@example.com", password: "abcd-efgh" });
+
+    expect(result.ok).toBe(true);
+    expect(new URL(result.landedUrl).pathname).toBe("/home");
+    expect(posted).toEqual(["email=me%40example.com&code=abcd-efgh"]);
+  });
+
+  it("says the application refused the login when it answers 401", async () => {
+    const { driver, port } = await start(401);
+    await driver.open(`http://app.test:${port}/`);
+    const result = await driver.signIn({ username: "me@example.com", password: "abcd-efgh" });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("answered 401");
+  });
+
+  async function start(verifyStatus: number) {
     const posted: string[] = [];
     const server = http.createServer((req, res) => {
       if (req.method === "POST") {
@@ -27,7 +47,8 @@ describe.skipIf(!browserAvailable)("sign-in with a one-time code field", () => {
         req.on("data", (c) => (body += c));
         req.on("end", () => {
           posted.push(body);
-          res.writeHead(303, { location: "/home" }).end();
+          if (verifyStatus === 303) res.writeHead(303, { location: "/home" }).end();
+          else res.writeHead(verifyStatus, { "content-type": "text/html" }).end(PAGE);
         });
         return;
       }
@@ -57,13 +78,6 @@ describe.skipIf(!browserAvailable)("sign-in with a one-time code field", () => {
       userAgent: "test",
     });
     open.push(() => driver.close());
-
-    const form = await driver.open(`http://app.test:${port}/`);
-    expect(form.hasPasswordField).toBe(true);
-    const result = await driver.signIn({ username: "me@example.com", password: "abcd-efgh" });
-
-    expect(result.ok).toBe(true);
-    expect(new URL(result.landedUrl).pathname).toBe("/home");
-    expect(posted).toEqual(["email=me%40example.com&code=abcd-efgh"]);
-  });
+    return { driver, posted, port };
+  }
 });

@@ -1,4 +1,10 @@
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
+import {
+  chromium,
+  type Browser,
+  type BrowserContext,
+  type Page,
+  type Response,
+} from "playwright-core";
 import { isSafeMethod, normaliseHost } from "../policy.js";
 import { LOGIN_HEADER } from "../proxy.js";
 import type {
@@ -209,6 +215,14 @@ export class PlaywrightDriver implements PageDriver {
     await user.fill(login.username);
     await password.fill(login.password);
     const before = page.url();
+    // A refused submission is the application saying the login is wrong, not a form the agent missed.
+    const refused: number[] = [];
+    const onResponse = (response: Response) => {
+      if (response.request().method() === "POST" && response.status() >= 400) {
+        refused.push(response.status());
+      }
+    };
+    page.on("response", onResponse);
     this.loginWindow = true;
     try {
       const submit = scope
@@ -228,23 +242,20 @@ export class PlaywrightDriver implements PageDriver {
       await page.waitForLoadState("networkidle", { timeout: 2500 }).catch(() => undefined);
     } finally {
       this.loginWindow = false;
+      page.off("response", onResponse);
     }
     const snapshot = await this.snapshot(200).catch(() => null);
     const stillThere = snapshot?.hasPasswordField ?? false;
-    if (stillThere && page.url() === before) {
-      return {
-        ok: false,
-        message: "The sign-in form is still showing, so the sign-in did not succeed.",
-        landedUrl: page.url(),
-        insecureTransport,
-        snapshot,
-      };
-    }
+    const message = stillThere
+      ? refused.length > 0
+        ? `The application refused the supplied login (it answered ${refused.at(-1)}), so the username and password or passcode saved for it are wrong or have expired.`
+        : page.url() === before
+          ? "The sign-in form is still showing, so the sign-in did not succeed."
+          : "The page after the sign-in still shows a password field."
+      : "Signed in.";
     return {
       ok: !stillThere,
-      message: stillThere
-        ? "The page after the sign-in still shows a password field."
-        : "Signed in.",
+      message,
       landedUrl: page.url(),
       insecureTransport,
       snapshot,
