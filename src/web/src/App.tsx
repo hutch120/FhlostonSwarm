@@ -1,6 +1,6 @@
 import { DEMO_RUN_ID } from "@swarm/shared";
 import { useEffect } from "react";
-import { Link, Navigate, Route, Routes, useParams } from "react-router";
+import { Link, Route, Routes, useParams } from "react-router";
 import { privacy, terms } from "../content/legal.js";
 import { api } from "./api/client.js";
 import { Layout } from "./components/Layout.js";
@@ -8,6 +8,7 @@ import { RequireAuth } from "./components/RequireAuth.js";
 import { Account } from "./pages/Account.js";
 import { Dashboard } from "./pages/Dashboard.js";
 import { Intake } from "./pages/Intake.js";
+import { Landing } from "./pages/Landing.js";
 import { Legal } from "./pages/Legal.js";
 import { LiveRun } from "./pages/LiveRun.js";
 import { Login } from "./pages/Login.js";
@@ -55,7 +56,7 @@ export function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route index element={<Landing />} />
         <Route path="login" element={<Login />} />
         <Route path="auth/verify" element={<VerifyLink />} />
         <Route path="notify/confirm" element={<NotifyConfirm />} />

@@ -24,6 +24,32 @@ const renderApp = (route: string, as: keyof typeof EMAILS | null = "customer") =
   return renderWithProviders(<App />, { route });
 };
 
+describe("Landing", () => {
+  it("introduces the service to a visitor, with the swarm animation and a way in", async () => {
+    renderApp("/", null);
+    expect(
+      await screen.findByRole("heading", { level: 1, name: /find the weak spots/i }),
+    ).toBeInTheDocument();
+    expect(document.querySelector("canvas.swarm-canvas")).not.toBeNull();
+    expect(screen.getByRole("link", { name: "Start a scan" })).toHaveAttribute("href", "/new");
+    expect(screen.getByRole("link", { name: /watch the full demo/i })).toHaveAttribute(
+      "href",
+      "/demo",
+    );
+    for (const depth of ["Scout", "Sweep", "Probe", "Siege"]) {
+      expect(screen.getByRole("heading", { level: 3, name: depth })).toBeInTheDocument();
+    }
+  });
+
+  it("sends a signed-in visitor to their dashboard", async () => {
+    renderApp("/");
+    expect(await screen.findByRole("link", { name: "Go to your dashboard" })).toHaveAttribute(
+      "href",
+      "/dashboard",
+    );
+  });
+});
+
 describe("Login", () => {
   it("signs in with an email and a 6-digit code", async () => {
     renderApp("/login", null);

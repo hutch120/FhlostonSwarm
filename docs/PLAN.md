@@ -83,6 +83,8 @@ utils/        Existing CLI (swarm login, later: swarm deploy / swarm run-local)
 
 ### Screens
 
+The public landing page (`/`) introduces the service: a looping replay of the demo swarm, how it works, the five areas, the four scan depths, the safeguards and a call to action. It reads its copy from the shared roster and tier config where it can, and shows no prices.
+
 1. **Login** — one page: email, "Email me a code", and a code field that also takes a test passcode (so a scan's browser can sign in without email). No passwords. A new account holds no credits until it buys some.
 2. **Dashboard** — past runs, status, report links, credits held per scan depth, "New assessment", per-run **Run again** and **Delete** actions.
 3. **New assessment (intake)** — creates a **saved scan** and starts its first run ([section 13](#13-saved-scans-schedules--notifications)):
