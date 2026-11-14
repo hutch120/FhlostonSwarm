@@ -9,6 +9,7 @@ import {
   pathOnTarget,
   requestAs,
   roleName,
+  sameShape,
   type Probe,
 } from "./support.js";
 
@@ -205,13 +206,20 @@ async function vertical(ctx: StepContext): Promise<StepResult> {
   };
 }
 
+/** A path no application serves: a catch-all (single-page apps) answers it like any other path. */
+const MISSING_PATH = "/swarm-check-no-such-page";
+
 async function admin(ctx: StepContext): Promise<StepResult> {
   const m = await accessMatrix(ctx);
+  // An answer identical to the one for a page that does not exist is the catch-all, not an admin page.
+  const catchAll = await requestAs(ctx, null, MISSING_PATH);
+  const isCatchAll = (p: Probe) => catchAll?.access === "allowed" && sameShape(p, catchAll);
   const open = m.paths.filter((p) => {
     const row = m.cells.get(p)!;
     const v = row.get(VISITOR);
     return (
       v?.access === "allowed" &&
+      !isCatchAll(v) &&
       /^\/(?:admin|administrator|manage|console|api\/admin|api\/internal|actuator)\b/i.test(p) &&
       !/^\/$/.test(p)
     );
@@ -234,7 +242,7 @@ async function admin(ctx: StepContext): Promise<StepResult> {
         let still = 0;
         for (const p of open.slice(0, 4)) {
           const again = await requestAs(ctx, null, p);
-          if (again?.access === "allowed") still += 1;
+          if (again?.access === "allowed" && !isCatchAll(again)) still += 1;
         }
         return {
           confirmed: still > 0,
