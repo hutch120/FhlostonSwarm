@@ -218,8 +218,9 @@ export function buildAgentInput(
       hosts: input.target.hosts,
       ports: scopePorts([input.target.appUrl, input.target.marketingUrl]),
       readOnly: true,
-      // One sign-in per login, plus one retry; nothing else may change state.
-      loginSubmissions: Object.keys(input.target.logins).length * 2,
+      // Two attempts per login, each up to two submissions (a username step, then a password
+      // step); nothing else may change state.
+      loginSubmissions: Object.keys(input.target.logins).length * 4,
     },
     agents: tier.agents,
     budgets: {

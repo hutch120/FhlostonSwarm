@@ -2,9 +2,11 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import {
   DEMO_RUN_ID,
+  LOGIN_BYPASS_NOTES,
   applyEvents,
   buildReport,
   createRunState,
+  loginHelp,
   replayEvents,
   summarise,
   tierRoster,
@@ -157,6 +159,14 @@ describe("Intake", () => {
     expect(screen.getByRole("radio", { name: "Sweep" })).toBeChecked();
     expect(screen.getByText(/never production/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/I am authorised to test/i)).not.toBeChecked();
+  });
+
+  it("says which logins Swarm can use, from the same wording the report's gaps use", () => {
+    renderApp("/new");
+    const note = screen.getByTestId("supported-logins");
+    for (const obstacle of LOGIN_BYPASS_NOTES) {
+      expect(note).toHaveTextContent(loginHelp[obstacle]);
+    }
   });
 
   it("defaults to a one-off scan and the account email, and offers every cadence", async () => {

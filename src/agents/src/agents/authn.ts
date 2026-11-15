@@ -1,3 +1,4 @@
+import { loginHelp } from "@swarm/shared";
 import { headerValues } from "../http.js";
 import type { AgentModule, StepContext, StepResult } from "../types.js";
 
@@ -17,10 +18,19 @@ async function login(ctx: StepContext): Promise<StepResult> {
     return gap(
       result.reason ??
         (last
-          ? `The sign-in did not succeed with the supplied login, so the signed-in side was not explored. ${last.message.replace(/\.?$/, ".")} To cover the signed-in side, supply a test account that signs in with a username and password (or, for an emailed-code sign-in, an email and a test passcode), or describe how the sign-in works in the login's notes, and scan again.`
+          ? `The sign-in did not succeed with the supplied login, so the signed-in side was not explored. ${loginHelp[last.obstacle ?? "still-showing"]}`
           : "The explorer never tried the supplied login, so the signed-in side was not explored."),
     );
   }
+
+  // A login that never signed in leaves its role unseen, whatever the other logins did.
+  const unseen = [...new Set(attempts.map((a) => a.slot))].flatMap((slot) => {
+    if (worked.some((w) => w.slot === slot)) return [];
+    const last = attempts.findLast((a) => a.slot === slot)!;
+    return [
+      `The ${last.description} login did not sign in, so that role was not explored. ${loginHelp[last.obstacle ?? "still-showing"]}`,
+    ];
+  });
 
   const issues: string[] = [];
   const https = (url: string) => url.startsWith("https:");
@@ -45,7 +55,7 @@ async function login(ctx: StepContext): Promise<StepResult> {
     );
   }
 
-  const extra = result.end !== "done" && result.reason ? [result.reason] : [];
+  const extra = [...(result.end !== "done" && result.reason ? [result.reason] : []), ...unseen];
   if (issues.length === 0) {
     return extra.length > 0
       ? {

@@ -1,4 +1,4 @@
-import { appProfileSchema, tiers, type AppProfile } from "@swarm/shared";
+import { appProfileSchema, tiers, type AppProfile, type SignInObstacle } from "@swarm/shared";
 import type { AgentInput } from "@swarm/shared/server";
 import { runtimeConfig } from "@swarm/shared/server";
 import { z } from "zod";
@@ -28,6 +28,8 @@ export interface SignInRecord {
   slot: string;
   description: string;
   ok: boolean;
+  /** Why it failed; null when it worked. */
+  obstacle: SignInObstacle | null;
   /** True when the credentials went over plain HTTP. */
   insecureTransport: boolean;
   landedPath: string;
@@ -69,8 +71,8 @@ const PUBLIC = "public";
 const PROFILE_RESERVE = 3;
 /** Paths that came back as not found; after this many, `open_path` is refused (no guessing). */
 const MAX_MISSES = 2;
-/** Failed sign-ins with one login, after which the tool stops letting the model retry it. */
-const MAX_SIGN_IN_FAILURES = 3;
+/** Failed sign-ins with one login, after which the tool stops letting the model retry it (lockout safety). */
+const MAX_SIGN_IN_FAILURES = 2;
 const VISITOR = /visitor|anonymous|guest|public|signed.?out|unauthenticated/i;
 
 const profileInput = appProfileSchema.omit({ coverage: true });
@@ -94,7 +96,9 @@ Rules for what you record:
 /**
  * The explorer (discovery): a model-driven browser session that crawls the application and writes the
  * app profile. The model only picks among link ids and paths of the application under test; the host,
- * every request and the sign-in itself are decided by code, and the password never reaches the model.
+ * every request and the sign-in itself are decided by code. The supplied test logins are in the
+ * signed-in phase's prompt (they are staging accounts), so the model can use them, but they are
+ * redacted from everything the customer reads.
  * Public pages are explored first (the surface agent's crawl), then each login (the authn agent's
  * sign-in), always GET-only apart from the sign-in submission.
  */
@@ -260,7 +264,7 @@ export class Explorer {
       .map((slot) => {
         const login = input.logins[slot as keyof typeof input.logins];
         const notes = login?.notes.trim();
-        return `- ${slot}: ${login?.description}${notes ? `\n${untrusted(`how ${slot} signs in (from the owner)`, notes, 500)}` : ""}`;
+        return `- ${slot}: ${login?.description}\n  username: ${JSON.stringify(login?.username)}\n  password or passcode: ${JSON.stringify(login?.password)}${notes ? `\n${untrusted(`how ${slot} signs in (from the owner)`, notes, 500)}` : ""}`;
       })
       .join("\n");
     const base =
@@ -486,7 +490,7 @@ export class Explorer {
     return {
       name: "sign_in",
       description:
-        "Sign in with one of the provided logins on the page you are looking at (it must show the sign-in form). The credentials are filled in for you; you never see them.",
+        "Sign in with one of the provided logins on the page you are looking at (it must show the sign-in form). The username and password are filled in and submitted for you. A login is tried at most twice, and not again once the application refuses it, so check you are on the sign-in page first.",
       input: z.object({ login: z.enum(slots as [string, ...string[]]) }),
       run: async ({ login }) => {
         const credentials = input.logins[login as keyof typeof input.logins];
@@ -494,15 +498,16 @@ export class Explorer {
         if (this.logins.some((l) => l.slot === login && l.ok)) {
           return { text: "Already signed in with that login." };
         }
-        const failures = this.logins.filter((l) => l.slot === login && !l.ok).length;
-        if (failures >= MAX_SIGN_IN_FAILURES) {
+        const failed = this.logins.filter((l) => l.slot === login && !l.ok);
+        if (failed.length >= MAX_SIGN_IN_FAILURES || failed.some((l) => l.obstacle === "refused")) {
           return {
-            text: "Sign-in with that login has failed repeatedly. Do not try it again: carry on, and say in the profile that the signed-in side could not be seen.",
+            text: "Sign-in with that login has failed and will not be retried. Do not try it again: carry on, and say in the profile that the signed-in side could not be seen.",
           };
         }
         this.signInUrl ??= this.current?.url ?? null;
-        if (this.logins.some((l) => l.ok) && this.signInUrl) {
-          // Each login starts from a signed-out browser, on the page that has the sign-in form.
+        if (this.logins.length > 0 && this.signInUrl) {
+          // Each login starts from a signed-out browser, on the page that has the sign-in form
+          // (a failed attempt may have left the browser on an error page).
           await driver.resetSession();
           this.currentSlot = PUBLIC;
           const form = await driver.open(this.signInUrl);
@@ -522,6 +527,7 @@ export class Explorer {
             msg: "sign_in_attempt",
             slot: login,
             ok: result.ok,
+            obstacle: result.obstacle,
             message: result.message,
             from: this.signInUrl ? pathOf(this.signInUrl) : null,
             landed: pathOf(result.landedUrl),
@@ -536,12 +542,17 @@ export class Explorer {
           slot: login,
           description: credentials.description,
           ok: result.ok,
+          obstacle: result.obstacle,
           insecureTransport: result.insecureTransport,
           landedPath: pathOf(result.landedUrl),
           message: result.message,
           cookies,
           before,
         });
+        const failure =
+          result.obstacle === "refused"
+            ? `${result.message} It will not be tried again: carry on without it.`
+            : result.message;
         if (result.snapshot) {
           this.seen.set(result.snapshot.url, result.snapshot);
           // Everything seen so far was seen signed out; a page opened again must load signed in.
@@ -557,10 +568,10 @@ export class Explorer {
           const shown = this.render(result.snapshot);
           const lead = result.ok
             ? `Signed in as "${credentials.description}". This is the page you landed on. Explore what is reachable now by following the links below; the sign-in page is behind you.`
-            : result.message;
+            : failure;
           return { text: `${lead}\n${shown.text}`, summary: shown.summary };
         }
-        return { text: result.message };
+        return { text: failure };
       },
     };
   }

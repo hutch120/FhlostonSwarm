@@ -1,9 +1,11 @@
 import {
   FREQUENCIES,
   FREQUENCY_LABELS,
+  LOGIN_BYPASS_NOTES,
   NOTIFY_ON_LABELS,
   TIERS,
   isRecurring,
+  loginHelp,
   notifyOnSchema,
   frequencySchema,
   tierAreas,
@@ -385,6 +387,20 @@ function IntakeForm({
               blank to keep it. If the application signs in with an emailed code, use your email as
               the username and a test passcode as the password.
             </p>
+          )}
+          {tier.logins > 0 && (
+            <details className="hint" data-testid="supported-logins">
+              <summary>Which logins can Swarm use?</summary>
+              <p>
+                A username and a password, or a fixed test passcode, typed into a sign-in form. For
+                anything else, give the test user a login Swarm can use on your staging environment:
+              </p>
+              <ul>
+                {LOGIN_BYPASS_NOTES.map((obstacle) => (
+                  <li key={obstacle}>{loginHelp[obstacle]}</li>
+                ))}
+              </ul>
+            </details>
           )}
           <FieldError id="logins-error" message={errors["logins"]} />
           <div className="logins" hidden={tier.logins === 0}>

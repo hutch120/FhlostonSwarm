@@ -80,7 +80,7 @@ export function inputFor(
       hosts: ["127.0.0.1"],
       ports: [80, 443, port],
       readOnly: true,
-      loginSubmissions: withLogin ? 2 * slots.length : 0,
+      loginSubmissions: withLogin ? 4 * slots.length : 0,
     },
     agents: tiers[tier].agents,
     budgets: {

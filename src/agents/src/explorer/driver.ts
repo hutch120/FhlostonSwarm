@@ -1,3 +1,7 @@
+import type { SignInObstacle } from "@swarm/shared";
+
+export type { SignInObstacle };
+
 /** What the explorer sees of a page. It is built from the rendered page and holds no form values. */
 export interface PageLink {
   id: number;
@@ -38,6 +42,8 @@ export interface BrowserCookie {
 
 export interface SignInResult {
   ok: boolean;
+  /** Why the sign-in failed; null when it worked. */
+  obstacle: SignInObstacle | null;
   /** What happened, for the model and the log. Never contains the password. */
   message: string;
   landedUrl: string;

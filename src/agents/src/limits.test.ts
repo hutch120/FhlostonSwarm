@@ -1,5 +1,5 @@
-import { tiers } from "@swarm/shared";
-import { limitsFor } from "@swarm/shared/server";
+import { loginHelp, tiers } from "@swarm/shared";
+import { limitsFor, type AgentInput } from "@swarm/shared/server";
 import { HOSTILE_HOST, USERS } from "@swarm/synthetic-target";
 import { describe, expect, it, vi } from "vitest";
 import { MemorySink } from "./emitter.js";
@@ -32,15 +32,20 @@ async function runScout(
   llm: ScriptedLlm,
   budgets: Parameters<typeof inputFor>[2] = {},
   tier: "scout" | "sweep" = "scout",
+  options: {
+    edit?: (input: AgentInput) => void;
+    driverFactory?: Parameters<typeof runLocal>[0]["driverFactory"];
+  } = {},
 ) {
   const sink = new MemorySink();
   const input = inputFor(fixture.port(), tier, budgets);
+  options.edit?.(input);
   const run = await runLocal({
     input,
     sink,
     allowPrivate: true,
     llm,
-    driverFactory: launch,
+    driverFactory: options.driverFactory ?? launch,
     dns: fakeDns,
   });
   const gaps = sink.events.flatMap((e) => (e.type === "gap" ? [e.payload.reason] : []));
@@ -189,8 +194,23 @@ describe.skipIf(!browserAvailable)("hostile content", () => {
     expect(llm.requests[1]!.system).toBe(SAFETY_RULES);
   });
 
-  it("the password never reaches the model", async () => {
+  it("the model is given the test credentials, and nothing the customer reads shows them", async () => {
     const admin = USERS.find((u) => u.role === "admin")!;
+    const cookieValues: string[] = [];
+    const watching: typeof launch = async (options) => {
+      const driver = await launch(options);
+      const cookies = driver.cookies.bind(driver);
+      driver.cookies = async () => {
+        const held = await cookies();
+        cookieValues.push(...held.map((c) => c.value));
+        return held;
+      };
+      return driver;
+    };
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((...args) => {
+      logs.push(args.join(" "));
+    });
     const llm = new ScriptedLlm((turn, request) => {
       const names = request.tools.map((t) => t.name);
       if (turn === 0) return [call(turn, "open_path", { path: "/" })];
@@ -201,23 +221,44 @@ describe.skipIf(!browserAvailable)("hostile content", () => {
       if (turn === 3) return [call(turn, "sign_in", { login: "admin" })];
       return [call(turn, "record_profile", tinyProfile)];
     });
-    const { result } = await runScout(llm, {}, "sweep");
+    let run;
+    try {
+      run = await runScout(llm, {}, "sweep", { driverFactory: watching });
+    } finally {
+      spy.mockRestore();
+    }
+    const { result, sink, gaps, log } = run;
     expect(result.explorerLog!.signIns).toEqual([{ slot: "admin", ok: true }]);
-    const everything = JSON.stringify(llm.requests);
-    expect(everything).not.toContain(admin.password);
-    // The tools the model sees take no credentials, and no host.
-    const tools = llm.requests.flatMap((r) => r.tools);
-    expect(JSON.stringify(tools)).not.toMatch(/password|"host"|"url"/);
+
+    // The model can type them: they are in its request, as the signed-in phase's logins.
+    const asked = JSON.stringify(llm.requests);
+    expect(asked).toContain(admin.username);
+    expect(asked).toContain(admin.password);
+    // The tool still takes only a login name: no host and no URL.
+    expect(JSON.stringify(llm.requests.flatMap((r) => r.tools))).not.toMatch(/"host"|"url"/);
+
+    // They are in nothing that is emitted, found, logged or reported, and neither is a session cookie.
+    expect(cookieValues.length).toBeGreaterThan(0);
+    const customerSide = [
+      JSON.stringify(sink.events),
+      JSON.stringify(result),
+      JSON.stringify(gaps),
+      JSON.stringify(log.entries),
+      logs.join("\n"),
+    ].join("\n");
+    for (const secret of [admin.password, ...cookieValues]) {
+      expect(customerSide).not.toContain(secret);
+    }
   });
 
-  it("stops retrying a sign-in that keeps failing, and tells the owner what would help", async () => {
+  it("stops retrying a sign-in that keeps failing, and tells the owner which fix applies", async () => {
     const llm = new ScriptedLlm((turn, request) => {
       const names = request.tools.map((t) => t.name);
       if (turn === 0) return [call(turn, "open_path", { path: "/" })];
       if (names.includes("finish_exploring")) {
         return [call(turn, "finish_exploring", { summary: "Public pages seen." })];
       }
-      if (/failed repeatedly/.test(lastResult(request))) {
+      if (/will not be retried/.test(lastResult(request))) {
         return [call(turn, "record_profile", tinyProfile)];
       }
       // A page without a sign-in form: there is nothing for the login to be typed into.
@@ -225,11 +266,44 @@ describe.skipIf(!browserAvailable)("hostile content", () => {
       return [call(turn, "sign_in", { login: "admin" })];
     });
     const { result, gaps } = await runScout(llm, {}, "sweep");
-    expect(result.explorerLog!.signIns).toHaveLength(3);
+    expect(result.explorerLog!.signIns).toHaveLength(2);
     expect(result.explorerLog!.signIns.every((s) => !s.ok)).toBe(true);
-    expect(gaps.some((g) => /No password or passcode field is visible.*test account/.test(g))).toBe(
-      true,
-    );
+    expect(gaps.some((g) => g.includes(loginHelp["no-form"]))).toBe(true);
+    expect(gaps.join(" ")).not.toContain("supply a test account");
+  });
+
+  it("tries a refused login once, then carries on, and still tries the next login", async () => {
+    const llm = new ScriptedLlm((turn, request) => {
+      const names = request.tools.map((t) => t.name);
+      if (turn === 0) return [call(turn, "open_path", { path: "/" })];
+      if (names.includes("finish_exploring")) {
+        return [call(turn, "finish_exploring", { summary: "Public pages seen." })];
+      }
+      if (turn === 2) return [call(turn, "open_path", { path: "/" })];
+      if (turn === 3) return [call(turn, "sign_in", { login: "admin" })];
+      if (turn === 4) return [call(turn, "sign_in", { login: "admin" })];
+      if (turn === 5) return [call(turn, "sign_in", { login: "user1" })];
+      return [call(turn, "record_profile", tinyProfile)];
+    });
+    const attempts = () =>
+      fixture.target().seen.filter((r) => r.method === "POST" && r.path === "/api/login").length;
+    const before = attempts();
+    const { result, gaps } = await runScout(llm, {}, "sweep", {
+      edit: (input) => {
+        for (const login of Object.values(input.logins)) login.password = "no-longer-valid-1";
+        input.logins.user1 = { ...input.logins.admin!, description: "Customer 1" };
+      },
+    });
+
+    // admin was refused once and not tried again; user1 was still tried (and refused) once.
+    expect(attempts() - before).toBe(2);
+    expect(result.explorerLog!.signIns).toEqual([
+      { slot: "admin", ok: false },
+      { slot: "user1", ok: false },
+    ]);
+    expect(lastResult(llm.requests[4]!)).toMatch(/refused the supplied login.*not be tried again/);
+    expect(lastResult(llm.requests[5]!)).toMatch(/will not be retried/);
+    expect(gaps.some((g) => g.includes(loginHelp.refused))).toBe(true);
   });
 
   it("Scout does not sign in even if the model asks (no sign-in tool, and no login submissions)", async () => {

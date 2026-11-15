@@ -22,5 +22,6 @@ export * from "./scans.js";
 export * from "./report.js";
 export * from "./staff.js";
 export * from "./redact.js";
+export * from "./login-help.js";
 export { AGENTS, AREAS, DEMO_RUN_ID, DEMO_TARGET } from "./fixtures/roster.js";
 export { buildReplayEvents, replayEvents } from "./fixtures/script.js";
