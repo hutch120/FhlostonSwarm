@@ -247,10 +247,10 @@ Why Fargate (not Lambda): browser automation (Playwright), ZAP/nuclei/testssl-st
 
 ### Customer test credentials (keep it simple)
 
-We tell customers to supply **staging/test credentials, never production** (stated on the intake form and in the ToS), so these are treated as low-sensitivity test data, not secrets.
+We tell customers to supply **staging/test credentials, never production** (stated on the intake form and in the ToS), so these are treated as low-sensitivity test data, not secrets. How the agents sign in (username and password, or a passcode) and what we do not support is planned in [LOGIN.md](./LOGIN.md).
 
 - Stored with the saved **target** (`users/{emailHash}/targets/{targetId}.json`) and copied into each run's input file in S3 (`users/{emailHash}/runs/{runId}/input.json`), both with default S3 encryption (SSE-S3), like the rest of the run data. No KMS, no Secrets Manager.
-- Agents read them directly from the run input and can use them as needed (login, fill forms, API auth). No special `login(role)` injection layer.
+- Agents read them directly from the run input and can use them as needed (login, fill forms, API auth). No special `login(role)` injection layer. The explorer puts them in the signed-in phase's prompt, tries each login at most twice per run and not again once the application refuses it (so a scan cannot lock a test account), and says why a sign-in failed using the fixes in [LOGIN.md](./LOGIN.md).
 - Basic hygiene only: don't print passwords in the customer-facing report or public log lines. The API never returns a saved password to the browser (editing a scan shows "saved" and only replaces it when a new one is typed). They are removed when the customer deletes the target, run or account.
 - Re-runs and scheduled runs reuse the credentials stored with the target; the customer can update or remove them at any time, and every scan on the target picks up the change.
 

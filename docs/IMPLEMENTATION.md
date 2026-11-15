@@ -26,6 +26,7 @@ How we build the product described in [PLAN.md](./PLAN.md), in small phases that
 | 10 | Hardening & private beta | M8 | ☐ |
 | 11 | Payments | M9 | ☐ |
 | 12 | Scheduled runs & notifications | M10 | ☐ |
+| — | Sign-in robustness (one login style; plan in [LOGIN.md §4](./LOGIN.md#4-implementation-plan)), can run any time after Phase 7 | — | ✅ *(built, deployed and verified live 2026-11-15; a run against two real staging sign-in pages is open, and with it whether the model-guided fallback (task 4) is needed, see LOGIN.md Notes)* |
 
 ### Cross-cutting rules (apply to every phase)
 
