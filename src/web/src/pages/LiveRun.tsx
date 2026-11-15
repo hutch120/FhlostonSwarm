@@ -35,9 +35,9 @@ export function RunBoard({ target, tier }: { target: string; tier: TierId }) {
           agents={roster.agents}
           areas={roster.areas}
         />
-        <AgentDrawer state={state} agentId={selected} onClose={() => setSelected(null)} />
       </div>
       <div className="side">
+        <AgentDrawer state={state} agentId={selected} onClose={() => setSelected(null)} />
         <Counters state={state} />
         <AreasPanel state={state} selected={selected} onSelect={setSelected} />
         <FindingsPanel state={state} />

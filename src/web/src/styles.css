@@ -574,7 +574,7 @@ td.actions {
 }
 .swarm-canvas {
   display: block;
-  width: min(100%, 78vh);
+  width: min(100%, 68vh);
   aspect-ratio: 1 / 1;
   margin-inline: auto;
   border-radius: var(--radius);
