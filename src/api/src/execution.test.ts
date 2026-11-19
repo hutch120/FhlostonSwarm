@@ -40,7 +40,7 @@ async function setup(
   await grantCredits(
     h.store,
     owner,
-    { tier: "sweep", count: options.credits ?? 3, source: "comp", reason: "test", by: "tester" },
+    { tier: "probe", count: options.credits ?? 3, source: "comp", reason: "test", by: "tester" },
     h.clock.now(),
   );
   const target = await browser.withCsrf("POST", "/api/targets", {
@@ -53,8 +53,8 @@ async function setup(
   const targetId = ((await target.json()) as { id: string }).id;
   const scan = await browser.withCsrf("POST", "/api/scans", {
     targetId,
-    name: "Sweep",
-    tier: "sweep",
+    name: "Probe",
+    tier: "probe",
     frequency: "once",
     timezone: "Australia/Sydney",
     notifyEmail: options.notifyEmail ?? OWNER,
@@ -211,7 +211,7 @@ describe("starting and stopping a run", () => {
     );
     expect(report.status).toBe("stopped");
     expect(report.findings).toHaveLength(1);
-    expect((await getCredits(r.h.store, r.owner)).sweep).toBe(2);
+    expect((await getCredits(r.h.store, r.owner)).probe).toBe(2);
 
     const late = await r.internal("POST", "/events", batch(r, typicalEvents()));
     expect(late.status).toBe(409);
@@ -220,13 +220,13 @@ describe("starting and stopping a run", () => {
   });
 
   it("stopping a run that is still waiting closes it as stopped and returns the credit", async () => {
-    const credits = (await getCredits(r.h.store, r.owner)).sweep;
+    const credits = (await getCredits(r.h.store, r.owner)).probe;
     const res = await r.browser.withCsrf("POST", `/api/runs/${r.runId}/stop`);
     expect(await res.json()).toEqual({ ok: true, status: "stopped" });
     const summary = await summaryOf(r);
     expect(summary.status).toBe("stopped");
     expect(summary.reason).toMatch(/credit has been returned/);
-    expect((await getCredits(r.h.store, r.owner)).sweep).toBe(credits + 1);
+    expect((await getCredits(r.h.store, r.owner)).probe).toBe(credits + 1);
   });
 
   it("stops a running run before deleting it, and keeps only the anonymised index", async () => {
@@ -300,7 +300,7 @@ describe("the agent-facing API", () => {
     };
     expect(input).toMatchObject({
       runId: r.runId,
-      tier: "sweep",
+      tier: "probe",
       target: { appUrl: "https://staging.example.com" },
       scope: { hosts: ["staging.example.com"], ports: [80, 443], readOnly: true },
       logins: { user1: { username: "swarm-test-user1", password: "pw-test-1" } },
@@ -532,7 +532,7 @@ describe("closing a run", () => {
     ]) {
       expect(index).not.toContain(secret);
     }
-    expect(JSON.parse(index)).toMatchObject({ tier: "sweep", status: "complete", test: true });
+    expect(JSON.parse(index)).toMatchObject({ tier: "probe", status: "complete", test: true });
 
     expect(r.h.mailer.reports).toEqual([
       expect.objectContaining({
@@ -613,7 +613,7 @@ describe("closing a run", () => {
   it("returns the credit once when a run fails on our side, with a partial report", async () => {
     const r = await setup({ credits: 1 });
     await start(r);
-    expect((await getCredits(r.h.store, r.owner)).sweep).toBe(0);
+    expect((await getCredits(r.h.store, r.owner)).probe).toBe(0);
     await r.internal("POST", "/events", batch(r, typicalEvents()));
     const deps = {
       store: r.h.store,
@@ -628,9 +628,9 @@ describe("closing a run", () => {
     );
     expect(closed).toMatchObject({ status: "failed" });
     expect(closed?.reason).toMatch(/credit has been returned/);
-    expect((await getCredits(r.h.store, r.owner)).sweep).toBe(1);
+    expect((await getCredits(r.h.store, r.owner)).probe).toBe(1);
     await finalizeRun(deps, { emailHash: r.owner, runId: r.runId }, { kind: "failed" });
-    expect((await getCredits(r.h.store, r.owner)).sweep).toBe(1);
+    expect((await getCredits(r.h.store, r.owner)).probe).toBe(1);
     expect(r.h.mailer.reports).toEqual([]);
   });
 

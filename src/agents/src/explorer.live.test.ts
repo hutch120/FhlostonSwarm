@@ -17,7 +17,7 @@ const live = process.env["SWARM_LIVE"] === "1" && browserAvailable;
 const fixture = useTarget();
 
 describe.skipIf(!live)("explorer with the real model", () => {
-  for (const tier of ["scout", "sweep"] as const) {
+  for (const tier of ["scout", "probe"] as const) {
     it(`${tier}: understands the application, inside its caps`, async () => {
       const sink = new MemorySink();
       const input = inputFor(fixture.port(), tier);
@@ -68,7 +68,7 @@ describe.skipIf(!live)("explorer with the real model", () => {
       for (const area of ["about", "pricing", "help", "community"])
         expect(text, area).toContain(area);
       expect(text).toMatch(/order/);
-      if (tier === "sweep") {
+      if (tier === "probe") {
         expect(profile.coverage.signedIn).toBe(true);
         for (const area of ["orders", "profile"]) expect(text, area).toContain(area);
         expect(text).toMatch(/manage users|user management|admin/);

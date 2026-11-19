@@ -31,7 +31,7 @@ describe("run infrastructure config", () => {
     expect(runtimeConfig.agentTask).toEqual({ vcpu: 1, memoryGb: 2 });
     expect(pricing.version).toMatch(/^\d{4}-\d{2}-\d{2}/);
     // Every model a depth uses has a price, or its runs could not be costed.
-    for (const tier of ["scout", "sweep", "probe", "siege"] as const) {
+    for (const tier of ["scout", "probe", "siege", "attack"] as const) {
       expect(pricing.bedrock[limitsFor(tier).modelId], tier).toBeDefined();
     }
   });
@@ -43,7 +43,7 @@ describe("run infrastructure config", () => {
   });
 
   it("gives every depth a check budget that grows with depth", () => {
-    const caps = (["scout", "sweep", "probe", "siege"] as const).map((t) => limitsFor(t).stepCap);
+    const caps = (["scout", "probe", "siege", "attack"] as const).map((t) => limitsFor(t).stepCap);
     expect([...caps].sort((a, b) => a - b)).toEqual(caps);
   });
 });
@@ -51,7 +51,7 @@ describe("run infrastructure config", () => {
 describe("cost estimate", () => {
   const base = {
     runId: "run_abc12345",
-    tier: "sweep" as const,
+    tier: "probe" as const,
     startedAt: "2026-11-10T00:00:00.000Z",
     finishedAt: "2026-11-10T00:05:00.000Z",
     taskSeconds: 300,

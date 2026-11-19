@@ -9,21 +9,11 @@
     "deep": false,
     "agents": ["dns", "surface", "tls", "cors"]
   },
-  "sweep": {
-    "id": "sweep",
-    "name": "Sweep",
-    "depth": 2,
-    "description": "Light scan. Every passive check plus a review of how sign-in works, using one login.",
-    "logins": 1,
-    "wallClockMinutes": 20,
-    "deep": false,
-    "agents": ["dns", "surface", "bundle", "tls", "zap", "cors", "authn"]
-  },
   "probe": {
     "id": "probe",
     "name": "Probe",
-    "depth": 3,
-    "description": "Medium scan. Authenticated testing across two roles, with session, access-control and AI/LLM checks.",
+    "depth": 2,
+    "description": "Medium scan. Every passive check plus authenticated testing across two roles, with session, access-control and AI/LLM checks.",
     "logins": 2,
     "wallClockMinutes": 40,
     "deep": true,
@@ -44,11 +34,35 @@
   "siege": {
     "id": "siege",
     "name": "Siege",
-    "depth": 4,
-    "description": "Deep scan. Every agent and all four logins, including business-logic and privilege-escalation testing, with the fullest report.",
+    "depth": 3,
+    "description": "Deep scan. Every agent and all four logins, including business-logic and privilege-escalation testing, with the fullest non-destructive report.",
     "logins": 4,
     "wallClockMinutes": 60,
     "deep": true,
+    "agents": [
+      "dns",
+      "surface",
+      "bundle",
+      "tls",
+      "zap",
+      "cors",
+      "authn",
+      "session",
+      "authz",
+      "prompt",
+      "output",
+      "idor"
+    ]
+  },
+  "attack": {
+    "id": "attack",
+    "name": "Attack",
+    "depth": 4,
+    "description": "Aggressive scan. Every agent and all four logins, with destructive, load-generating and denial-of-service testing permitted. Only run against a target whose owner has confirmed tested backups and a disaster-recovery plan.",
+    "logins": 4,
+    "wallClockMinutes": 90,
+    "deep": true,
+    "destructive": true,
     "agents": [
       "dns",
       "surface",

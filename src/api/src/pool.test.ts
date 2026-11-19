@@ -42,8 +42,8 @@ describe("per-depth concurrency pools", () => {
   it("never lets frequent cheap scans delay a deeper one: every depth has its own pool", async () => {
     const store = new MemoryStore();
     for (let i = 0; i < scoutLimit + 3; i++) await take(store, `scout_${i}`);
-    // Scout is full and has a queue, yet a Siege starts at once, and so does a Probe and a Sweep.
-    for (const tier of ["siege", "probe", "sweep"] as const) {
+    // Scout is full and has a queue, yet a Siege starts at once, and so does a Probe and an Attack.
+    for (const tier of ["siege", "probe", "attack"] as const) {
       expect(await acquireSlot(store, { tier, runId: `${tier}_1`, now: 1_000 })).toEqual({
         status: "acquired",
       });

@@ -3,7 +3,7 @@ import { runEventSchema, runStatusSchema, summarySchema, tierIdSchema } from "./
 import { tiers } from "./tiers.js";
 
 /** Bump when the terms or privacy text changes; stored with each acknowledgement. */
-export const TERMS_VERSION = "2026-11-14";
+export const TERMS_VERSION = "2026-11-19";
 
 /**
  * Saved scans (PLAN.md section 13). A scan is a saved configuration: which application (target and
@@ -57,6 +57,8 @@ export const scanSettingsSchema = z.object({
   timezone: timezoneSchema,
   notifyEmail: z.email().max(254),
   notifyOn: notifyOnSchema,
+  /** Required for the attack depth: confirms the target has tested backups and a disaster-recovery plan. Ignored otherwise. */
+  disasterRecoveryConfirmed: z.boolean().default(false),
 });
 export type ScanSettings = z.infer<typeof scanSettingsSchema>;
 
@@ -73,13 +75,19 @@ export const scanInputSchema = scanSettingsSchema
     loginSlots: z.array(loginSlotIdSchema).max(LOGIN_SLOT_IDS.length),
   })
   .superRefine((scan, ctx) => {
-    const issue = (message: string) =>
-      ctx.addIssue({ code: "custom", message, path: ["loginSlots"] });
+    const issue = (message: string, path: (string | number)[]) =>
+      ctx.addIssue({ code: "custom", message, path });
     const allowed = tiers[scan.tier].logins;
-    if (new Set(scan.loginSlots).size !== scan.loginSlots.length) issue("duplicate login");
-    else if (scan.loginSlots.length > allowed) issue(`${scan.tier} uses at most ${allowed} logins`);
+    if (new Set(scan.loginSlots).size !== scan.loginSlots.length) issue("duplicate login", ["loginSlots"]);
+    else if (scan.loginSlots.length > allowed)
+      issue(`${scan.tier} uses at most ${allowed} logins`, ["loginSlots"]);
     else if (allowed > 0 && scan.loginSlots.length === 0)
-      issue(`${scan.tier} needs at least one login`);
+      issue(`${scan.tier} needs at least one login`, ["loginSlots"]);
+    if (tiers[scan.tier].destructive && !scan.disasterRecoveryConfirmed)
+      issue(
+        "attack scans need the owner to confirm the target has tested backups and a disaster-recovery plan",
+        ["disasterRecoveryConfirmed"],
+      );
   });
 export type ScanInput = z.infer<typeof scanInputSchema>;
 

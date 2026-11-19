@@ -126,7 +126,7 @@ describe.skipIf(!enabled)("S3 integration (_test/ prefix)", () => {
 
   describe("run events", () => {
     const owner = "d".repeat(64);
-    const scopeOf = (id: string) => ({ emailHash: owner, runId: id, tier: "sweep" as const });
+    const scopeOf = (id: string) => ({ emailHash: owner, runId: id, tier: "probe" as const });
     const draft = (id: string, n: number): DraftEvent => ({
       type: "dispatch",
       agent: "tls",
@@ -184,8 +184,8 @@ describe.skipIf(!enabled)("S3 integration (_test/ prefix)", () => {
     };
     const scan = (targetId: string) => ({
       targetId,
-      name: "Integration sweep",
-      tier: "sweep",
+      name: "Integration probe",
+      tier: "probe",
       frequency: "once",
       timezone: "UTC",
       notifyEmail: EMAIL,
@@ -200,7 +200,7 @@ describe.skipIf(!enabled)("S3 integration (_test/ prefix)", () => {
       await grantCredits(
         store,
         emailKey,
-        { tier: "sweep", count: 1, source: "comp", reason: "integration test", by: "test" },
+        { tier: "probe", count: 1, source: "comp", reason: "integration test", by: "test" },
         Date.now(),
         true,
       );
@@ -217,13 +217,13 @@ describe.skipIf(!enabled)("S3 integration (_test/ prefix)", () => {
       const statuses = results.map((r) => r.status);
       expect(statuses.filter((s) => s === 201)).toHaveLength(1);
       expect(statuses.filter((s) => s === 402)).toHaveLength(49);
-      expect(await getCredits(store, emailKey)).toMatchObject({ sweep: 0 });
+      expect(await getCredits(store, emailKey)).toMatchObject({ probe: 0 });
       const runs = (await store.list(keys.runsPrefix(emailKey))).filter((k) =>
         k.endsWith("/summary.json"),
       );
       expect(runs).toHaveLength(1);
 
-      // A Scout credit cannot start a Sweep scan.
+      // A Scout credit cannot start a Probe scan.
       await grantCredits(
         store,
         emailKey,
@@ -250,7 +250,7 @@ describe.skipIf(!enabled)("S3 integration (_test/ prefix)", () => {
         await grantCredits(
           store,
           key,
-          { tier: "sweep", count: 2, source: "comp", reason: "integration test", by: "test" },
+          { tier: "probe", count: 2, source: "comp", reason: "integration test", by: "test" },
           Date.now(),
           true,
         );

@@ -80,6 +80,8 @@ export interface DriverOptions {
   /** Sign-in submissions the browser may make. */
   loginSubmissions: number;
   userAgent: string;
+  /** True only for the attack depth: every method is let through, not only safe ones and sign-in. */
+  destructive?: boolean;
 }
 
 export type DriverFactory = (options: DriverOptions) => Promise<PageDriver>;

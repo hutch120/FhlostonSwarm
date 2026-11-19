@@ -23,7 +23,7 @@ interface Seeded {
   internal: (method: string, path: string, body?: unknown) => Promise<Response>;
 }
 
-const SWEEP_MODEL = limitsFor("sweep").modelId;
+const PROBE_MODEL = limitsFor("probe").modelId;
 
 async function customer(h: Harness, email = CUSTOMER, ip?: string) {
   const browser = h.browser(ip);
@@ -48,7 +48,7 @@ async function newScan(
   const scan = await browser.withCsrf("POST", "/api/scans", {
     targetId,
     name: options.name ?? "Scan",
-    tier: options.tier ?? "sweep",
+    tier: options.tier ?? "probe",
     frequency: options.frequency ?? "once",
     timezone: "Australia/Sydney",
     notifyEmail: options.notifyEmail ?? CUSTOMER,
@@ -65,7 +65,7 @@ async function startRun(
   options: { email?: string; tier?: TierId; credits?: number; source?: "comp" | "purchase" } = {},
 ): Promise<Seeded> {
   const email = options.email ?? CUSTOMER;
-  const tier = options.tier ?? "sweep";
+  const tier = options.tier ?? "probe";
   const browser = await customer(h, email, "203.0.113.50");
   const owner = hashOf(email);
   await grantCredits(
@@ -154,7 +154,7 @@ async function close(
   });
   await run.internal("POST", "/evidence", {
     name: "usage",
-    body: { modelId: SWEEP_MODEL, calls: usage.calls ?? 10, ...usage, usd: 0 },
+    body: { modelId: PROBE_MODEL, calls: usage.calls ?? 10, ...usage, usd: 0 },
   });
   await run.internal("POST", "/evidence", {
     name: "proxy-stats",
@@ -225,13 +225,15 @@ describe("runs and costs", () => {
     await close(h, a, { inputTokens: 1_000_000, outputTokens: 100_000 });
     await close(h, b, { inputTokens: 500_000, outputTokens: 50_000 });
 
-    // By hand: tokens x the Haiku price, a 600 s task on 1 vCPU and 2 GB, 1 GiB out, 8 transitions.
-    const bedrock = (i: number, o: number) => (i * 1 + o * 5) / 1e6;
+    // By hand: tokens x the real price for the depth's model, a 600 s task on 1 vCPU and 2 GB, 1 GiB
+    // out, 8 transitions.
+    const price = pricing.bedrock[PROBE_MODEL]!;
+    const bedrock = (i: number, o: number) => (i * price.inputPerMTok + o * price.outputPerMTok) / 1e6;
     const fargate = (600 / 3600) * (1 * 0.0506 + 2 * 0.0056);
     const egress = 1 * 0.114;
     const orchestration = 8 * 0.000025;
     const total = (i: number, o: number) => bedrock(i, o) + fargate + egress + orchestration;
-    expect(bedrockUsd(SWEEP_MODEL, { inputTokens: 1_000_000, outputTokens: 100_000 })).toBeCloseTo(
+    expect(bedrockUsd(PROBE_MODEL, { inputTokens: 1_000_000, outputTokens: 100_000 })).toBeCloseTo(
       bedrock(1_000_000, 100_000),
       9,
     );
@@ -239,13 +241,17 @@ describe("runs and costs", () => {
     const cost = runCostSchema.parse(
       JSON.parse((await h.store.get(keys.runCost(a.owner, a.runId)))!.body),
     );
-    expect(cost.bedrock).toMatchObject({ modelId: SWEEP_MODEL, calls: 10, usd: 1.5 });
+    expect(cost.bedrock).toMatchObject({
+      modelId: PROBE_MODEL,
+      calls: 10,
+      usd: bedrock(1_000_000, 100_000),
+    });
     expect(cost.totalUsd).toBeCloseTo(total(1_000_000, 100_000), 5);
 
     const runs = await get<StaffRunsResponse>("/api/staff/runs?test=only");
     expect(runs.rows).toHaveLength(2);
     expect(runs.rows.find((r) => r.runId === a.runId)).toMatchObject({
-      tier: "sweep",
+      tier: "probe",
       entitlement: "comp",
       status: "complete",
       live: false,
@@ -256,10 +262,10 @@ describe("runs and costs", () => {
     const [x, y] = [total(1_000_000, 100_000), total(500_000, 50_000)];
     expect(analysis.runs).toBe(2);
     expect(analysis.totalUsd).toBeCloseTo(x + y, 4);
-    expect(analysis.byTier.sweep).toMatchObject({ runs: 2 });
-    expect(analysis.byTier.sweep.avgUsd).toBeCloseTo((x + y) / 2, 4);
-    expect(analysis.byTier.sweep.medianUsd).toBeCloseTo((x + y) / 2, 4);
-    expect(analysis.byTier.sweep.p95Usd).toBeCloseTo(Math.max(x, y), 4);
+    expect(analysis.byTier.probe).toMatchObject({ runs: 2 });
+    expect(analysis.byTier.probe.avgUsd).toBeCloseTo((x + y) / 2, 4);
+    expect(analysis.byTier.probe.medianUsd).toBeCloseTo((x + y) / 2, 4);
+    expect(analysis.byTier.probe.p95Usd).toBeCloseTo(Math.max(x, y), 4);
     expect(analysis.byTier.scout.runs).toBe(0);
     expect(analysis.bySource.comp.usd).toBeCloseTo(x, 4);
     expect(analysis.bySource.purchase.usd).toBeCloseTo(y, 4);
@@ -275,7 +281,7 @@ describe("runs and costs", () => {
 
   it("lists runs that are still going, and filters by depth, trigger and who paid", async () => {
     const running = await startRun(h, { email: CUSTOMER });
-    const done = await startRun(h, { email: OTHER, tier: "sweep" });
+    const done = await startRun(h, { email: OTHER, tier: "probe" });
     await close(h, done, { inputTokens: 1000, outputTokens: 100 });
     const all = await get<StaffRunsResponse>("/api/staff/runs?test=only");
     expect(all.rows.find((r) => r.runId === running.runId)).toMatchObject({
@@ -304,7 +310,7 @@ describe("runs and costs", () => {
       )
     ).detail;
     expect(detail).toMatchObject({
-      tier: "sweep",
+      tier: "probe",
       entitlement: "comp",
       test: true,
       status: "complete",
@@ -312,9 +318,9 @@ describe("runs and costs", () => {
     expect(detail.cost?.bedrock).toMatchObject({
       calls: 7,
       inputTokens: 200_000,
-      modelId: SWEEP_MODEL,
+      modelId: PROBE_MODEL,
     });
-    const caps = limitsFor("sweep");
+    const caps = limitsFor("probe");
     expect(detail.budgets).toContainEqual({
       name: "Input tokens",
       used: 200_000,
@@ -369,7 +375,7 @@ describe("support tools", () => {
     });
     expect(found.scans).toHaveLength(1);
     expect(found.runs.map((r) => r.runId)).toEqual([run.runId]);
-    expect(found.credits.sweep).toBe(1);
+    expect(found.credits.probe).toBe(1);
     expect(JSON.stringify(found)).not.toContain("pw-test-1");
     expect(
       (await staff.request("GET", `/api/staff/accounts?email=nobody%40example.com`)).status,
@@ -483,7 +489,7 @@ describe("controls", () => {
     await grantCredits(
       h.store,
       hashOf(OTHER),
-      { tier: "sweep", count: 1, source: "comp", reason: "t", by: "t" },
+      { tier: "probe", count: 1, source: "comp", reason: "t", by: "t" },
       h.clock.now(),
       true,
     );
@@ -507,7 +513,7 @@ describe("controls", () => {
     expect(await status(running.owner, running.runId)).toBe("stopped");
     expect(await status(hashOf(OTHER), queued.runId)).toBe("stopped");
     // The run that had not started gets its credit back.
-    expect((await getCredits(h.store, hashOf(OTHER))).sweep).toBe(1);
+    expect((await getCredits(h.store, hashOf(OTHER))).probe).toBe(1);
 
     // No new run can be created or started while it is on.
     const blocked = await waiting.withCsrf("POST", `/api/scans/${waitScan}/run`);
@@ -528,7 +534,7 @@ describe("controls", () => {
     await grantCredits(
       h.store,
       hashOf(CUSTOMER),
-      { tier: "sweep", count: 1, source: "comp", reason: "t", by: "t" },
+      { tier: "probe", count: 1, source: "comp", reason: "t", by: "t" },
       h.clock.now(),
       true,
     );
@@ -543,16 +549,16 @@ describe("controls", () => {
   });
 
   it("a per-depth concurrency change takes effect at once, without a deploy", async () => {
-    expect(limitsFor("sweep").concurrency).toBeGreaterThan(1);
-    expect((await put({ concurrency: { sweep: 1 } })).status).toBe(200);
-    expect((await controls()).concurrency.sweep).toBe(1);
+    expect(limitsFor("probe").concurrency).toBeGreaterThan(1);
+    expect((await put({ concurrency: { probe: 1 } })).status).toBe(200);
+    expect((await controls()).concurrency.probe).toBe(1);
     const first = await startRun(h, { email: CUSTOMER });
     // A second run of the depth now waits for the slot.
     const other = await customer(h, OTHER, "203.0.113.71");
     await grantCredits(
       h.store,
       hashOf(OTHER),
-      { tier: "sweep", count: 1, source: "comp", reason: "t", by: "t" },
+      { tier: "probe", count: 1, source: "comp", reason: "t", by: "t" },
       h.clock.now(),
       true,
     );
@@ -567,7 +573,7 @@ describe("controls", () => {
     expect(first.runId).toBeDefined();
     // Putting it back lets the waiting run in on its next poll.
     expect((await put({ concurrency: {} })).status).toBe(200);
-    expect((await controls()).concurrency.sweep).toBe(limitsFor("sweep").concurrency);
+    expect((await controls()).concurrency.probe).toBe(limitsFor("probe").concurrency);
     await acquireRun(h.store, { emailHash: hashOf(OTHER), runId }, h.clock.now());
     expect(
       JSON.parse((await h.store.get(keys.runSummary(hashOf(OTHER), runId)))!.body).status,
@@ -623,19 +629,19 @@ describe("controls", () => {
         (await res.json()) as { budgets: { maxRequests: number; llm: { spendCapUsd: number } } }
       ).budgets;
     };
-    const original = limitsFor("sweep");
+    const original = limitsFor("probe");
     expect((await budget()).maxRequests).toBe(original.requestCap);
-    expect((await put({ caps: { sweep: { requestCap: 123, spendCapUsd: 2.5 } } })).status).toBe(
+    expect((await put({ caps: { probe: { requestCap: 123, spendCapUsd: 2.5 } } })).status).toBe(
       200,
     );
     expect(await budget()).toMatchObject({ maxRequests: 123, llm: { spendCapUsd: 2.5 } });
-    expect((await controls()).caps.sweep.requestCap).toBe(123);
-    // Spend caps must still rise with depth, so a Sweep cap above Probe's is refused and changes nothing.
-    const bad = await put({ caps: { sweep: { spendCapUsd: limitsFor("probe").spendCapUsd + 1 } } });
+    expect((await controls()).caps.probe.requestCap).toBe(123);
+    // Spend caps must still rise with depth, so a Probe cap above Siege's is refused and changes nothing.
+    const bad = await put({ caps: { probe: { spendCapUsd: limitsFor("siege").spendCapUsd + 1 } } });
     expect(bad.status).toBe(400);
-    expect((await controls()).caps.sweep.spendCapUsd).toBe(2.5);
-    expect((await put({ caps: { sweep: { requestCap: 0 } } })).status).toBe(400);
-    expect((await put({ caps: { sweep: { modelId: "other" } } })).status).toBe(400);
+    expect((await controls()).caps.probe.spendCapUsd).toBe(2.5);
+    expect((await put({ caps: { probe: { requestCap: 0 } } })).status).toBe(400);
+    expect((await put({ caps: { probe: { modelId: "other" } } })).status).toBe(400);
     expect((await put({ caps: {} })).status).toBe(200);
     expect((await budget()).maxRequests).toBe(original.requestCap);
   });
@@ -723,7 +729,7 @@ describe("the price table", () => {
     const table = { ...pricing, version: "2026-12-01", verified: true };
     table.bedrock = {
       ...pricing.bedrock,
-      [SWEEP_MODEL]: { inputPerMTok: 2, outputPerMTok: 10 },
+      [PROBE_MODEL]: { inputPerMTok: 2, outputPerMTok: 10 },
     };
     // A preview shows the effect before anything is saved.
     const preview = await staff.withCsrf("POST", "/api/staff/costs/preview", {
@@ -770,8 +776,8 @@ describe("the price table", () => {
     // Costing everything under one version shows what the old runs would have cost.
     const again = await get<CostAnalysis>(`/api/staff/costs?test=only&pricing=${pricing.version}`);
     expect(again.pricing).toEqual({ mode: "repriced", version: pricing.version });
-    expect(again.byTier.sweep.runs).toBe(2);
-    expect(again.components.bedrockUsd).toBeCloseTo(3, 6);
+    expect(again.byTier.probe.runs).toBe(2);
+    expect(again.components.bedrockUsd).toBeCloseTo(9, 6);
     expect((await staff.request("GET", "/api/staff/costs?pricing=nope")).status).toBe(404);
     expect((await get<{ action: string }[]>("/api/staff/audit")).map((a) => a.action)).toContain(
       "set-pricing",
@@ -785,7 +791,7 @@ describe("the price table", () => {
       JSON.stringify({
         test: true,
         runId: "run_0old00000aaaaaaaaaaaa",
-        tier: "sweep",
+        tier: "probe",
         trigger: "manual",
         entitlement: "credit",
         status: "complete",
@@ -849,7 +855,7 @@ describe("health", () => {
     ).json()) as import("@swarm/shared").StaffHealth;
     expect(view.stuckRuns.map((r) => r.runId)).toEqual([run.runId]);
     expect(view.ses).toMatchObject({ sends: 200, bounces: 2, bounceRate: 0.01, complaints: 0 });
-    expect(view.pools.sweep.active).toBe(1);
+    expect(view.pools.probe.active).toBe(1);
     expect(view.bedrock).not.toBeNull();
     expect(asked).toContain("AWS/Bedrock/InvocationThrottles");
   });

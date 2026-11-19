@@ -23,8 +23,8 @@ const targetBody = (over: Record<string, unknown> = {}) => ({
 
 const scanBody = (targetId: string, over: Record<string, unknown> = {}) => ({
   targetId,
-  name: "Weekly sweep",
-  tier: "sweep",
+  name: "Weekly probe",
+  tier: "probe",
   frequency: "weekly",
   timezone: "Australia/Sydney",
   notifyEmail: OWNER,
@@ -49,7 +49,7 @@ async function signedIn(h: Harness, email = OWNER) {
   return browser;
 }
 
-const grant = (h: Harness, email: string, tier: "scout" | "sweep" | "probe" | "siege", count = 1) =>
+const grant = (h: Harness, email: string, tier: "scout" | "probe" | "siege" | "attack", count = 1) =>
   grantCredits(
     h.store,
     hashOf(email),
@@ -217,7 +217,7 @@ describe("targets", () => {
 
   it("deleting a target removes its scans and reports them, but keeps past runs", async () => {
     const { h, owner } = ctx;
-    await grant(h, OWNER, "sweep", 1);
+    await grant(h, OWNER, "probe", 1);
     const id = await newTarget(owner);
     const scanId = await newScan(owner, id);
     const runId = await ids.run(await owner.withCsrf("POST", `/api/scans/${scanId}/run`));
@@ -263,9 +263,9 @@ describe("scans", () => {
     const text = await res.text();
     expect(text).not.toContain(PASSWORD);
     expect(JSON.parse(text)).toMatchObject({
-      name: "Weekly sweep",
+      name: "Weekly probe",
       target: "staging.example.com",
-      tier: "sweep",
+      tier: "probe",
       frequency: "weekly",
       timezone: "Australia/Sydney",
       notifyEmail: OWNER,
@@ -278,7 +278,7 @@ describe("scans", () => {
     expect(JSON.parse(list)).toHaveLength(1);
   });
 
-  it("fits the number of logins to the depth: Scout 0, Sweep 1, Probe 2, Siege 4", async () => {
+  it("fits the number of logins to the depth: Scout 0, Probe 2, Siege 4, Attack 4", async () => {
     const { owner } = ctx;
     const id = await newTarget(owner, {
       logins: {
@@ -289,18 +289,23 @@ describe("scans", () => {
       },
     });
     const slots = (n: number) => ["admin", "user1", "user2", "other"].slice(0, n);
-    const attempt = async (tier: string, n: number) =>
-      (await owner.withCsrf("POST", "/api/scans", scanBody(id, { tier, loginSlots: slots(n) })))
-        .status;
+    const attempt = async (tier: string, n: number, extra: Record<string, unknown> = {}) =>
+      (
+        await owner.withCsrf(
+          "POST",
+          "/api/scans",
+          scanBody(id, { tier, loginSlots: slots(n), ...extra }),
+        )
+      ).status;
     expect(await attempt("scout", 0)).toBe(201);
     expect(await attempt("scout", 1)).toBe(400);
-    expect(await attempt("sweep", 0)).toBe(400);
-    expect(await attempt("sweep", 1)).toBe(201);
-    expect(await attempt("sweep", 2)).toBe(400);
+    expect(await attempt("probe", 0)).toBe(400);
     expect(await attempt("probe", 2)).toBe(201);
     expect(await attempt("probe", 3)).toBe(400);
     expect(await attempt("siege", 4)).toBe(201);
     expect(await attempt("siege", 0)).toBe(400);
+    expect(await attempt("attack", 4)).toBe(400);
+    expect(await attempt("attack", 4, { disasterRecoveryConfirmed: true })).toBe(201);
     const dupes = await owner.withCsrf(
       "POST",
       "/api/scans",
@@ -323,7 +328,7 @@ describe("scans", () => {
       name: "Daily scout",
       frequency: "daily",
     });
-    await newScan(owner, id, { tier: "sweep", loginSlots: ["user1"] });
+    await newScan(owner, id, { tier: "siege", loginSlots: ["user1"] });
     await newScan(owner, id, {
       tier: "probe",
       loginSlots: ["admin", "user1"],
@@ -385,7 +390,7 @@ describe("scans", () => {
 
   it("deleting a scan removes only that scan", async () => {
     const { h, owner } = ctx;
-    await grant(h, OWNER, "sweep", 1);
+    await grant(h, OWNER, "probe", 1);
     const id = await newTarget(owner);
     const keepId = await newScan(owner, id, { name: "Keep" });
     const dropId = await newScan(owner, id, { name: "Drop" });
@@ -400,7 +405,7 @@ describe("scans", () => {
 
   it("reports the last run on the scan", async () => {
     const { h, owner } = ctx;
-    await grant(h, OWNER, "sweep", 1);
+    await grant(h, OWNER, "probe", 1);
     const id = await newTarget(owner);
     const scanId = await newScan(owner, id);
     const runId = await ids.run(await owner.withCsrf("POST", `/api/scans/${scanId}/run`));
@@ -424,7 +429,7 @@ describe("credits and runs", () => {
 
   it("spends one credit of the scan's depth and snapshots the target and scan", async () => {
     const { h, owner } = ctx;
-    await grant(h, OWNER, "sweep", 2);
+    await grant(h, OWNER, "probe", 2);
     const id = await newTarget(owner, { marketingUrl: "https://www.example.com" });
     const scanId = await newScan(owner, id, { notifyEmail: "Team@Example.com" });
     const res = await owner.withCsrf("POST", `/api/scans/${scanId}/run`);
@@ -434,27 +439,27 @@ describe("credits and runs", () => {
     const me = (await (await owner.request("GET", "/api/me")).json()) as {
       entitlements: { credits: Record<string, number> };
     };
-    expect(me.entitlements.credits).toEqual({ scout: 0, sweep: 1, probe: 0, siege: 0 });
+    expect(me.entitlements.credits).toEqual({ scout: 0, probe: 1, siege: 0, attack: 0 });
 
     const hash = hashOf(OWNER);
     expect(await storedJson(keys.runSummary(hash, runId))).toMatchObject({
       runId,
       status: "queued",
-      tier: "sweep",
+      tier: "probe",
       scanId,
       target: "staging.example.com",
       trigger: "manual",
       entitlement: "credit",
       coverage: 0,
-      agents: { total: 7, done: 0 },
+      agents: { total: 11, done: 0 },
     });
     expect(await storedJson(keys.runInput(hash, runId))).toMatchObject({
       runId,
       scanId,
       trigger: "manual",
-      tier: "sweep",
+      tier: "probe",
       scan: {
-        name: "Weekly sweep",
+        name: "Weekly probe",
         frequency: "weekly",
         notify: { email: "team@example.com", on: "always", confirmed: false },
       },
@@ -468,7 +473,7 @@ describe("credits and runs", () => {
       targetVerification: null,
     });
     expect(await storedJson(keys.runCredit(hash, runId))).toMatchObject({
-      tier: "sweep",
+      tier: "probe",
       entitlement: "credit",
     });
   });
@@ -476,7 +481,7 @@ describe("credits and runs", () => {
   it("a Siege scan needs a Siege credit, not a Scout one", async () => {
     const { h, owner } = ctx;
     await grant(h, OWNER, "scout", 5);
-    await grant(h, OWNER, "sweep", 5);
+    await grant(h, OWNER, "probe", 5);
     const id = await newTarget(owner);
     const scanId = await newScan(owner, id, { tier: "siege", loginSlots: ["user1"] });
     expect((await owner.withCsrf("POST", `/api/scans/${scanId}/run`)).status).toBe(402);
@@ -487,7 +492,7 @@ describe("credits and runs", () => {
 
   it("with one credit, fifty concurrent starts create exactly one run and leave the ledger at zero", async () => {
     const { h, owner } = ctx;
-    await grant(h, OWNER, "sweep", 1);
+    await grant(h, OWNER, "probe", 1);
     const scanId = await newScan(owner, await newTarget(owner));
     const results = await Promise.all(
       Array.from({ length: 50 }, () => owner.withCsrf("POST", `/api/scans/${scanId}/run`)),
@@ -499,14 +504,14 @@ describe("credits and runs", () => {
     const me = (await (await owner.request("GET", "/api/me")).json()) as {
       entitlements: { credits: Record<string, number> };
     };
-    expect(me.entitlements.credits.sweep).toBe(0);
+    expect(me.entitlements.credits.probe).toBe(0);
     const ledger = await storedJson(keys.entitlements(hashOf(OWNER)));
-    expect(ledger.consumed.sweep).toBe(1);
+    expect(ledger.consumed.probe).toBe(1);
   });
 
   it("runs the same scan twice with the same snapshot, two credits, and no re-entry of logins", async () => {
     const { h, owner } = ctx;
-    await grant(h, OWNER, "sweep", 2);
+    await grant(h, OWNER, "probe", 2);
     const id = await newTarget(owner);
     const scanId = await newScan(owner, id);
     const first = await ids.run(await owner.withCsrf("POST", `/api/scans/${scanId}/run`));
@@ -517,7 +522,7 @@ describe("credits and runs", () => {
       [first, second].map((r) => storedJson(keys.runInput(hash, r))),
     );
     expect({ ...a, runId: 0, createdAt: 0 }).toEqual({ ...b, runId: 0, createdAt: 0 });
-    expect((await storedJson(keys.entitlements(hash))).consumed.sweep).toBe(2);
+    expect((await storedJson(keys.entitlements(hash))).consumed.probe).toBe(2);
 
     // Edit the password once: the next run uses it.
     await owner.withCsrf(
@@ -529,7 +534,7 @@ describe("credits and runs", () => {
         },
       }),
     );
-    await grant(h, OWNER, "sweep", 1);
+    await grant(h, OWNER, "probe", 1);
     const third = await ids.run(await owner.withCsrf("POST", `/api/scans/${scanId}/run`));
     expect((await storedJson(keys.runInput(hash, third))).target.logins.user1.password).toBe(
       "rotated-password",
@@ -551,7 +556,7 @@ describe("credits and runs", () => {
 
   it("returns the credit if the run cannot be written", async () => {
     const { h, owner } = ctx;
-    await grant(h, OWNER, "sweep", 1);
+    await grant(h, OWNER, "probe", 1);
     const scanId = await newScan(owner, await newTarget(owner));
     const put = h.store.put.bind(h.store);
     vi.spyOn(h.store, "put").mockImplementation(async (key, body, condition) => {
@@ -565,12 +570,12 @@ describe("credits and runs", () => {
     const me = (await (await owner.request("GET", "/api/me")).json()) as {
       entitlements: { credits: Record<string, number> };
     };
-    expect(me.entitlements.credits.sweep).toBe(1);
+    expect(me.entitlements.credits.probe).toBe(1);
   });
 
   it("lists runs newest first and deletes one run without touching the others", async () => {
     const { h, owner } = ctx;
-    await grant(h, OWNER, "sweep", 2);
+    await grant(h, OWNER, "probe", 2);
     const scanId = await newScan(owner, await newTarget(owner));
     const first = await ids.run(await owner.withCsrf("POST", `/api/scans/${scanId}/run`));
     h.clock.advance(60_000);
@@ -593,7 +598,7 @@ describe("credits and runs", () => {
 
   it("never returns a saved password from any endpoint", async () => {
     const { h, owner } = ctx;
-    await grant(h, OWNER, "sweep", 1);
+    await grant(h, OWNER, "probe", 1);
     const id = await newTarget(owner);
     const scanId = await newScan(owner, id);
     const runId = await ids.run(await owner.withCsrf("POST", `/api/scans/${scanId}/run`));
@@ -611,13 +616,13 @@ describe("credits and runs", () => {
 
   it("users cannot see or touch each other's targets, scans or runs (404)", async () => {
     const { h, owner } = ctx;
-    await grant(h, OWNER, "sweep", 1);
+    await grant(h, OWNER, "probe", 1);
     const id = await newTarget(owner);
     const scanId = await newScan(owner, id);
     const runId = await ids.run(await owner.withCsrf("POST", `/api/scans/${scanId}/run`));
 
     const other = await signedIn(h, OTHER);
-    await grant(h, OTHER, "sweep", 1);
+    await grant(h, OTHER, "probe", 1);
     expect(await (await other.request("GET", "/api/targets")).json()).toEqual([]);
     expect(await (await other.request("GET", "/api/scans")).json()).toEqual([]);
     expect(await (await other.request("GET", "/api/runs")).json()).toEqual([]);
@@ -642,7 +647,7 @@ describe("credits and runs", () => {
       expect(res.status, `${method} ${path}`).toBe(404);
     }
     // Nothing of the owner's was spent or removed.
-    expect((await storedJson(keys.entitlements(hashOf(OWNER)))).consumed.sweep).toBe(1);
+    expect((await storedJson(keys.entitlements(hashOf(OWNER)))).consumed.probe).toBe(1);
     expect(await h.store.get(keys.runSummary(hashOf(OWNER), runId))).not.toBeNull();
     expect(await h.store.get(keys.target(hashOf(OWNER), id))).not.toBeNull();
     // A scan cannot be pointed at someone else's target.
@@ -840,7 +845,7 @@ describe("notification address", () => {
 
 describe("account deletion", () => {
   const populate = async (h: Harness, b: TestBrowser, email: string) => {
-    await grant(h, email, "sweep", 3);
+    await grant(h, email, "probe", 3);
     const id = await newTarget(b);
     const scanId = await newScan(b, id, { notifyEmail: "team@example.org", notifyOn: "always" });
     const second = await newScan(b, id, { name: "Second", notifyEmail: email });
@@ -926,7 +931,7 @@ describe("credits for staff and /api/me", () => {
       entitlements: { credits: Record<string, number>; unmetered: boolean };
     };
     expect(me.entitlements).toEqual({
-      credits: { scout: 0, sweep: 0, probe: 3, siege: 0 },
+      credits: { scout: 0, probe: 3, siege: 0, attack: 0 },
       unmetered: false,
     });
     const staff = await signedIn(h, "swarm-test-staff2@fhlostonswarm.com");

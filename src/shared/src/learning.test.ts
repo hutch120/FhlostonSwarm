@@ -462,7 +462,7 @@ describe("what a run uses of the layer", () => {
     ).toContain("k-llm-prompt-injection");
   });
 
-  it("gives Scout and Sweep no dynamic agent and Probe and Siege a small number (candidates count)", () => {
+  it("gives Scout no dynamic agent and Probe, Siege and Attack a small number (candidates count)", () => {
     const layer = layerWith(
       { status: "active" },
       { status: "active" },
@@ -471,7 +471,6 @@ describe("what a run uses of the layer", () => {
     );
     const tokens = tokensOf([], ["any"]);
     expect(selectDynamic(layer, tokens, "scout").agents).toEqual([]);
-    expect(selectDynamic(layer, tokens, "sweep").agents).toEqual([]);
     const probe = selectDynamic(layer, tokens, "probe").agents;
     const siege = selectDynamic(layer, tokens, "siege").agents;
     expect(probe).toHaveLength(learningConfig.dynamicAgentsPerRun.probe);

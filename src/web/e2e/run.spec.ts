@@ -11,9 +11,9 @@ const everything = JSON.parse(
 const tiersConfig = JSON.parse(
   readFileSync(new URL("../../shared/config/tiers.json", import.meta.url), "utf8"),
 ) as Record<string, { agents: string[] }>;
-// The run below is a Sweep with one login: it raises the findings of the Sweep agent group.
+// The run below is a Probe with one login: it raises the findings of the Probe agent group.
 const expected = {
-  findings: everything.findings.filter((f) => tiersConfig["sweep"]!.agents.includes(f.agent)),
+  findings: everything.findings.filter((f) => tiersConfig["probe"]!.agents.includes(f.agent)),
 };
 
 /**
@@ -23,7 +23,7 @@ const expected = {
  */
 async function newRun(page: Page, email: string): Promise<string> {
   const grant = await page.request.post(`${API}/__dev/grant`, {
-    data: { to: email, tier: "sweep", count: 1 },
+    data: { to: email, tier: "probe", count: 1 },
   });
   expect(grant.ok()).toBe(true);
   // The intake refuses loopback addresses, so the dev server saves the synthetic target directly.
@@ -38,7 +38,7 @@ async function newRun(page: Page, email: string): Promise<string> {
     data: {
       targetId,
       name: "Synthetic target",
-      tier: "sweep",
+      tier: "probe",
       frequency: "once",
       timezone: "Australia/Sydney",
       notifyEmail: email,

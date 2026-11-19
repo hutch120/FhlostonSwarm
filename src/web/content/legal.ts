@@ -28,7 +28,7 @@ export const terms: LegalDocument = {
       paragraphs: [
         "By starting a scan you confirm that you own the systems you enter, or that you have the owner's written permission to test them, and that you are allowed to share the test logins you provide.",
         "Swarm sends real requests to the hostnames you enter and signs in with the logins you supply. We do not verify ownership, so the confirmation you give is relied on. We record it with the time, your network address and the version of these terms.",
-        "You are responsible for any effect a scan has on your systems and on any third party that shares them. Scans are non-destructive and rate-limited, but they can still cause load, create records or trigger alerts.",
+        "You are responsible for any effect a scan has on your systems and on any third party that shares them. Scout, Probe and Siege scans are non-destructive and rate-limited, but they can still cause load, create records or trigger alerts. The Attack depth is destructive by design: it may delete, change or overload data within the declared scope, and is only started once you confirm the target has tested backups and a disaster-recovery plan.",
       ],
     },
     {

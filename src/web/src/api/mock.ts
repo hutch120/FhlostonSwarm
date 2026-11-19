@@ -81,6 +81,7 @@ export const MOCK_SCANS: ScanSummary[] = [
     status: "active",
     lastRun: { runId: "run_scout0001", status: "complete", finishedAt: "2026-11-09T02:04:12.000Z" },
     nextRunAt: "2026-11-10T02:00:00.000Z",
+    disasterRecoveryConfirmed: false,
   },
   {
     id: "scan_weekly01",
@@ -96,6 +97,7 @@ export const MOCK_SCANS: ScanSummary[] = [
     notifyEmailConfirmed: false,
     status: "active",
     nextRunAt: "2026-11-16T02:00:00.000Z",
+    disasterRecoveryConfirmed: false,
   },
   {
     id: "scan_monthly01",
@@ -111,6 +113,7 @@ export const MOCK_SCANS: ScanSummary[] = [
     notifyEmailConfirmed: true,
     status: "paused",
     lastRun: { runId: DEMO_RUN_ID, status: "complete", finishedAt: "2026-11-02T03:15:48.000Z" },
+    disasterRecoveryConfirmed: false,
   },
   {
     id: "scan_once0001",
@@ -126,11 +129,12 @@ export const MOCK_SCANS: ScanSummary[] = [
     notifyEmailConfirmed: true,
     status: "active",
     lastRun: { runId: DEMO_RUN_ID, status: "complete", finishedAt: "2026-10-28T05:40:00.000Z" },
+    disasterRecoveryConfirmed: false,
   },
 ];
 
 export const MOCK_ACCOUNT: AccountInfo = {
-  credits: { scout: 0, sweep: 0, probe: 0, siege: 0 },
+  credits: { scout: 0, probe: 0, siege: 0, attack: 0 },
   unmetered: false,
 };
 

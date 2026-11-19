@@ -22,6 +22,8 @@ export const storedScanSchema = z.object({
   targetId: z.string(),
   name: z.string(),
   tier: tierIdSchema,
+  /** Required for the attack depth: confirms the target has tested backups and a disaster-recovery plan. */
+  disasterRecoveryConfirmed: z.boolean(),
   schedule: z.object({ frequency: frequencySchema, timezone: z.string() }),
   notify: z.object({
     email: z.string(),
@@ -75,6 +77,7 @@ export function viewScan(
     name: scan.name,
     target: target?.hosts[0] ?? "(deleted target)",
     tier: scan.tier,
+    disasterRecoveryConfirmed: scan.disasterRecoveryConfirmed,
     frequency: scan.schedule.frequency,
     timezone: scan.schedule.timezone,
     notifyEmail: scan.notify.email,

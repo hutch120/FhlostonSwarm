@@ -189,7 +189,7 @@ describe("sign in, session and sign out", () => {
     expect(me).toEqual({
       email: "buyer@example.com",
       role: "customer",
-      entitlements: { credits: { scout: 0, sweep: 0, probe: 0, siege: 0 }, unmetered: false },
+      entitlements: { credits: { scout: 0, probe: 0, siege: 0, attack: 0 }, unmetered: false },
     });
   });
 
@@ -450,7 +450,7 @@ describe("entitlements", () => {
     const me = (await (await b.request("GET", "/api/me")).json()) as {
       entitlements: { credits: Record<string, number> };
     };
-    expect(me.entitlements.credits).toEqual({ scout: 0, sweep: 0, probe: 0, siege: 0 });
+    expect(me.entitlements.credits).toEqual({ scout: 0, probe: 0, siege: 0, attack: 0 });
   });
 });
 

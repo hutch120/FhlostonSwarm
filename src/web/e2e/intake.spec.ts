@@ -24,7 +24,7 @@ test.describe("intake, saved scans, credits and deletion", () => {
     page,
   }) => {
     const email = await signIn(page);
-    await grant(page, email, "sweep", 2);
+    await grant(page, email, "probe", 2);
 
     // The intake shows the terms and how many credits are left.
     await page.goto("/new");
@@ -39,7 +39,7 @@ test.describe("intake, saved scans, credits and deletion", () => {
     await expect(page.getByTestId("run-status")).toHaveText(/running|complete/);
 
     await page.goto("/dashboard");
-    await expect(page.getByTestId("credits")).toContainText("1 Sweep");
+    await expect(page.getByTestId("credits")).toContainText("1 Probe");
     await expect(page.getByTestId("run-row")).toHaveCount(1);
     await expect(page.getByTestId("run-row").first()).toContainText(/running|complete/);
     await expect(page.getByTestId("run-row").first()).toContainText("staging.example.com");
@@ -48,14 +48,14 @@ test.describe("intake, saved scans, credits and deletion", () => {
     await page.goto("/scans");
     const row = page.getByTestId("scan-row");
     await expect(row).toHaveCount(1);
-    await expect(row).toContainText("Sweep");
+    await expect(row).toContainText("Probe");
     await expect(row).toContainText("Weekly");
     await row.getByRole("button", { name: /Run .* again/ }).click();
     await expect(page.getByRole("heading", { name: "Live swarm view" })).toBeVisible();
 
     await page.goto("/dashboard");
     await expect(page.getByTestId("run-row")).toHaveCount(2);
-    await expect(page.getByTestId("credits")).toContainText("0 Sweep");
+    await expect(page.getByTestId("credits")).toContainText("0 Probe");
 
     // With no credit left a third run is refused and nothing is added.
     await page.goto("/scans");
@@ -100,7 +100,7 @@ test.describe("intake, saved scans, credits and deletion", () => {
   }) => {
     await signIn(page);
     await page.goto("/new");
-    await expect(page.getByTestId("no-credit")).toContainText("no Sweep credits");
+    await expect(page.getByTestId("no-credit")).toContainText("no Probe credits");
     await fillIntake(page);
     await page.getByRole("button", { name: "Save scan" }).click();
     await expect(page.getByRole("heading", { name: "Scans", level: 1 })).toBeVisible();
@@ -115,7 +115,7 @@ test.describe("intake, saved scans, credits and deletion", () => {
 
   test("an unsafe target is refused on the field, and nothing is saved", async ({ page }) => {
     const email = await signIn(page);
-    await grant(page, email, "sweep", 1);
+    await grant(page, email, "probe", 1);
     await fillIntake(page);
     await page.getByLabel("Application URL (required)").fill("http://169.254.169.254/latest");
     await page.getByRole("button", { name: /start scan/i }).click();
@@ -130,7 +130,7 @@ test.describe("intake, saved scans, credits and deletion", () => {
     browser,
   }) => {
     const email = await signIn(page);
-    await grant(page, email, "sweep", 1);
+    await grant(page, email, "probe", 1);
     const notify = testEmail("example.org");
     await fillIntake(page, { notifyEmail: notify });
     await page.getByRole("button", { name: "Save and start scan" }).click();
@@ -164,7 +164,7 @@ test.describe("intake, saved scans, credits and deletion", () => {
     page,
   }) => {
     const email = await signIn(page);
-    await grant(page, email, "sweep", 1);
+    await grant(page, email, "probe", 1);
     await fillIntake(page);
     await page.getByRole("button", { name: "Save and start scan" }).click();
     await expect(page.getByRole("heading", { name: "Live swarm view" })).toBeVisible();
@@ -181,7 +181,7 @@ test.describe("intake, saved scans, credits and deletion", () => {
     await expect(page.getByTestId("scan-row")).toContainText("Renamed scan");
     await page.goto("/dashboard");
     await expect(page.getByTestId("run-row")).toHaveCount(1);
-    await expect(page.getByTestId("credits")).toContainText("0 Sweep");
+    await expect(page.getByTestId("credits")).toContainText("0 Probe");
   });
 
   test("deleting the account needs the emailed code and removes everything", async ({
@@ -189,7 +189,7 @@ test.describe("intake, saved scans, credits and deletion", () => {
     browser,
   }) => {
     const email = await signIn(page);
-    await grant(page, email, "sweep", 1);
+    await grant(page, email, "probe", 1);
     await fillIntake(page);
     await page.getByRole("button", { name: "Save and start scan" }).click();
     await expect(page.getByRole("heading", { name: "Live swarm view" })).toBeVisible();
@@ -219,7 +219,7 @@ test.describe("intake, saved scans, credits and deletion", () => {
     await expect(again.getByTestId("scan-row")).toHaveCount(0);
     await again.goto("/dashboard");
     await expect(again.getByTestId("run-row")).toHaveCount(0);
-    await expect(again.getByTestId("credits")).toContainText("0 Sweep");
+    await expect(again.getByTestId("credits")).toContainText("0 Probe");
     await fresh.close();
   });
 

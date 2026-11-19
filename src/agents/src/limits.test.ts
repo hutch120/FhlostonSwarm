@@ -31,7 +31,7 @@ const endlessCrawl = (turn: number, request: LlmRequest) =>
 async function runScout(
   llm: ScriptedLlm,
   budgets: Parameters<typeof inputFor>[2] = {},
-  tier: "scout" | "sweep" = "scout",
+  tier: "scout" | "probe" = "scout",
   options: {
     edit?: (input: AgentInput) => void;
     driverFactory?: Parameters<typeof runLocal>[0]["driverFactory"];
@@ -223,7 +223,7 @@ describe.skipIf(!browserAvailable)("hostile content", () => {
     });
     let run;
     try {
-      run = await runScout(llm, {}, "sweep", { driverFactory: watching });
+      run = await runScout(llm, {}, "probe", { driverFactory: watching });
     } finally {
       spy.mockRestore();
     }
@@ -265,7 +265,7 @@ describe.skipIf(!browserAvailable)("hostile content", () => {
       if (turn === 2) return [call(turn, "open_path", { path: "/archive/1" })];
       return [call(turn, "sign_in", { login: "admin" })];
     });
-    const { result, gaps } = await runScout(llm, {}, "sweep");
+    const { result, gaps } = await runScout(llm, {}, "probe");
     expect(result.explorerLog!.signIns).toHaveLength(2);
     expect(result.explorerLog!.signIns.every((s) => !s.ok)).toBe(true);
     expect(gaps.some((g) => g.includes(loginHelp["no-form"]))).toBe(true);
@@ -288,7 +288,7 @@ describe.skipIf(!browserAvailable)("hostile content", () => {
     const attempts = () =>
       fixture.target().seen.filter((r) => r.method === "POST" && r.path === "/api/login").length;
     const before = attempts();
-    const { result, gaps } = await runScout(llm, {}, "sweep", {
+    const { result, gaps } = await runScout(llm, {}, "probe", {
       edit: (input) => {
         for (const login of Object.values(input.logins)) login.password = "no-longer-valid-1";
         input.logins.user1 = { ...input.logins.admin!, description: "Customer 1" };

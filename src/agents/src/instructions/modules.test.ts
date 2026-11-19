@@ -29,15 +29,21 @@ describe("instruction modules", () => {
     expect(guardrailText().split("\n")).toHaveLength(GUARDRAILS.length);
   });
 
+  it("renders the attack depth's destructive guardrails instead of the standard ones", () => {
+    const text = renderModule(INSTRUCTION_MODULES[0]!, "attack");
+    expect(text).toContain("Writes, deletions, state changes, load generation");
+    expect(text).not.toContain("Only safe requests (GET, HEAD, OPTIONS)");
+  });
+
   it("carry no engagement-specific content", () => {
     const text = JSON.stringify(INSTRUCTION_MODULES);
     expect(text).not.toMatch(/polynize|pwc|assessment1|@[a-z0-9-]+\.(io|com)|password\s*[:=]/i);
   });
 
   it("render only the phases a depth covers", () => {
-    const sweep = renderModules(tiers.sweep.agents);
-    expect(sweep).toContain("Phase 1");
-    expect(sweep).not.toContain("AI / LLM security testing");
+    const scout = renderModules(tiers.scout.agents);
+    expect(scout).toContain("Phase 1");
+    expect(scout).not.toContain("AI / LLM security testing");
     expect(renderModules(tiers.siege.agents)).toContain("AI / LLM security testing");
   });
 

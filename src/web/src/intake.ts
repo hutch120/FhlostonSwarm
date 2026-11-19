@@ -57,6 +57,8 @@ export interface IntakeValues {
   logins: Record<LoginSlotId, LoginValues>;
   scopeNotes: string;
   acknowledged: boolean;
+  /** Required for the attack depth: confirms the target has tested backups and a disaster-recovery plan. */
+  disasterRecoveryConfirmed: boolean;
 }
 
 const emptyLogin = (): LoginValues => ({
@@ -89,7 +91,7 @@ export const emptyIntake = (accountEmail = ""): IntakeValues => ({
   name: "",
   appUrl: "",
   marketingUrl: "",
-  tier: "sweep",
+  tier: "probe",
   frequency: "once",
   timezone: browserTimezone(),
   notifyEmail: accountEmail,
@@ -97,6 +99,7 @@ export const emptyIntake = (accountEmail = ""): IntakeValues => ({
   logins: emptyLogins(),
   scopeNotes: "",
   acknowledged: false,
+  disasterRecoveryConfirmed: false,
 });
 
 /** Replaces the target fields with a saved target's, keeping the scan settings. Passwords stay on the server. */
@@ -111,6 +114,7 @@ export function withTarget(values: IntakeValues, target: TargetView | null): Int
       scopeNotes: "",
       logins: fresh.logins,
       acknowledged: false,
+      disasterRecoveryConfirmed: false,
     };
   }
   const logins = emptyLogins();
@@ -136,6 +140,7 @@ export function withTarget(values: IntakeValues, target: TargetView | null): Int
       scopeNotes: target.scopeNotes,
       logins,
       acknowledged: false,
+      disasterRecoveryConfirmed: false,
     },
     values.tier,
   );
@@ -155,6 +160,7 @@ export function valuesFromScan(
     timezone: scan.timezone,
     notifyEmail: scan.notifyEmail,
     notifyOn: scan.notifyOn,
+    disasterRecoveryConfirmed: scan.disasterRecoveryConfirmed,
   };
   const logins = { ...base.logins };
   for (const slot of LOGIN_SLOT_IDS) {
@@ -238,6 +244,10 @@ export function validateIntake(values: IntakeValues): IntakeErrors {
   }
 
   const tier = tiers[values.tier] as (typeof tiers)[TierId] | undefined;
+  if (tier?.destructive && !values.disasterRecoveryConfirmed) {
+    errors["disasterRecoveryConfirmed"] =
+      "Confirm the target has tested backups and a disaster-recovery plan before running an Attack scan";
+  }
   if (!tier || tier.logins === 0) return errors;
 
   // Every login the target will hold must be complete, used by this scan or not.
@@ -310,5 +320,6 @@ export function toScanInput(values: IntakeValues, targetId: string, fallbackEmai
     notifyEmail: values.notifyEmail.trim() || fallbackEmail,
     notifyOn: values.notifyOn,
     loginSlots: tiers[values.tier].logins === 0 ? [] : usedLogins(values),
+    disasterRecoveryConfirmed: values.disasterRecoveryConfirmed,
   };
 }

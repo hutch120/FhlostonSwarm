@@ -130,7 +130,8 @@ const EXTRACT = `(() => {
  * (loopback included), cannot resolve names itself, and refuses every request outside the declared
  * hosts. Only safe methods leave it, apart from the sign-in submission while one is in progress:
  * plain-HTTP writes go on to the proxy (which refuses and logs them unless they carry the sign-in
- * key), and HTTPS writes, which the proxy cannot inspect, are refused here.
+ * key), and HTTPS writes, which the proxy cannot inspect, are refused here. At the attack depth
+ * (`options.destructive`) every method is let through, since the proxy itself is not read-only.
  */
 export class PlaywrightDriver implements PageDriver {
   requests = 0;
@@ -204,7 +205,7 @@ export class PlaywrightDriver implements PageDriver {
       this.note(method, request.url(), "out_of_scope");
       return route.abort("blockedbyclient");
     }
-    if (isSafeMethod(method)) {
+    if (this.options.destructive || isSafeMethod(method)) {
       this.requests += 1;
       return route.continue();
     }

@@ -117,10 +117,10 @@ describe("the report data", () => {
   });
 
   it("says so when a depth never cross-checks", () => {
-    const { state, summary } = base("sweep");
+    const { state, summary } = base("scout");
     const events = replayEvents.filter((e) => e.type !== "verify");
     const stripped = applyEvents(
-      createRunState({ runId: DEMO_RUN_ID, tier: "sweep", ...tierRoster("sweep") }),
+      createRunState({ runId: DEMO_RUN_ID, tier: "scout", ...tierRoster("scout") }),
       events,
     );
     const r = buildReport({
@@ -165,10 +165,10 @@ describe("the AI/LLM section", () => {
   });
 
   it("is not included at the depths without the AI agents", () => {
-    const { state, summary } = base("sweep");
+    const { state, summary } = base("scout");
     const events: RunEvent[] = [];
     const r = buildReport({
-      state: { ...state, tier: "sweep" },
+      state: { ...state, tier: "scout" },
       events,
       summary,
       target: "t.example",

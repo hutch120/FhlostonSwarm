@@ -93,7 +93,7 @@ export const runStatusSchema = z.enum(["queued", "running", "complete", "stopped
 export type RunStatus = z.infer<typeof runStatusSchema>;
 
 /** Scan depth, shallowest first. A tier is a group of agents (config/tiers.json). */
-export const tierIdSchema = z.enum(["scout", "sweep", "probe", "siege"]);
+export const tierIdSchema = z.enum(["scout", "probe", "siege", "attack"]);
 export type TierId = z.infer<typeof tierIdSchema>;
 export const TIER_IDS = tierIdSchema.options;
 

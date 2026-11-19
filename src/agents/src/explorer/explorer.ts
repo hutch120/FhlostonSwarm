@@ -4,7 +4,7 @@ import { runtimeConfig } from "@swarm/shared/server";
 import { z } from "zod";
 import type { Budget } from "../budget.js";
 import { LlmBudgetExhausted, type LlmMeter } from "../llm/meter.js";
-import { SAFETY_RULES, runLoop, untrusted, type Tool, type ToolOutput } from "../llm/loop.js";
+import { runLoop, safetyRulesFor, untrusted, type Tool, type ToolOutput } from "../llm/loop.js";
 import type { LlmClient } from "../llm/types.js";
 import { normaliseHost } from "../policy.js";
 import type {
@@ -197,7 +197,7 @@ export class Explorer {
       await runLoop({
         llm: this.deps.llm,
         meter: this.deps.meter,
-        system: SAFETY_RULES,
+        system: safetyRulesFor(!this.deps.input.scope.readOnly),
         task: `${ROLE}\n\nExploring has ended. Write the profile now, from these notes of what was seen, using record_profile only.\n\n${untrusted("exploration notes", this.notes.join("\n\n"), 6000)}`,
         tools,
         maxTurns: 2,
@@ -230,6 +230,7 @@ export class Explorer {
         hosts: input.scope.hosts,
         loginSubmissions: kind === "public" ? 0 : input.scope.loginSubmissions,
         userAgent: input.userAgent,
+        destructive: !input.scope.readOnly,
       });
     } catch (err) {
       this.logFailure("browser", err);
@@ -286,7 +287,7 @@ export class Explorer {
       const loop = await runLoop({
         llm,
         meter,
-        system: SAFETY_RULES,
+        system: safetyRulesFor(!input.scope.readOnly),
         task,
         tools,
         maxTurns,

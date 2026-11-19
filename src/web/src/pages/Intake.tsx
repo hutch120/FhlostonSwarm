@@ -281,6 +281,25 @@ function IntakeForm({
               />
             ))}
           </div>
+          {tier.destructive && (
+            <div className="field">
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={values.disasterRecoveryConfirmed}
+                  onChange={(e) => setField("disasterRecoveryConfirmed", e.target.checked)}
+                  {...fieldProps("disasterRecoveryConfirmed")}
+                />
+                I confirm this target has tested backups and a disaster-recovery plan. Attack
+                scans are destructive: they may delete, change or overload data, and nothing done
+                to them is undone automatically.
+              </label>
+              <FieldError
+                id="disasterRecoveryConfirmed-error"
+                message={errors["disasterRecoveryConfirmed"]}
+              />
+            </div>
+          )}
           {editing || credits === undefined ? null : unmetered ? (
             <p className="hint" data-testid="credit-note">
               As staff you can start runs without a credit.

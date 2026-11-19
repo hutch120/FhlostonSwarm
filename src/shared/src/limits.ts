@@ -29,9 +29,9 @@ export type TierLimits = z.infer<typeof tierLimitsSchema>;
 export const tierLimitsConfigSchema = z
   .object({
     scout: tierLimitsSchema,
-    sweep: tierLimitsSchema,
     probe: tierLimitsSchema,
     siege: tierLimitsSchema,
+    attack: tierLimitsSchema,
   })
   .refine(
     (t) =>

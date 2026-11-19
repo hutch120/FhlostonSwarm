@@ -355,7 +355,7 @@ describe.skipIf(!browserAvailable)("the learning loop on the synthetic target", 
     expect(target.target().seen.some((r) => r.path === "/debug/vars")).toBe(true);
   });
 
-  it("Scout and Sweep run no dynamic agents, whatever the layer holds", async () => {
+  it("Scout runs no dynamic agents, whatever the layer holds", async () => {
     const storage = new MemoryLearningStorage();
     const cfg = { ...learningConfig, limits: { ...learningConfig.limits, shadowRuns: 1 } };
     // A layer with an active agent in it.
@@ -375,13 +375,11 @@ describe.skipIf(!browserAvailable)("the learning loop on the synthetic target", 
       config: cfg,
     });
     const before = target.target().seen.length;
-    for (const tier of ["scout", "sweep"] as const) {
-      const r = await run(tier, storage);
-      expect([...r.result.agentsRun].sort()).toEqual([...tiers[tier].agents].sort());
-      expect(r.result.dynamic).toBeNull();
-      expect(r.result.engagement).toBeNull();
-      expect(r.events.some((e) => e.agent === "dyn-debug-vars")).toBe(false);
-    }
+    const r = await run("scout", storage);
+    expect([...r.result.agentsRun].sort()).toEqual([...tiers.scout.agents].sort());
+    expect(r.result.dynamic).toBeNull();
+    expect(r.result.engagement).toBeNull();
+    expect(r.events.some((e) => e.agent === "dyn-debug-vars")).toBe(false);
     expect(
       target
         .target()

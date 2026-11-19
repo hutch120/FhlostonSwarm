@@ -8,7 +8,7 @@ import { useRunStore } from "../state/run.js";
 import { SwarmCanvas } from "../swarm/SwarmCanvas.js";
 
 const ROSTER = tierRoster("siege");
-const TIER_ORDER: TierId[] = ["scout", "sweep", "probe", "siege"];
+const TIER_ORDER: TierId[] = ["scout", "probe", "siege", "attack"];
 const REPLAY_SPEED = 3;
 const LOOP_PAUSE_MS = 4000;
 

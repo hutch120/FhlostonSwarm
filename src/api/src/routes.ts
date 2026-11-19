@@ -275,6 +275,7 @@ export function dataRoutes(deps: DataDeps) {
       targetId: input.targetId,
       name: input.name,
       tier: input.tier,
+      disasterRecoveryConfirmed: input.disasterRecoveryConfirmed,
       schedule: { frequency: input.frequency, timezone: input.timezone },
       notify: {
         email: input.notifyEmail.trim().toLowerCase(),

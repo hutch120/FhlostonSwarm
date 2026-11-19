@@ -78,7 +78,7 @@ export async function runTask(options: TaskOptions): Promise<TaskResult> {
     },
     now,
   );
-  const http = new ScopedHttp(options.proxy, input.userAgent, budget);
+  const http = new ScopedHttp(options.proxy, input.userAgent, budget, !input.scope.readOnly);
 
   const meter = new LlmMeter({ ...input.budgets.llm });
   meter.onRecord = options.onUsage;

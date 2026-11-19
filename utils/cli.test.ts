@@ -24,13 +24,13 @@ describe("grantComp", () => {
     by: "arn:aws:iam::885922397779:user/staff",
     now: () => Date.UTC(2026, 10, 10, 1, 2, 3),
   });
-  const args = { email: "swarm-test-grantee@example.com", tier: "sweep", count: 2, reason: "beta" };
+  const args = { email: "swarm-test-grantee@example.com", tier: "probe", count: 2, reason: "beta" };
   const hash = emailHash("test-pepper", parseEmail(args.email)!);
 
   it("adds comp credits for the account and audit-logs the grant without the email", async () => {
     const d = deps();
-    expect(await grantComp(d, args)).toEqual({ scout: 0, sweep: 2, probe: 0, siege: 0 });
-    expect(await getCredits(d.store, hash)).toMatchObject({ sweep: 2 });
+    expect(await grantComp(d, args)).toEqual({ scout: 0, probe: 2, siege: 0, attack: 0 });
+    expect(await getCredits(d.store, hash)).toMatchObject({ probe: 2 });
 
     const keysAfter = await d.store.list("admin/audit/");
     expect(keysAfter).toHaveLength(1);
@@ -41,7 +41,7 @@ describe("grantComp", () => {
       at: "2026-11-10T01:02:03.000Z",
       action: "grant-credit",
       emailHash: hash,
-      tier: "sweep",
+      tier: "probe",
       count: 2,
       source: "comp",
       reason: "beta",

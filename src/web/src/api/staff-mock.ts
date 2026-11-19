@@ -19,7 +19,7 @@ const perTier = <T>(make: (tier: TierId) => T) =>
 export const MOCK_STAFF_RUNS: StaffRunRow[] = [
   {
     runId: "run_0mock0000001aaaaaaaaa",
-    tier: "sweep",
+    tier: "probe",
     trigger: "manual",
     entitlement: "comp",
     status: "complete",
@@ -48,7 +48,7 @@ export const MOCK_STAFF_RUNS: StaffRunRow[] = [
 ];
 
 const stats = (tier: TierId): TierCostStats =>
-  tier === "sweep"
+  tier === "probe"
     ? {
         runs: 4,
         avgUsd: 0.6,
@@ -97,7 +97,7 @@ export const MOCK_COSTS: CostAnalysis = {
   topRuns: [
     {
       runId: "run_0mock0000001aaaaaaaaa",
-      tier: "sweep",
+      tier: "probe",
       costUsd: 0.9,
       startedAt: "2026-11-10T01:00:00.000Z",
     },
@@ -140,15 +140,15 @@ const caps = (spendCapUsd: number) => ({
 
 export const MOCK_CONTROLS: StaffControls = {
   killSwitch: { on: false, reason: "", at: null, by: null },
-  concurrency: { scout: 4, sweep: 3, probe: 2, siege: 2 },
-  caps: { scout: caps(1), sweep: caps(3), probe: caps(8), siege: caps(15) },
+  concurrency: { scout: 4, probe: 2, siege: 2, attack: 3 },
+  caps: { scout: caps(1), probe: caps(8), siege: caps(15), attack: caps(30) },
   dailySpendAlarmUsd: 25,
   scheduledScans: { maxActivePerAccount: 5, minSpacingHours: 24 },
   blockedHosts: [],
   blockedEmailDomains: [],
   defaults: {
-    concurrency: { scout: 4, sweep: 3, probe: 2, siege: 2 },
-    caps: { scout: caps(1), sweep: caps(3), probe: caps(8), siege: caps(15) },
+    concurrency: { scout: 4, probe: 2, siege: 2, attack: 3 },
+    caps: { scout: caps(1), probe: caps(8), siege: caps(15), attack: caps(30) },
     dailySpendAlarmUsd: 25,
     scheduledScans: { maxActivePerAccount: 5, minSpacingHours: 24 },
   },
@@ -227,18 +227,18 @@ export const MOCK_ACCOUNT: StaffAccount = {
   test: false,
   createdAt: 1_700_000_000_000,
   lastLoginAt: 1_700_000_100_000,
-  credits: { scout: 1, sweep: 2, probe: 0, siege: 0 },
+  credits: { scout: 1, probe: 2, siege: 0, attack: 2 },
   ledger: {
     granted: {
-      comp: { scout: 1, sweep: 3, probe: 0, siege: 0 },
-      purchase: { scout: 0, sweep: 0, probe: 0, siege: 0 },
+      comp: { scout: 1, probe: 2, siege: 0, attack: 3 },
+      purchase: { scout: 0, probe: 0, siege: 0, attack: 0 },
     },
-    consumed: { scout: 0, sweep: 1, probe: 0, siege: 0 },
+    consumed: { scout: 0, probe: 0, siege: 0, attack: 1 },
     grants: [
       {
         at: 1_700_000_000_000,
         source: "comp",
-        tier: "sweep",
+        tier: "attack",
         count: 3,
         reason: "beta tester",
         by: "ops@fhlostonswarm.com",
@@ -250,7 +250,7 @@ export const MOCK_ACCOUNT: StaffAccount = {
     {
       id: "scan_0mock0000001aaaa",
       name: "Staging",
-      tier: "sweep",
+      tier: "probe",
       frequency: "weekly",
       status: "active",
       notifyOn: "always",
@@ -261,7 +261,7 @@ export const MOCK_ACCOUNT: StaffAccount = {
   runs: [
     {
       runId: "run_0mock0000001aaaaaaaaa",
-      tier: "sweep",
+      tier: "probe",
       status: "complete",
       startedAt: "2026-11-10T01:00:00.000Z",
       trigger: "manual",
@@ -273,7 +273,7 @@ export const MOCK_ACCOUNT: StaffAccount = {
 const detail = (runId: string): StaffRunDetail => ({
   runId,
   accountHash: MOCK_ACCOUNT.accountHash,
-  tier: "sweep",
+  tier: "probe",
   status: "complete",
   trigger: "manual",
   entitlement: "comp",

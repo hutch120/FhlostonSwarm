@@ -28,6 +28,8 @@ export const tierConfigSchema = z.object({
   wallClockMinutes: z.number().positive(),
   /** Plans the engagement from discovery, runs the role-aware agents and verifies each finding. */
   deep: z.boolean(),
+  /** True only for the attack depth: destructive, load-generating and denial-of-service testing is permitted. */
+  destructive: z.boolean().default(false),
   /** The group of agents this tier runs (ids from the roster). */
   agents: z.array(agentIdSchema).min(1),
 });
@@ -38,9 +40,9 @@ const knownAgents = new Set(AGENTS.map((a) => a.id));
 export const tiersConfigSchema = z
   .object({
     scout: tierConfigSchema,
-    sweep: tierConfigSchema,
     probe: tierConfigSchema,
     siege: tierConfigSchema,
+    attack: tierConfigSchema,
   })
   .superRefine((t, ctx) => {
     const issue = (message: string, path: (string | number)[]) =>
@@ -49,6 +51,8 @@ export const tiersConfigSchema = z
       const tier = t[id];
       if (tier.id !== id) issue(`tier key ${id} must match its id`, [id]);
       if (tier.depth !== i + 1) issue(`${id} must have depth ${i + 1}`, [id, "depth"]);
+      if (tier.destructive !== (id === "attack"))
+        issue("only the attack depth may be destructive", [id, "destructive"]);
       for (const agent of tier.agents) {
         if (!knownAgents.has(agent)) issue(`unknown agent ${agent}`, [id, "agents"]);
       }

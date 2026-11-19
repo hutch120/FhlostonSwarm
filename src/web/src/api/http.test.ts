@@ -65,12 +65,12 @@ describe("http auth client", () => {
       return ++meCalls === 1
         ? reply(401)
         : reply(200, {
-            entitlements: { credits: { scout: 2, sweep: 0, probe: 0, siege: 1 }, unmetered: false },
+            entitlements: { credits: { scout: 2, probe: 0, siege: 1, attack: 0 }, unmetered: false },
           });
     });
     const account = await createHttpApi(fetchFn).getAccount();
     expect(account).toEqual({
-      credits: { scout: 2, sweep: 0, probe: 0, siege: 1 },
+      credits: { scout: 2, probe: 0, siege: 1, attack: 0 },
       unmetered: false,
     });
     expect(calls.map((c) => c.path)).toEqual(["/api/me", "/api/auth/refresh", "/api/me"]);
@@ -173,7 +173,7 @@ describe("saving a scan", () => {
     expect(targetBody.logins.user1.password).toBe("p");
     expect(scanBody).toMatchObject({
       targetId: "tgt_abcd1234",
-      tier: "sweep",
+      tier: "probe",
       loginSlots: ["user1"],
     });
   });

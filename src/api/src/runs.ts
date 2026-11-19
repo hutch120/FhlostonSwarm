@@ -217,7 +217,9 @@ export function buildAgentInput(
     scope: {
       hosts: input.target.hosts,
       ports: scopePorts([input.target.appUrl, input.target.marketingUrl]),
-      readOnly: true,
+      // Only the attack depth is not read-only: it is only run once the owner has confirmed the
+      // target has tested backups and a disaster-recovery plan (enforced at scan creation).
+      readOnly: input.tier !== "attack",
       // Two attempts per login, each up to two submissions (a username step, then a password
       // step); nothing else may change state.
       loginSubmissions: Object.keys(input.target.logins).length * 4,

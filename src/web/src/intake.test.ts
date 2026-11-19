@@ -44,9 +44,9 @@ const valid = (): IntakeValues => {
 };
 
 describe("validateIntake", () => {
-  it("accepts a complete one-off submission and defaults to Sweep, one-off, account email", () => {
+  it("accepts a complete one-off submission and defaults to Probe, one-off, account email", () => {
     const v = valid();
-    expect(v.tier).toBe("sweep");
+    expect(v.tier).toBe("probe");
     expect(v.frequency).toBe("once");
     expect(v.notifyEmail).toBe("owner@example.com");
     expect(v.targetId).toBeNull();
@@ -113,17 +113,25 @@ describe("tiers and logins", () => {
   it("limits the logins a scan uses to what the tier uses, but keeps spare ones on the target", () => {
     const v = valid();
     v.logins.admin = login({ username: "a", description: "Admin" });
-    expect(validateIntake({ ...v, tier: "sweep" })["logins"]).toMatch(/up to 1 login/);
-    // A login that is saved on the target but not used by this scan does not count.
-    v.logins.admin.use = false;
-    expect(validateIntake({ ...v, tier: "sweep" })).toEqual({});
-    v.logins.admin.use = true;
     expect(validateIntake({ ...v, tier: "probe" })).toEqual({});
     v.logins.user2 = login({ username: "c", description: "User" });
     expect(validateIntake({ ...v, tier: "probe" })["logins"]).toMatch(/up to 2 logins/);
+    // A login that is saved on the target but not used by this scan does not count.
+    v.logins.user2.use = false;
+    expect(validateIntake({ ...v, tier: "probe" })).toEqual({});
+    v.logins.user2.use = true;
     expect(validateIntake({ ...v, tier: "siege" })).toEqual({});
     expect(startedLogins(v)).toEqual(["admin", "user1", "user2"]);
     expect(usedLogins(v)).toEqual(["admin", "user1", "user2"]);
+  });
+
+  it("needs disaster-recovery confirmation only for the Attack depth", () => {
+    const v = { ...valid(), tier: "attack" as const, logins: { ...valid().logins } };
+    expect(validateIntake(v)["disasterRecoveryConfirmed"]).toMatch(/disaster-recovery/);
+    expect(
+      validateIntake({ ...v, disasterRecoveryConfirmed: true })["disasterRecoveryConfirmed"],
+    ).toBeUndefined();
+    expect(validateIntake({ ...valid(), tier: "siege" })["disasterRecoveryConfirmed"]).toBeUndefined();
   });
 });
 
@@ -133,9 +141,11 @@ describe("choosing logins", () => {
     v = editLogin(v, "user1", { username: "a" });
     expect(v.logins.user1.use).toBe(true);
     v = editLogin(v, "admin", { username: "b" });
-    expect(v.logins.admin.use).toBe(false);
-    v = editLogin(v, "admin", { use: true });
     expect(v.logins.admin.use).toBe(true);
+    v = editLogin(v, "user2", { username: "c" });
+    expect(v.logins.user2.use).toBe(false);
+    v = editLogin(v, "user2", { use: true });
+    expect(v.logins.user2.use).toBe(true);
     v = editLogin(v, "user1", { password: "p" });
     expect(v.logins.user1.use).toBe(true);
   });
@@ -148,11 +158,9 @@ describe("choosing logins", () => {
     expect(usedLogins(v)).toEqual(["admin", "user1", "user2"]);
     v = fitLogins(v, "probe");
     expect(usedLogins(v)).toEqual(["admin", "user1"]);
-    v = fitLogins(v, "sweep");
-    expect(usedLogins(v)).toEqual(["admin"]);
     v = fitLogins(v, "scout");
     expect(usedLogins(v)).toEqual([]);
-    v = fitLogins(v, "sweep");
+    v = fitLogins(v, "probe");
     expect(usedLogins(v)).toEqual(["admin"]);
   });
 });
@@ -211,16 +219,17 @@ describe("request bodies", () => {
       notifyOn: "never" as const,
       notifyEmail: "",
     };
-    expect(defaultScanName(v)).toBe("Sweep weekly scan of staging.example.com");
+    expect(defaultScanName(v)).toBe("Probe weekly scan of staging.example.com");
     expect(toScanInput(v, "tgt_abcd1234", "owner@example.com")).toEqual({
       targetId: "tgt_abcd1234",
-      name: "Sweep weekly scan of staging.example.com",
-      tier: "sweep",
+      name: "Probe weekly scan of staging.example.com",
+      tier: "probe",
       frequency: "weekly",
       timezone: v.timezone,
       notifyEmail: "owner@example.com",
       notifyOn: "never",
       loginSlots: ["user1"],
+      disasterRecoveryConfirmed: false,
     });
     expect(toScanInput({ ...v, name: "  Mine ", tier: "scout" }, "tgt_abcd1234").name).toBe("Mine");
     expect(toScanInput({ ...v, tier: "scout" }, "tgt_abcd1234").loginSlots).toEqual([]);

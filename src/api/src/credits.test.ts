@@ -3,29 +3,29 @@ import { getCredits, getLedger, grantCredits, refundCredit, spendCredit } from "
 import { MemoryStore } from "./storage/memory.js";
 
 const HASH = "a".repeat(64);
-const grant = (store: MemoryStore, tier: "scout" | "sweep" | "probe" | "siege", count: number) =>
+const grant = (store: MemoryStore, tier: "scout" | "probe" | "siege" | "attack", count: number) =>
   grantCredits(store, HASH, { tier, count, source: "comp", reason: "test", by: "tester" }, 1000);
 
 describe("credit ledger", () => {
   it("a new account has zero credits for every depth", async () => {
     expect(await getCredits(new MemoryStore(), HASH)).toEqual({
       scout: 0,
-      sweep: 0,
       probe: 0,
       siege: 0,
+      attack: 0,
     });
   });
 
   it("grants credits per depth and keeps each grant in the audit trail", async () => {
     const store = new MemoryStore();
-    await grant(store, "sweep", 2);
-    expect(await grant(store, "siege", 1)).toEqual({ scout: 0, sweep: 2, probe: 0, siege: 1 });
+    await grant(store, "attack", 2);
+    expect(await grant(store, "siege", 1)).toEqual({ scout: 0, probe: 0, siege: 1, attack: 2 });
     const ledger = JSON.parse((await store.get(`users/${HASH}/entitlements.json`))!.body);
     expect(ledger.grants).toEqual([
-      { at: 1000, source: "comp", tier: "sweep", count: 2, reason: "test", by: "tester" },
+      { at: 1000, source: "comp", tier: "attack", count: 2, reason: "test", by: "tester" },
       { at: 1000, source: "comp", tier: "siege", count: 1, reason: "test", by: "tester" },
     ]);
-    expect(ledger.granted.comp).toMatchObject({ sweep: 2, siege: 1 });
+    expect(ledger.granted.comp).toMatchObject({ attack: 2, siege: 1 });
   });
 
   it("spends a credit of the right depth only", async () => {

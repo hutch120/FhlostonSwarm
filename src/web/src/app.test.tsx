@@ -59,7 +59,7 @@ describe("Landing", () => {
       "href",
       "/demo",
     );
-    for (const depth of ["Scout", "Sweep", "Probe", "Siege"]) {
+    for (const depth of ["Scout", "Probe", "Siege", "Attack"]) {
       expect(screen.getByRole("heading", { level: 3, name: depth })).toBeInTheDocument();
     }
   });
@@ -100,7 +100,7 @@ describe("Dashboard", () => {
     renderApp("/dashboard");
     expect(await screen.findAllByTestId("run-row")).toHaveLength(2);
     expect(screen.getByTestId("credits")).toHaveTextContent(
-      "0 Scout · 0 Sweep · 0 Probe · 0 Siege",
+      "0 Scout · 0 Probe · 0 Siege · 0 Attack",
     );
     expect(screen.getByTestId("credits")).toHaveTextContent("0 Scout");
 
@@ -136,7 +136,7 @@ const fillValidIntake = async () => {
 const withCredits = (over: Partial<ApiClient> = {}): ApiClient => ({
   ...createMockApi(),
   getAccount: async () => ({
-    credits: { scout: 5, sweep: 5, probe: 5, siege: 5 },
+    credits: { scout: 5, probe: 5, siege: 5, attack: 5 },
     unmetered: false,
   }),
   ...over,
@@ -152,11 +152,11 @@ describe("Intake", () => {
     );
     expect(depths.map((r) => (r as HTMLInputElement).value)).toEqual([
       "scout",
-      "sweep",
       "probe",
       "siege",
+      "attack",
     ]);
-    expect(screen.getByRole("radio", { name: "Sweep" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Probe" })).toBeChecked();
     expect(screen.getByText(/never production/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/I am authorised to test/i)).not.toBeChecked();
   });
@@ -194,7 +194,7 @@ describe("Intake", () => {
     for (const label of ["Admin", "User 1", "User 2", "Other"]) {
       expect(screen.getByRole("group", { name: label })).toBeInTheDocument();
     }
-    expect(screen.getByTestId("login-limit")).toHaveTextContent("Sweep uses up to 1 login");
+    expect(screen.getByTestId("login-limit")).toHaveTextContent("Probe uses up to 2 logins");
     await userEvent.click(screen.getByRole("radio", { name: "Siege" }));
     expect(screen.getByTestId("login-limit")).toHaveTextContent("Siege uses up to 4 logins");
   });
@@ -384,7 +384,7 @@ describe("Account", () => {
     renderApp("/account");
     await waitFor(() =>
       expect(screen.getByTestId("account-credits")).toHaveTextContent(
-        "0 Scout · 0 Sweep · 0 Probe · 0 Siege credits",
+        "0 Scout · 0 Probe · 0 Siege · 0 Attack credits",
       ),
     );
     expect(screen.getAllByText("buyer@example.com")).toHaveLength(2);
@@ -423,14 +423,14 @@ describe("Account", () => {
     setApi({
       ...createMockApi(),
       getAccount: async () => ({
-        credits: { scout: 5, sweep: 2, probe: 0, siege: 1 },
+        credits: { scout: 5, probe: 2, siege: 1, attack: 0 },
         unmetered: false,
       }),
     });
     renderApp("/account");
     await waitFor(() =>
       expect(screen.getByTestId("account-credits")).toHaveTextContent(
-        "5 Scout · 2 Sweep · 0 Probe · 1 Siege credits",
+        "5 Scout · 2 Probe · 1 Siege · 0 Attack credits",
       ),
     );
   });
@@ -727,12 +727,12 @@ describe("A real report", () => {
     const shallow = {
       ...buildReport({
         state: applyEvents(
-          createRunState({ runId: RUN, ...tierRoster("sweep"), tier: "sweep" }),
+          createRunState({ runId: RUN, ...tierRoster("scout"), tier: "scout" }),
           [],
         ),
         events: [],
         summary: summarise(
-          applyEvents(createRunState({ runId: RUN, ...tierRoster("sweep"), tier: "sweep" }), []),
+          applyEvents(createRunState({ runId: RUN, ...tierRoster("scout"), tier: "scout" }), []),
         ),
         target: "staging.example.com",
         generatedAt: "2026-11-10T00:00:00.000Z",
@@ -759,7 +759,7 @@ describe("A real report", () => {
     );
     expect(understood).toHaveTextContent("Orders /orders (signed in): Past orders.");
     expect(understood).toHaveTextContent("Administrator: Manages users. Reaches: Orders.");
-    // Sweep leaves out the deeper agents, and says so.
+    // Scout leaves out the deeper agents, and says so.
     const notIncluded = screen.getByTestId("report-not-included");
     for (const name of ["Session", "Access", "Prompt", "Output", "IDOR"]) {
       expect(within(notIncluded).getByText(name)).toBeInTheDocument();
@@ -801,7 +801,7 @@ describe("Intake: credits, saved targets and editing", () => {
     const save = stubSave();
     setApi({ ...createMockApi(), saveScan: save });
     renderApp("/new");
-    expect(await screen.findByTestId("no-credit")).toHaveTextContent(/no sweep credits/i);
+    expect(await screen.findByTestId("no-credit")).toHaveTextContent(/no probe credits/i);
     expect(screen.getByRole("link", { name: "support@fhlostonswarm.com" })).toHaveAttribute(
       "href",
       "mailto:support@fhlostonswarm.com",
@@ -816,7 +816,7 @@ describe("Intake: credits, saved targets and editing", () => {
     setApi({
       ...createMockApi(),
       getAccount: async () => ({
-        credits: { scout: 0, sweep: 3, probe: 0, siege: 0 },
+        credits: { scout: 0, probe: 3, siege: 0, attack: 0 },
         unmetered: false,
       }),
     });
@@ -830,7 +830,7 @@ describe("Intake: credits, saved targets and editing", () => {
     setApi({
       ...createMockApi(),
       getAccount: async () => ({
-        credits: { scout: 0, sweep: 0, probe: 0, siege: 0 },
+        credits: { scout: 0, probe: 0, siege: 0, attack: 0 },
         unmetered: true,
       }),
     });
@@ -853,7 +853,7 @@ describe("Intake: credits, saved targets and editing", () => {
     expect(save).toHaveBeenCalledTimes(1);
     const [values, options] = save.mock.calls[0]!;
     expect(options).toEqual({ start: true });
-    expect(values).toMatchObject({ tier: "sweep", appUrl: "https://staging.example.com" });
+    expect(values).toMatchObject({ tier: "probe", appUrl: "https://staging.example.com" });
     expect(values.logins.user1).toMatchObject({ username: "swarm-test-user", use: true });
   });
 
@@ -906,12 +906,13 @@ describe("Intake: credits, saved targets and editing", () => {
 
   it("limits the logins a scan uses to the depth, with a clear message", async () => {
     renderApp("/new");
-    await screen.findByRole("option", { name: "staging.example-shop.test" });
-    await userEvent.selectOptions(screen.getByLabelText("Use a saved target"), "tgt_staging01");
+    await screen.findByRole("option", { name: "portal.swarm-demo.test" });
+    await userEvent.selectOptions(screen.getByLabelText("Use a saved target"), "tgt_portal001");
     await userEvent.click(screen.getByLabelText("Use User 1 in this scan"));
+    await userEvent.click(screen.getByLabelText("Use User 2 in this scan"));
     await userEvent.click(screen.getByLabelText(/I am authorised to test/i));
     await userEvent.click(await screen.findByRole("button", { name: "Start scan" }));
-    expect(await screen.findByText(/up to 1 login and 2 are selected/i)).toBeInTheDocument();
+    expect(await screen.findByText(/up to 2 logins and 3 are selected/i)).toBeInTheDocument();
   });
 
   it("edits a saved scan: filled in from the scan, and saving does not start a run", async () => {

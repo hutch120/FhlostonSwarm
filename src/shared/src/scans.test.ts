@@ -14,7 +14,7 @@ import {
 } from "./index.js";
 
 const settings = {
-  tier: "sweep",
+  tier: "probe",
   frequency: "weekly",
   timezone: "Australia/Sydney",
   notifyEmail: "security@example.com",
@@ -23,7 +23,7 @@ const settings = {
 
 describe("scan settings", () => {
   it("accepts every tier and frequency", () => {
-    for (const tier of ["scout", "sweep", "probe", "siege"]) {
+    for (const tier of ["scout", "probe", "siege", "attack"]) {
       for (const frequency of FREQUENCIES) {
         expect(scanSettingsSchema.safeParse({ ...settings, tier, frequency }).success).toBe(true);
       }
@@ -59,16 +59,39 @@ describe("scan input", () => {
   const parse = (over: Record<string, unknown>) =>
     scanInputSchema.safeParse({ ...input, ...over }).success;
 
-  it("fits the logins to the depth: Scout 0, Sweep 1, Probe 2, Siege 4", () => {
+  it("fits the logins to the depth: Scout 0, Probe 2, Siege 4, Attack 4", () => {
     expect(parse({ tier: "scout", loginSlots: [] })).toBe(true);
     expect(parse({ tier: "scout", loginSlots: ["user1"] })).toBe(false);
-    expect(parse({ tier: "sweep", loginSlots: [] })).toBe(false);
-    expect(parse({ tier: "sweep", loginSlots: ["user1"] })).toBe(true);
-    expect(parse({ tier: "sweep", loginSlots: ["user1", "admin"] })).toBe(false);
     expect(parse({ tier: "probe", loginSlots: ["user1", "admin"] })).toBe(true);
     expect(parse({ tier: "probe", loginSlots: ["user1", "admin", "other"] })).toBe(false);
     expect(parse({ tier: "siege", loginSlots: ["admin", "user1", "user2", "other"] })).toBe(true);
     expect(parse({ tier: "siege", loginSlots: [] })).toBe(false);
+    expect(
+      parse({
+        tier: "attack",
+        loginSlots: ["admin", "user1", "user2", "other"],
+        disasterRecoveryConfirmed: true,
+      }),
+    ).toBe(true);
+    expect(parse({ tier: "attack", loginSlots: [] })).toBe(false);
+  });
+
+  it("needs disaster-recovery confirmation only for the attack depth", () => {
+    expect(parse({ tier: "siege", loginSlots: ["admin", "user1", "user2", "other"] })).toBe(true);
+    expect(
+      parse({
+        tier: "attack",
+        loginSlots: ["admin", "user1", "user2", "other"],
+        disasterRecoveryConfirmed: false,
+      }),
+    ).toBe(false);
+    expect(
+      parse({
+        tier: "attack",
+        loginSlots: ["admin", "user1", "user2", "other"],
+        disasterRecoveryConfirmed: true,
+      }),
+    ).toBe(true);
   });
 
   it("rejects duplicate or unknown slots, a missing name and a malformed target id", () => {

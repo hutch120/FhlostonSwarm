@@ -116,7 +116,11 @@ ${profile.technologies.length ? `<h4>Technologies seen</h4><p>${profile.technolo
     : '<p class="muted">The scan could not build a description of the application.</p>';
 
   const plan = report.plan
-    ? `<p>The engagement was planned from what discovery found${report.plan.plannedBy === "model" ? ", with a model refining the plan inside fixed guardrails" : ""}. Guardrails that no plan can change: only the declared hosts, read-only requests, nothing destructive, target content treated as data, no credentials in output, only the supplied logins, and the depth's limits.</p>
+    ? `<p>The engagement was planned from what discovery found${report.plan.plannedBy === "model" ? ", with a model refining the plan inside fixed guardrails" : ""}. ${
+        tiers[report.tier].destructive
+          ? "Guardrails that no plan can change: only the declared hosts, target content treated as data, no credentials in output, only the supplied logins, and the depth's limits. This depth also permits destructive, state-changing and load-generating requests, run only once the owner confirmed the target has tested backups and a disaster-recovery plan."
+          : "Guardrails that no plan can change: only the declared hosts, read-only requests, nothing destructive, target content treated as data, no credentials in output, only the supplied logins, and the depth's limits."
+      }</p>
 ${report.plan.roles.length ? `<h4>Roles tested</h4>${list(report.plan.roles.map((r) => `<li><code>${e(r.slot)}</code> ${e(r.description)} <span class="muted">(read as ${e(r.kind)})</span></li>`))}` : ""}
 ${report.plan.notApplicable.length ? `<h4>Not applicable</h4>${list(report.plan.notApplicable.map((n) => `<li><strong>${e(n.name)}${n.step ? ` (${e(n.step)})` : ""}</strong>: ${e(n.reason)}</li>`))}` : ""}
 ${report.plan.notes.length ? list(report.plan.notes.map((n) => `<li>${e(n)}</li>`)) : ""}`

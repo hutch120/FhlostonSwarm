@@ -86,19 +86,23 @@ const describePeer = (socket: tls.TLSSocket): TlsDetails => {
 
 /**
  * The agent's only way to reach the target: every request goes through the scope proxy, redirects are
- * followed one hop at a time (so each hop is checked), only safe methods are issued, and each request
- * is counted against the run budget. A TLS certificate that fails verification is reported, not fatal.
+ * followed one hop at a time (so each hop is checked), each request is counted against the run budget.
+ * Only safe methods are issued unless `allowUnsafeMethods` is set (the attack depth, whose scope the
+ * proxy itself does not hold read-only). A TLS certificate that fails verification is reported, not
+ * fatal.
  */
 export class ScopedHttp {
   constructor(
     private readonly proxy: ProxyAddress,
     private readonly userAgent: string,
     private readonly budget: Budget,
+    private readonly allowUnsafeMethods = false,
   ) {}
 
   async request(options: RequestOptions): Promise<HttpResult> {
     const method = (options.method ?? "GET").toUpperCase();
-    if (!isSafeMethod(method)) throw new RequestFailed("method_not_allowed", true);
+    if (!this.allowUnsafeMethods && !isSafeMethod(method))
+      throw new RequestFailed("method_not_allowed", true);
     const redirects: string[] = [];
     let url = options.url;
     const limit = options.maxRedirects ?? 5;

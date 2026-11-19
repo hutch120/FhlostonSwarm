@@ -36,7 +36,7 @@ describe("Staff dashboard", () => {
     openStaff("/staff", staffApi({ runs }));
     const rows = await screen.findAllByTestId("staff-run-row");
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toHaveTextContent("Sweep");
+    expect(rows[0]).toHaveTextContent("Probe");
     expect(rows[0]).toHaveTextContent("Complimentary credit");
     expect(rows[0]).toHaveTextContent("US$0.62");
     // A run still going has no cost yet.
@@ -82,7 +82,7 @@ describe("Staff dashboard", () => {
           detail: null,
           row: {
             runId: "run_0mock0000001aaaaaaaaa",
-            tier: "sweep",
+            tier: "probe",
             trigger: "manual",
             entitlement: "comp",
             status: "complete",
@@ -127,7 +127,7 @@ describe("Cost analysis", () => {
     expect(within(byDepth).getByText("US$0.60")).toBeInTheDocument();
     // The 95th percentile and the most are both 0.90 for the one depth with runs.
     expect(within(byDepth).getAllByText("US$0.90")).toHaveLength(2);
-    // A daily Sweep scan runs 365 times a year: 0.60 x 365.
+    // A daily Probe scan runs 365 times a year: 0.60 x 365.
     expect(within(screen.getByTestId("cost-annual")).getByText("US$219.00")).toBeInTheDocument();
     expect(screen.getByTestId("cost-by-source")).toHaveTextContent("Complimentary credit");
     expect(screen.getByTestId("cost-summary")).toHaveTextContent("4 runs");
@@ -135,18 +135,18 @@ describe("Cost analysis", () => {
 
   it("turns a margin into a suggested price per depth", async () => {
     openStaff("/staff/costs", staffApi());
-    const sweep = await screen.findByTestId("suggested-sweep");
+    const probe = await screen.findByTestId("suggested-probe");
     // 95th percentile 0.90, 100% margin: 1.80 (above the 1.00 floor).
-    expect(sweep).toHaveTextContent("US$1.80");
+    expect(probe).toHaveTextContent("US$1.80");
     expect(screen.getByTestId("suggested-scout")).toHaveTextContent("n/a");
     const margin = screen.getByLabelText("Margin over cost (%)");
     await userEvent.clear(margin);
     await userEvent.type(margin, "50");
-    expect(sweep).toHaveTextContent("US$1.35");
+    expect(probe).toHaveTextContent("US$1.35");
     const floor = screen.getByLabelText("Floor per run (US$)");
     await userEvent.clear(floor);
     await userEvent.type(floor, "5");
-    expect(sweep).toHaveTextContent("US$5.00");
+    expect(probe).toHaveTextContent("US$5.00");
   });
 
   it("previews a price change before saving it as a new version", async () => {
@@ -179,7 +179,7 @@ describe("Users and support", () => {
     openStaff("/staff/users", staffApi({ grantCredit }));
     await userEvent.type(await screen.findByLabelText("Email address"), "buyer@example.com");
     await userEvent.click(screen.getByRole("button", { name: "Look up" }));
-    expect(await screen.findByTestId("staff-credits")).toHaveTextContent("1 Scout · 2 Sweep");
+    expect(await screen.findByTestId("staff-credits")).toHaveTextContent("1 Scout · 2 Probe");
     expect(screen.getByTestId("staff-grants")).toHaveTextContent("beta tester");
 
     const grant = screen.getByRole("button", { name: "Grant credit" });
@@ -234,20 +234,20 @@ describe("Controls", () => {
   it("saves the limits on use, the caps and the block lists", async () => {
     const saveControls = vi.fn(createMockStaffApi().saveControls);
     openStaff("/staff/controls", staffApi({ saveControls }));
-    const sweep = await screen.findByLabelText("Sweep");
-    await userEvent.clear(sweep);
-    await userEvent.type(sweep, "1");
+    const probe = await screen.findByLabelText("Probe");
+    await userEvent.clear(probe);
+    await userEvent.type(probe, "1");
     await userEvent.clear(screen.getByLabelText(/Alarm when/));
     await userEvent.type(screen.getByLabelText(/Alarm when/), "40");
     await userEvent.click(screen.getByRole("button", { name: "Save limits" }));
     await waitFor(() => expect(saveControls).toHaveBeenCalledTimes(1));
     expect(saveControls.mock.calls[0]?.[0]).toMatchObject({
-      concurrency: { scout: 4, sweep: 1, probe: 2, siege: 2 },
+      concurrency: { scout: 4, probe: 1, siege: 2, attack: 3 },
       dailySpendAlarmUsd: 40,
       scheduledScans: { maxActivePerAccount: 5, minSpacingHours: 24 },
     });
 
-    const spend = screen.getByLabelText("Sweep Model spend (US$)");
+    const spend = screen.getByLabelText("Probe Model spend (US$)");
     await userEvent.clear(spend);
     await userEvent.type(spend, "2.5");
     const pages = screen.getByLabelText("Scout Pages");
@@ -257,7 +257,7 @@ describe("Controls", () => {
     const caps = (
       saveControls.mock.calls[1]?.[0] as { caps: Record<string, Record<string, unknown>> }
     ).caps;
-    expect(caps["sweep"]).toMatchObject({
+    expect(caps["probe"]).toMatchObject({
       spendCapUsd: 2.5,
       tokenCap: { input: 600000, output: 30000 },
     });

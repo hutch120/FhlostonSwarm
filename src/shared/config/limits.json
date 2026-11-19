@@ -14,21 +14,6 @@
     "spendCapUsd": 1,
     "concurrency": 4
   },
-  "sweep": {
-    "modelId": "au.anthropic.claude-haiku-4-5-20251001-v1:0",
-    "pageCap": 80,
-    "llmStepCap": 120,
-    "explorerPhaseCalls": 30,
-    "stepCap": 80,
-    "requestCap": 800,
-    "requestsPerSecond": 3,
-    "tokenCap": {
-      "input": 1500000,
-      "output": 60000
-    },
-    "spendCapUsd": 3,
-    "concurrency": 3
-  },
   "probe": {
     "modelId": "au.anthropic.claude-sonnet-4-6",
     "pageCap": 150,
@@ -58,5 +43,20 @@
     },
     "spendCapUsd": 15,
     "concurrency": 2
+  },
+  "attack": {
+    "modelId": "au.anthropic.claude-sonnet-4-6",
+    "pageCap": 400,
+    "llmStepCap": 600,
+    "explorerPhaseCalls": 150,
+    "stepCap": 700,
+    "requestCap": 6000,
+    "requestsPerSecond": 10,
+    "tokenCap": {
+      "input": 7000000,
+      "output": 300000
+    },
+    "spendCapUsd": 30,
+    "concurrency": 3
   }
 }

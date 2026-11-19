@@ -6,7 +6,7 @@ const MODEL = "au.anthropic.claude-haiku-4-5-20251001-v1:0";
 
 const run = {
   runId: "run_x",
-  tier: "sweep" as const,
+  tier: "probe" as const,
   startedAt: "2026-11-14T00:00:00.000Z",
   finishedAt: "2026-11-14T00:10:00.000Z",
   taskSeconds: 600,

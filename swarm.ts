@@ -76,7 +76,7 @@ program
     "Grant comp (staff-granted) credits of a scan depth to an account email; audit-logged. Until payments exist this is the only way for a customer to start a run",
   )
   .argument("<email>", "the account's email address")
-  .argument("<tier>", "scan depth: scout, sweep, probe or siege")
+  .argument("<tier>", "scan depth: scout, probe, siege or attack")
   .argument("[count]", "how many credits (default 1)", "1")
   .requiredOption("--reason <text>", "why the credit is granted (recorded in the audit log)")
   .action(async (email: string, tier: string, count: string, opts: { reason: string }) => {

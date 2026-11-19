@@ -1,4 +1,5 @@
-import { GUARDRAILS, INSTRUCTIONS_VERSION } from "@swarm/shared/server";
+import { guardrailsForTier, INSTRUCTIONS_VERSION } from "@swarm/shared/server";
+import type { TierId } from "@swarm/shared";
 
 /**
  * The methodology as versioned prompt modules (PLAN.md section 8): each phase of docs/instructions
@@ -201,15 +202,17 @@ export const INSTRUCTION_MODULES: readonly InstructionModule[] = [
   },
 ];
 
-export const guardrailText = (): string =>
-  GUARDRAILS.map((g, i) => `${i + 1}. ${g.text}`).join("\n");
+export const guardrailText = (tier: TierId = "scout"): string =>
+  guardrailsForTier(tier)
+    .map((g, i) => `${i + 1}. ${g.text}`)
+    .join("\n");
 
-/** One module as prompt text, always with every guardrail. */
-export function renderModule(module: InstructionModule): string {
+/** One module as prompt text, always with every guardrail of the depth. */
+export function renderModule(module: InstructionModule, tier: TierId = "scout"): string {
   return [
     `Phase ${module.phase}: ${module.title}`,
     `Objective: ${module.objective}`,
-    `Guardrails (immutable):\n${guardrailText()}`,
+    `Guardrails (immutable):\n${guardrailText(tier)}`,
     module.checks.length > 0
       ? `Checks:\n${module.checks.map((c) => `- ${c.agent}.${c.step}: ${c.looksFor}`).join("\n")}`
       : "Checks: none (this phase produces the report).",
@@ -220,10 +223,10 @@ export function renderModule(module: InstructionModule): string {
 }
 
 /** The modules for the phases a run covers, as prompt text. */
-export function renderModules(agentIds: readonly string[]): string {
+export function renderModules(agentIds: readonly string[], tier: TierId = "scout"): string {
   const wanted = new Set(agentIds);
   return INSTRUCTION_MODULES.filter((m) => m.checks.some((c) => wanted.has(c.agent)))
-    .map(renderModule)
+    .map((m) => renderModule(m, tier))
     .join("\n\n");
 }
 
