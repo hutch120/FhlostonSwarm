@@ -30,7 +30,7 @@ function costKeys(value: unknown, path = "$"): string[] {
 
 describe("customer-facing data never exposes cost (revenue.md section 2)", () => {
   const finished = applyEvents(
-    createRunState({ runId: DEMO_RUN_ID, tier: "siege", areas: AREAS, agents: AGENTS }),
+    createRunState({ runId: DEMO_RUN_ID, tier: "attack", areas: AREAS, agents: AGENTS }),
     replayEvents,
   );
 

@@ -17,6 +17,8 @@ import { authzAgent } from "./agents/authz.js";
 import { bundleAgent } from "./agents/bundle.js";
 import { corsAgent } from "./agents/cors.js";
 import { dnsAgent } from "./agents/dns.js";
+import { exploitAgent } from "./agents/exploit.js";
+import { floodAgent } from "./agents/flood.js";
 import { idorAgent } from "./agents/idor.js";
 import { outputAgent } from "./agents/output.js";
 import { promptAgent } from "./agents/prompt.js";
@@ -61,6 +63,8 @@ export const MODULES: Record<string, AgentModule> = {
   prompt: promptAgent,
   output: outputAgent,
   idor: idorAgent,
+  flood: floodAgent,
+  exploit: exploitAgent,
 };
 
 export interface RunnerDeps {

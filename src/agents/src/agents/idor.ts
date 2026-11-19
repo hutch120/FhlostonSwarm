@@ -22,7 +22,7 @@ interface ObjectType {
   owned: Map<string, Set<string>>;
 }
 
-const fill = (template: string, id: string): string => template.replace(":id", id);
+export const fill = (template: string, id: string): string => template.replace(":id", id);
 
 /** Object types found in each role's pages: `/orders/:id` with who was shown which identifiers. */
 export function objectTypes(ctx: StepContext): ObjectType[] {

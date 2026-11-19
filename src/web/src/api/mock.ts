@@ -24,7 +24,7 @@ export interface AccountInfo {
 const demoSummary = (): Summary =>
   summarise(
     applyEvents(
-      createRunState({ runId: DEMO_RUN_ID, tier: "siege", areas: AREAS, agents: AGENTS }),
+      createRunState({ runId: DEMO_RUN_ID, tier: "attack", areas: AREAS, agents: AGENTS }),
       replayEvents,
     ),
   );

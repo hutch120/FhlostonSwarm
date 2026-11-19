@@ -10,8 +10,8 @@ test.describe("replay smoke test", () => {
     await page.goto("/demo?speed=16");
     await expect(page.getByRole("heading", { name: "Live swarm view" })).toBeVisible();
 
-    // Twelve agents across five areas are on screen.
-    await expect(page.getByTestId("agent-chip")).toHaveCount(12);
+    // Fourteen agents across five areas are on screen.
+    await expect(page.getByTestId("agent-chip")).toHaveCount(14);
     await expect(page.getByTestId("area")).toHaveCount(5);
     await expect(page.getByTestId("swarm-canvas")).toBeVisible();
 
@@ -29,8 +29,8 @@ test.describe("replay smoke test", () => {
     });
     await expect(page.getByTestId("run-status")).toHaveText("complete");
     await expect(page.getByTestId("finding")).toHaveCount(11);
-    await expect(page.locator('[data-testid="agent-chip"][data-status="done"]')).toHaveCount(12);
-    await expect(page.getByTestId("checks-count")).toHaveText("41");
+    await expect(page.locator('[data-testid="agent-chip"][data-status="done"]')).toHaveCount(14);
+    await expect(page.getByTestId("checks-count")).toHaveText("45");
 
     expect(errors).toEqual([]);
   });

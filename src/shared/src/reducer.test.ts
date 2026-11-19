@@ -14,7 +14,7 @@ import {
 } from "./index.js";
 
 const fresh = () =>
-  createRunState({ runId: DEMO_RUN_ID, tier: "siege", areas: AREAS, agents: AGENTS });
+  createRunState({ runId: DEMO_RUN_ID, tier: "attack", areas: AREAS, agents: AGENTS });
 const finalState = () => applyEvents(fresh(), replayEvents);
 
 describe("applyEvent over the scripted run", () => {
@@ -80,7 +80,7 @@ describe("applyEvent over the scripted run", () => {
     const state = finalState();
     expect(state.status).toBe("complete");
     expect(state.lastSeq).toBe(replayEvents.length);
-    expect(state.checks).toBe(41);
+    expect(state.checks).toBe(45);
     expect(state.gaps).toHaveLength(3);
     expect(state.findings).toHaveLength(11);
     expect(Object.values(state.agents).every((a) => a.status === "done" && a.progress === 1)).toBe(
@@ -141,7 +141,7 @@ describe("applyEvent over the scripted run", () => {
   it("counts gap steps as steps done but not as completed checks", () => {
     const state = finalState();
     expect(state.agents["authn"]).toMatchObject({ stepsDone: 4, lastOutcome: "gap" });
-    expect(state.checks).toBe(41); // 43 steps, 2 of them gaps
+    expect(state.checks).toBe(45); // 47 steps, 2 of them gaps
   });
 
   it("matches the backend summary carried by the complete event", () => {
@@ -153,7 +153,7 @@ describe("applyEvent over the scripted run", () => {
       verified: 7,
       bySeverity: { critical: 1, high: 2, medium: 4, low: 3, info: 1 },
     });
-    expect(live.agents).toEqual({ total: 12, done: 12 });
+    expect(live.agents).toEqual({ total: 14, done: 14 });
     expect(live.gaps).toBe(3);
   });
 

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  AGENTS,
   AREAS,
   DEMO_RUN_ID,
   REPORT_DISCLAIMER,
@@ -87,7 +86,7 @@ describe("the report data", () => {
     const r = report();
     expect(r.phases.map((p) => p.phase)).toEqual(AREAS.map((a) => a.phase));
     const checks = r.phases.flatMap((p) => p.checks);
-    expect(checks).toHaveLength(AGENTS.flatMap((a) => a.steps).length);
+    expect(checks).toHaveLength(tierRoster("siege").agents.flatMap((a) => a.steps).length);
     expect(checks.find((c) => c.agent === "tls" && c.stepId === "protocols")).toMatchObject({
       outcome: expect.stringMatching(/clear|finding|info|gap/),
     });

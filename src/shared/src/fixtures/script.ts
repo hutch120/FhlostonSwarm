@@ -313,6 +313,27 @@ const PLAN: Record<string, AgentPlan> = {
       ),
     ],
   },
+  flood: {
+    startAt: 55000,
+    stepMs: 1600,
+    task: "Send concurrent request bursts to test rate limiting and availability",
+    doneSummary: "Rate limiting present; availability held under load.",
+    requestsPerStep: 20,
+
+    steps: [
+      info("8 of 15 concurrent requests were throttled (429): the application limits bursts."),
+      clear,
+    ],
+  },
+  exploit: {
+    startAt: 58500,
+    stepMs: 2000,
+    task: "Attempt destructive, state-changing requests against access-control weaknesses",
+    doneSummary: "Destructive write and privileged action both refused.",
+    requestsPerStep: 6,
+
+    steps: [clear, clear],
+  },
 };
 
 interface Crosscheck {
@@ -507,7 +528,7 @@ export function buildReplayEvents(runId: string = DEMO_RUN_ID): RunEvent[] {
   );
 
   const folded = applyEvents(
-    createRunState({ runId, tier: "siege", areas: AREAS, agents: AGENTS }),
+    createRunState({ runId, tier: "attack", areas: AREAS, agents: AGENTS }),
     events,
   );
   const completeAt = (ordered.at(-1)?.at ?? 0) + 1500;

@@ -27,11 +27,11 @@ const finished = (): RunState => applyEvents(fresh(), replayEvents);
 const partway = (): RunState => applyEvents(fresh(), replayEvents.slice(0, 45));
 
 describe("AreasPanel", () => {
-  it("lists five areas with twelve agents, all waiting at the start", () => {
+  it("lists five areas with fourteen agents, all waiting at the start", () => {
     render(<AreasPanel state={fresh()} selected={null} onSelect={() => {}} />);
     expect(screen.getAllByTestId("area")).toHaveLength(5);
     const chips = screen.getAllByTestId("agent-chip");
-    expect(chips).toHaveLength(12);
+    expect(chips).toHaveLength(14);
     expect(chips.every((c) => c.getAttribute("data-status") === "idle")).toBe(true);
     for (const bar of screen.getAllByRole("progressbar")) {
       expect(bar).toHaveAttribute("aria-valuenow", "0");
@@ -123,8 +123,8 @@ describe("EventLog", () => {
 describe("Counters", () => {
   it("shows checks, requests, gaps and coverage", () => {
     render(<Counters state={finished()} />);
-    expect(screen.getByTestId("checks-count")).toHaveTextContent("41");
-    expect(screen.getByTestId("requests-count")).toHaveTextContent("974");
+    expect(screen.getByTestId("checks-count")).toHaveTextContent("45");
+    expect(screen.getByTestId("requests-count")).toHaveTextContent("1026");
     expect(screen.getByTestId("gaps-count")).toHaveTextContent("3");
     const coverage = screen.getByRole("meter", { name: "Coverage" });
     expect(coverage).toHaveAttribute("aria-valuetext", "100%");

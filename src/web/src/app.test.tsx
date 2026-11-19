@@ -237,7 +237,7 @@ describe("Intake", () => {
 describe("Live swarm view", () => {
   it("replays the run to the assembled report", async () => {
     renderApp("/demo?autoplay=0");
-    expect(await screen.findAllByTestId("agent-chip")).toHaveLength(12);
+    expect(await screen.findAllByTestId("agent-chip")).toHaveLength(14);
     expect(screen.queryAllByTestId("finding")).toHaveLength(0);
 
     await userEvent.click(screen.getByRole("button", { name: "Skip to end" }));
@@ -579,7 +579,7 @@ describe("A queued run", () => {
 
 describe("A real run", () => {
   const RUN = "run_live00001";
-  /** The demo script's events, re-addressed to this run (its roster is the Siege one). */
+  /** The demo script's events, re-addressed to this run (its roster is the Attack one, the full roster). */
   const events = replayEvents.map((e) => ({ ...e, runId: RUN }));
   const running = {
     ...MOCK_RUNS[0]!,
@@ -604,7 +604,7 @@ describe("A real run", () => {
     setApi(apiWith(released, { stopRun: stop }));
     renderApp(`/runs/${RUN}`);
 
-    expect(await screen.findAllByTestId("agent-chip")).toHaveLength(12);
+    expect(await screen.findAllByTestId("agent-chip")).toHaveLength(14);
     await waitFor(() =>
       expect(screen.getByTestId("transport")).toHaveTextContent(/every few seconds/i),
     );
@@ -658,9 +658,9 @@ describe("A real run", () => {
 describe("A real report", () => {
   const RUN = "run_live00001";
   const base = (() => {
-    const { areas, agents } = tierRoster("siege");
+    const { areas, agents } = tierRoster("attack");
     const state = applyEvents(
-      createRunState({ runId: DEMO_RUN_ID, tier: "siege", areas, agents }),
+      createRunState({ runId: DEMO_RUN_ID, tier: "attack", areas, agents }),
       replayEvents,
     );
     return buildReport({

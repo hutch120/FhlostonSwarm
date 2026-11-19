@@ -85,7 +85,14 @@ export const guardrailIdsForTier = (tier: TierId): GuardrailId[] =>
   guardrailsForTier(tier).map((g) => g.id);
 
 /** The agents whose work depends on the plan: they run after discovery (see the runner). */
-export const PLAN_DEPENDENT_AGENTS = ["session", "authz", "prompt", "output", "idor"] as const;
+export const PLAN_DEPENDENT_AGENTS = [
+  "session",
+  "authz",
+  "prompt",
+  "output",
+  "idor",
+  "exploit",
+] as const;
 
 /** A path on the application under test: absolute, one slash at the start, no host. */
 export const sitePathSchema = z

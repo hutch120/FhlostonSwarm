@@ -108,12 +108,12 @@ describe("event schema", () => {
 });
 
 describe("roster", () => {
-  it("has 5 areas and 12 agents, each agent in a known area", () => {
+  it("has 5 areas and 14 agents, each agent in a known area", () => {
     expect(AREAS).toHaveLength(5);
-    expect(AGENTS).toHaveLength(12);
+    expect(AGENTS).toHaveLength(14);
     const areaIds = new Set(AREAS.map((a) => a.id));
     for (const agent of AGENTS) expect(areaIds.has(agent.area)).toBe(true);
-    expect(new Set(AGENTS.map((a) => a.id)).size).toBe(12);
+    expect(new Set(AGENTS.map((a) => a.id)).size).toBe(14);
     for (const a of AREAS) expect(areaSpecSchema.safeParse(a).success).toBe(true);
     for (const a of AGENTS) expect(agentSpecSchema.safeParse(a).success).toBe(true);
   });
@@ -121,10 +121,10 @@ describe("roster", () => {
   it("matches the agent grouping from the plan", () => {
     const ids = (area: string) => AGENTS.filter((a) => a.area === area).map((a) => a.id);
     expect(ids("recon")).toEqual(["dns", "surface", "bundle"]);
-    expect(ids("unauth")).toEqual(["tls", "zap", "cors"]);
+    expect(ids("unauth")).toEqual(["tls", "zap", "cors", "flood"]);
     expect(ids("authn")).toEqual(["authn", "session", "authz"]);
     expect(ids("llm")).toEqual(["prompt", "output"]);
-    expect(ids("logic")).toEqual(["idor"]);
+    expect(ids("logic")).toEqual(["idor", "exploit"]);
   });
 });
 
@@ -134,7 +134,7 @@ describe("tier config", () => {
     expect(TIERS.map((t) => t.depth)).toEqual([1, 2, 3, 4]);
     expect(tiers.scout.logins).toBe(0);
     expect(tiers.siege.logins).toBe(4);
-    expect(tiers.siege.agents).toHaveLength(AGENTS.length);
+    expect(tiers.attack.agents).toHaveLength(AGENTS.length);
     expect(tiers.attack.destructive).toBe(true);
     expect(tiers.scout.destructive).toBe(false);
   });

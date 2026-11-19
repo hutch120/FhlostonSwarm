@@ -58,7 +58,7 @@
     "id": "attack",
     "name": "Attack",
     "depth": 4,
-    "description": "Aggressive scan. Every agent and all four logins, with destructive, load-generating and denial-of-service testing permitted. Only run against a target whose owner has confirmed tested backups and a disaster-recovery plan.",
+    "description": "Aggressive scan. Every agent and all four logins, plus two attack-only agents (load/denial-of-service testing and destructive exploitation of access-control weaknesses). Destructive, load-generating and denial-of-service testing is permitted. Only run against a target whose owner has confirmed tested backups and a disaster-recovery plan.",
     "logins": 4,
     "wallClockMinutes": 90,
     "deep": true,
@@ -75,7 +75,9 @@
       "authz",
       "prompt",
       "output",
-      "idor"
+      "idor",
+      "flood",
+      "exploit"
     ]
   }
 }

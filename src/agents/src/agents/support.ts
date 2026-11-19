@@ -75,6 +75,38 @@ export async function requestAs(
   }
 }
 
+/**
+ * A state-changing request as a role: only reaches the target at the attack depth (the scope proxy
+ * refuses it as `method_not_allowed` everywhere else, which comes back here as a gap). Null when the
+ * request itself could not be made.
+ */
+export async function mutateAs(
+  ctx: StepContext,
+  role: Pick<RoleView, "cookie"> | null,
+  path: string,
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
+): Promise<Probe | null> {
+  try {
+    const res = await ctx.http.request({
+      url: new URL(path, ctx.appUrl).toString(),
+      method,
+      maxRedirects: 0,
+      headers: role ? { cookie: role.cookie } : {},
+    });
+    return {
+      status: res.status,
+      access: classify(res),
+      location: header(res, "location") ?? null,
+      contentType: header(res, "content-type") ?? "",
+      shape: normalise(res.body),
+      body: res.body,
+    };
+  } catch (err) {
+    if (err instanceof RequestFailed) return null;
+    throw err;
+  }
+}
+
 /** The same page for two requests: the second role did not get anything the first did not. */
 export const sameShape = (a: Probe, b: Probe): boolean =>
   a.status === b.status && a.shape === b.shape;

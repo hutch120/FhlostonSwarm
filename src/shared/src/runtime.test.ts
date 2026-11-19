@@ -179,7 +179,7 @@ describe("tier roster and report data", () => {
     const scout = tierRoster("scout");
     expect(scout.agents.map((a) => a.id)).toEqual(tiers.scout.agents);
     expect(scout.areas.map((a) => a.id)).toEqual(["recon", "unauth"]);
-    expect(tierRoster("siege").agents).toHaveLength(AGENTS.length);
+    expect(tierRoster("attack").agents).toHaveLength(AGENTS.length);
   });
 
   it("builds report data from a finished run and has no cost fields", () => {

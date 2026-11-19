@@ -30,9 +30,9 @@ const OUTCOME_LABEL: Record<string, string> = {
 
 /** The report of the scripted demo run, built the same way a real run's is. */
 function demoReport(): RunReport {
-  const { areas } = tierRoster("siege");
+  const { areas } = tierRoster("attack");
   const state = applyEvents(
-    createRunState({ runId: DEMO_RUN_ID, tier: "siege", areas, agents: AGENTS }),
+    createRunState({ runId: DEMO_RUN_ID, tier: "attack", areas, agents: AGENTS }),
     replayEvents,
   );
   return buildReport({

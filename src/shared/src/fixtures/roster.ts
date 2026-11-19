@@ -1,6 +1,6 @@
 import { areaSpecSchema, agentSpecSchema, type AgentSpec, type AreaSpec } from "../events.js";
 
-/** The simulated roster: 5 areas and 12 agents (PLAN.md section 1), kept as data. */
+/** The simulated roster: 5 areas and 14 agents (PLAN.md section 1; `flood` and `exploit` are attack-only), kept as data. */
 const areas: AreaSpec[] = [
   {
     id: "recon",
@@ -117,6 +117,17 @@ const agents: AgentSpec[] = [
     ],
   },
   {
+    id: "flood",
+    name: "Flood",
+    area: "unauth",
+    colour: "#f97316",
+    face: "visor",
+    steps: [
+      { id: "rateLimit", label: "Burst concurrent requests for rate limiting" },
+      { id: "availability", label: "Sustained concurrent load for availability" },
+    ],
+  },
+  {
     id: "authn",
     name: "Login",
     area: "authn",
@@ -189,6 +200,17 @@ const agents: AgentSpec[] = [
       { id: "horizontal", label: "Horizontal access between users" },
       { id: "workflow", label: "Workflow step skipping" },
       { id: "export", label: "Bulk export and download paths" },
+    ],
+  },
+  {
+    id: "exploit",
+    name: "Exploit",
+    area: "logic",
+    colour: "#dc2626",
+    face: "cyclops",
+    steps: [
+      { id: "write", label: "Destructive write against another user's object" },
+      { id: "privilegedAction", label: "State-changing request to an administrative path" },
     ],
   },
 ];

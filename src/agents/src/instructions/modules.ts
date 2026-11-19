@@ -25,6 +25,8 @@ export interface InstructionModule {
 }
 
 const READ_ONLY_TOOLS = ["scoped_get (GET, HEAD, OPTIONS through the scope proxy)"];
+/** Only reaches the target at the attack depth; the scope proxy refuses it everywhere else. */
+const DESTRUCTIVE_TOOLS = ["role_mutate (POST, PUT, PATCH, DELETE through the scope proxy)"];
 
 export const INSTRUCTION_MODULES: readonly InstructionModule[] = [
   {
@@ -73,6 +75,16 @@ export const INSTRUCTION_MODULES: readonly InstructionModule[] = [
       { agent: "cors", step: "preflight", looksFor: "state-changing methods allowed cross-origin" },
       { agent: "cors", step: "origin", looksFor: "reflected or null origins" },
       { agent: "cors", step: "credentials", looksFor: "credentialed cross-origin access" },
+      {
+        agent: "flood",
+        step: "rateLimit",
+        looksFor: "absence of rate limiting under a concurrent request burst (attack depth only)",
+      },
+      {
+        agent: "flood",
+        step: "availability",
+        looksFor: "degraded availability under a sustained concurrent load (attack depth only)",
+      },
     ],
     tools: [...READ_ONLY_TOOLS, "tls_probe (handshakes through the scope proxy)"],
     evidence: "Keep the request line and the relevant response header or status, not whole bodies.",
@@ -181,8 +193,22 @@ export const INSTRUCTION_MODULES: readonly InstructionModule[] = [
         step: "export",
         looksFor: "bulk export and download paths open to visitors",
       },
+      {
+        agent: "exploit",
+        step: "write",
+        looksFor: "a destructive write that reaches another user's object (attack depth only)",
+      },
+      {
+        agent: "exploit",
+        step: "privilegedAction",
+        looksFor: "a state-changing request a lower role can send to an administrative path (attack depth only)",
+      },
     ],
-    tools: [...READ_ONLY_TOOLS, "role_get (a safe request carrying one login's session)"],
+    tools: [
+      ...READ_ONLY_TOOLS,
+      "role_get (a safe request carrying one login's session)",
+      ...DESTRUCTIVE_TOOLS,
+    ],
     evidence:
       "Say which role could read which kind of object. Never keep the other user's data beyond a masked excerpt.",
     output: "Findings for broken object-level access.",

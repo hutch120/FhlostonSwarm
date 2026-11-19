@@ -218,7 +218,7 @@ describe.skipIf(!browserAvailable)("a run, end to end", () => {
     // The checks a read-only, outside-in scan cannot make are listed, not hidden.
     expect(report.gaps.map((g) => g.agent).sort()).toEqual(["authn", "dns", "dns", "session"]);
     // The deeper agents are listed as not included at this depth, and the app profile is filled in.
-    expect(report.notIncluded.map((n) => n.agent).sort()).toEqual(["idor"]);
+    expect(report.notIncluded.map((n) => n.agent).sort()).toEqual(["exploit", "flood", "idor"]);
     expect(report.profile?.coverage.signedIn).toBe(true);
     expect(report.profile?.areas.length).toBeGreaterThan(4);
 

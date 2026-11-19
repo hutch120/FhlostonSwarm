@@ -15,8 +15,9 @@ interface RunStore {
   reset: (init?: { runId?: string; tier?: TierId }) => void;
 }
 
-/** A fresh run state with the agents and areas the tier plans to cover. */
-const initial = (runId = DEMO_RUN_ID, tier: TierId = "siege") => {
+/** A fresh run state with the agents and areas the tier plans to cover. Defaults to Attack, the
+ * full roster, since that is what the canned demo script plays back. */
+const initial = (runId = DEMO_RUN_ID, tier: TierId = "attack") => {
   const { areas, agents } = tierRoster(tier);
   return createRunState({ runId, tier, areas, agents });
 };
