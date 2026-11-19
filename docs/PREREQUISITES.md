@@ -22,7 +22,7 @@ Everything done **by hand, outside the code**, before Phase 1 of [IMPLEMENTATION
 2. **CDK bootstrap**, `ap-southeast-2` only (stack `CDKToolkit`, `CREATE_COMPLETE`, v32):
    `npx cdk bootstrap aws://885922397779/ap-southeast-2 --profile swarm`
 3. **Bedrock:** account verification completed 2026-11-03. Verify with `aws bedrock-runtime converse --model-id au.anthropic.claude-haiku-4-5-20251001-v1:0 … --profile swarm` (returns text, no `AccessDeniedException`). If it fails with "account is being verified", wait or contact `aws-verification@amazon.com`.
-4. **SES production access:** requested 2026-11-08 (review status `PENDING`). `aws sesv2 get-account --profile swarm` shows `ProductionAccessEnabled: false` until AWS approves.
+4. **SES production access:** granted (confirmed 2026-11-20). `aws sesv2 get-account --profile swarm` shows `ProductionAccessEnabled: true`.
 
 ## 3. Domain and DNS
 

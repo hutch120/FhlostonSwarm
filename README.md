@@ -67,7 +67,7 @@ To sign in locally, run both servers, enter any address on `/login`, then read t
 - **Integration tests** against the real bucket (only under `_test/<runId>/`, removed afterwards): `npm run test:integration` (uses the `swarm` profile; `npm test` skips them).
 - **Test passcode**: a signed-in user can generate a reusable sign-in code on the Account page (valid for an hour, day, week or month; one per account, stored hashed at `users/{emailHash}/test-passcode.json`). Enter it in the sign-in code box instead of the emailed code, so testers need no mailbox.
 - **Test identities**: any address whose local part starts with `swarm-test-` (and the SES simulator) gets `"test": true` on every record it creates, so `swarm test-cleanup` finds it.
-- SES is still in the sandbox, so mail (sign-in codes, deletion codes, notification confirmation links) reaches only verified addresses until production access is granted.
+- SES is out of the sandbox (production access granted), so mail (sign-in codes, deletion codes, notification confirmation links) reaches any address, subject to the bounce/complaint suppression list.
 
 ## Infrastructure
 

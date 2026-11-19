@@ -26,14 +26,14 @@ describe("LlmMeter", () => {
     const meter = new LlmMeter(limits);
     meter.record({ inputTokens: 1000, outputTokens: 100 });
     meter.record({ inputTokens: 500, outputTokens: 50 });
-    // Haiku: $1 / $5 per million tokens.
-    expect(meter.usage()).toEqual({
+    // Haiku: $1.10 / $5.50 per million tokens (the regional rate of the au. profile).
+    expect(meter.usage()).toMatchObject({
       modelId: haiku,
       calls: 2,
       inputTokens: 1500,
       outputTokens: 150,
-      usd: 0.00225,
     });
+    expect(meter.usage().usd).toBeCloseTo(0.002475, 9);
   });
 
   it.each([

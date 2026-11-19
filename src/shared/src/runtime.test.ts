@@ -76,7 +76,7 @@ describe("cost estimate", () => {
       5,
     );
     expect(cost.durationSeconds).toBe(300);
-    expect(cost.pricingVerified).toBe(false);
+    expect(cost.pricingVerified).toBe(pricing.verified);
   });
 
   it("bills at least one minute per task, and nothing for a run that never started a task", () => {

@@ -1,8 +1,7 @@
 import { TERMS_VERSION } from "@swarm/shared";
 
 /**
- * Terms of use and privacy notice shown in the intake flow and at /terms and /privacy. This is a
- * working draft for the private beta; legal review is scheduled before launch (PLAN.md section 17).
+ * Terms of use and privacy notice shown in the intake flow and at /terms and /privacy.
  * Changing the wording means bumping TERMS_VERSION in @swarm/shared so each acknowledgement records
  * which text it was given against.
  */

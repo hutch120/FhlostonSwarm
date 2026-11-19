@@ -418,7 +418,7 @@ describe.skipIf(!browserAvailable)("a Siege run, end to end", () => {
       inputTokens: 5000,
       outputTokens: 200,
     });
-    expect(costed.learner.usd).toBeCloseTo(0.03, 5);
+    expect(costed.learner.usd).toBeCloseTo(0.033, 5);
     expect(costed.totalUsd).toBeGreaterThanOrEqual(costed.learner.usd);
     expect(JSON.parse((await h.store.get(indexKey))!.body).learner).toMatchObject({
       modelId: learningConfig.learnerModelId,

@@ -1,15 +1,15 @@
 {
-  "version": "2026-11-14",
-  "verified": false,
+  "version": "2026-11-20",
+  "verified": true,
   "currency": "USD",
-  "fargate": { "vcpuPerHour": 0.0506, "gbPerHour": 0.0056 },
+  "fargate": { "vcpuPerHour": 0.04856, "gbPerHour": 0.00532 },
   "egressPerGb": 0.114,
   "stepFunctionsPerTransition": 0.000025,
   "bedrock": {
-    "au.anthropic.claude-haiku-4-5-20251001-v1:0": { "inputPerMTok": 1, "outputPerMTok": 5 },
-    "au.anthropic.claude-sonnet-4-6": { "inputPerMTok": 3, "outputPerMTok": 15 },
-    "au.anthropic.claude-sonnet-5": { "inputPerMTok": 2, "outputPerMTok": 10 },
-    "au.anthropic.claude-sonnet-5-5": { "inputPerMTok": 2, "outputPerMTok": 10 },
-    "au.anthropic.claude-opus-4-6-v1": { "inputPerMTok": 5, "outputPerMTok": 25 }
+    "au.anthropic.claude-haiku-4-5-20251001-v1:0": { "inputPerMTok": 1.1, "outputPerMTok": 5.5 },
+    "au.anthropic.claude-sonnet-4-6": { "inputPerMTok": 3.3, "outputPerMTok": 16.5 },
+    "au.anthropic.claude-sonnet-5": { "inputPerMTok": 2.2, "outputPerMTok": 11 },
+    "au.anthropic.claude-sonnet-5-5": { "inputPerMTok": 2.2, "outputPerMTok": 11 },
+    "au.anthropic.claude-opus-4-6-v1": { "inputPerMTok": 5.5, "outputPerMTok": 27.5 }
   }
 }

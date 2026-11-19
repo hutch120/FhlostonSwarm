@@ -33,8 +33,9 @@ describe("pricing worksheet", () => {
 describe("costing a run again", () => {
   it("prices the tokens from the table, not from the figure the task reported", () => {
     const cost = estimateCost(run);
-    // 1M in at US$1 + 0.1M out at US$5 per million.
-    expect(cost.bedrock.usd).toBeCloseTo(1.5, 9);
+    const price = pricing.bedrock[MODEL]!;
+    // 1M in and 0.1M out at the table's price per million.
+    expect(cost.bedrock.usd).toBeCloseTo(price.inputPerMTok + 0.1 * price.outputPerMTok, 9);
     expect(cost.bedrock.modelId).toBe(MODEL);
   });
 
@@ -54,7 +55,7 @@ describe("costing a run again", () => {
     };
     const again = repriceUsage(usageOf(cost), dearer, cost.bedrock.usd);
     expect(again.bedrockUsd).toBeCloseTo(3, 9);
-    expect(again.totalUsd - same.totalUsd).toBeCloseTo(1.5, 5);
+    expect(again.totalUsd - same.totalUsd).toBeCloseTo(3 - same.bedrockUsd, 5);
     // Only the model changed: everything else costs what it did.
     expect(again.fargateUsd).toBe(same.fargateUsd);
     expect(again.egressUsd).toBe(same.egressUsd);

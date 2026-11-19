@@ -229,8 +229,9 @@ describe("runs and costs", () => {
     // out, 8 transitions.
     const price = pricing.bedrock[PROBE_MODEL]!;
     const bedrock = (i: number, o: number) => (i * price.inputPerMTok + o * price.outputPerMTok) / 1e6;
-    const fargate = (600 / 3600) * (1 * 0.0506 + 2 * 0.0056);
-    const egress = 1 * 0.114;
+    const fargate =
+      (600 / 3600) * (1 * pricing.fargate.vcpuPerHour + 2 * pricing.fargate.gbPerHour);
+    const egress = 1 * pricing.egressPerGb;
     const orchestration = 8 * 0.000025;
     const total = (i: number, o: number) => bedrock(i, o) + fargate + egress + orchestration;
     expect(bedrockUsd(PROBE_MODEL, { inputTokens: 1_000_000, outputTokens: 100_000 })).toBeCloseTo(
@@ -777,7 +778,12 @@ describe("the price table", () => {
     const again = await get<CostAnalysis>(`/api/staff/costs?test=only&pricing=${pricing.version}`);
     expect(again.pricing).toEqual({ mode: "repriced", version: pricing.version });
     expect(again.byTier.probe.runs).toBe(2);
-    expect(again.components.bedrockUsd).toBeCloseTo(9, 6);
+    // Two runs of 1M in and 0.1M out at the table's own price.
+    const shipped = pricing.bedrock[PROBE_MODEL]!;
+    expect(again.components.bedrockUsd).toBeCloseTo(
+      2 * (shipped.inputPerMTok + 0.1 * shipped.outputPerMTok),
+      6,
+    );
     expect((await staff.request("GET", "/api/staff/costs?pricing=nope")).status).toBe(404);
     expect((await get<{ action: string }[]>("/api/staff/audit")).map((a) => a.action)).toContain(
       "set-pricing",
